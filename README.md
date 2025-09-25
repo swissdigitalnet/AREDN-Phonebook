@@ -14,7 +14,7 @@ SIPserverV5 is a SIP server that provides directory services for Amateur Radio E
 
 ### Download
 
-1. Go to the [Releases page](https://github.com/dhamstack/AREDN-Phonebook/releases)
+1. Go to the [Releases page](https://github.com/dhamstack/AREDN-Phonebook/releases/tag/1.0.8)
 2. Download the latest `SIPserverV5-x.x.x-x_[architecture].ipk` file for your device:
    - **ath79**: Most common AREDN routers (e.g., Ubiquiti, MikroTik)
    - **x86**: PC-based AREDN nodes
