@@ -1,6 +1,6 @@
-# AREDN Phonebook
+# SIPserverV5 (Original Version)
 
-AREDN Phonebook is a SIP server that provides directory services for Amateur Radio Emergency Data Network (AREDN) mesh networks. It automatically fetches and maintains a centralized phonebook, making it easy for SIP phones to access directory listings across the mesh network.
+SIPserverV5 is a SIP server that provides directory services for Amateur Radio Emergency Data Network (AREDN) mesh networks. It automatically fetches a phonebook from common servers and maintains a copy on the router, making it easy for SIP phones to access directory listings across the mesh network.
 
 ## Features
 
@@ -23,27 +23,15 @@ AREDN Phonebook is a SIP server that provides directory services for Amateur Rad
 ### Install via AREDN Web Interface
 
 1. **Access AREDN Node**: Connect to your AREDN node's web interface
+
 2. **Navigate to Administration**: Go to **Administration** → **Package Management**
+
 3. **Upload Package**:
    - Click **Choose File** and select your downloaded `.ipk` file
-   - Click **Upload Package**
-4. **Install**: Click **Install** next to the uploaded package
-5. **Reboot**: Reboot your node when prompted
 
-### Install via Command Line (Advanced)
+4. **Install**: Click **Fetch and Install**
 
-```bash
-# Upload IPK file to router, then:
-opkg install SIPserverV5-*.ipk
-
-# Start the service
-/etc/init.d/sip-proxy start
-
-# Enable auto-start
-/etc/init.d/sip-proxy enable
-```
-
-## Configuration
+## Configuration (optional, not needed for most users)
 
 The phonebook server automatically configures itself. Default settings:
 
@@ -56,9 +44,9 @@ The phonebook server automatically configures itself. Default settings:
 
 Configure your SIP phone to use the node's directory:
 
-1. **Directory URL**: `http://[your-node-name].local.mesh/arednstack/phonebook_generic_direct.xml`
-2. **SIP Server**: Point to your node's IP address
-3. **Refresh**: Directory updates automatically every 30 minutes
+1. **Directory URL**: `http://localnode.local.mesh/arednstack/phonebook_generic_direct.xml`
+2. **SIP Server**: `localnode.local.mesh`
+3. **Refresh**: Directory updates automatically every xx seconds from router (your Update Time Interval)
 
 ## Troubleshooting
 
