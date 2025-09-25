@@ -26,8 +26,12 @@ SIPserverV5 is a SIP server that provides directory services for Amateur Radio E
 
 2. **Navigate to Administration**: Go to **Administration** → **Package Management**
 
+   ![Package Management Screen](images/package-management.png)
+
 3. **Upload Package**:
    - Click **Choose File** and select your downloaded `.ipk` file
+
+     ![Upload Package Dialog](images/upload-package.png)
 
 4. **Install**: Click **Fetch and Install**
 
