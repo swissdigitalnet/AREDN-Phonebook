@@ -35,15 +35,6 @@ SIPserverV5 is a SIP server that provides directory services for Amateur Radio E
 
 4. **Install**: Click **Fetch and Install**
 
-## Configuration (optional, not needed for most users)
-
-The phonebook server automatically configures itself. Default settings:
-
-- **Configuration**: `/etc/sipserver.conf`
-- **Service Commands**: `/etc/init.d/sip-proxy start|stop|restart|status`
-- **SIP Port**: 5060
-- **Directory URL**: `http://[your-node].local.mesh/arednstack/phonebook_generic_direct.xml`
-
 ## Phone Setup
 
 Configure your SIP phone to use the node's directory:
