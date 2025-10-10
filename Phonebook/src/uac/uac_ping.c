@@ -35,7 +35,7 @@ static int build_options_message(char *buffer, size_t buffer_size,
     int written = snprintf(buffer, buffer_size,
         "OPTIONS sip:%s@localnode.local.mesh:5060 SIP/2.0\r\n"
         "Via: SIP/2.0/UDP %s:%d;branch=%s\r\n"
-        "From: <sip:999900@%s:%d>;tag=%ld\r\n"
+        "From: <sip:999900@%s:%d>;tag=%lx\r\n"
         "To: <sip:%s@localnode.local.mesh:5060>\r\n"
         "Call-ID: %s\r\n"
         "CSeq: 1 OPTIONS\r\n"
@@ -47,7 +47,7 @@ static int build_options_message(char *buffer, size_t buffer_size,
         "\r\n",
         phone_number,
         local_ip, local_port, via_branch,
-        local_ip, local_port, random(),
+        local_ip, local_port, (unsigned long)random(),
         phone_number,
         call_id,
         local_ip, local_port);
@@ -207,8 +207,8 @@ uac_timing_result uac_options_test(const char *phone_number,
         // Generate unique Call-ID and Via branch for this ping
         char call_id[128];
         char via_branch[64];
-        snprintf(call_id, sizeof(call_id), "ping-%ld-%d@%s", time(NULL), i, local_ip);
-        snprintf(via_branch, sizeof(via_branch), "z9hG4bK%ld%d", random(), i);
+        snprintf(call_id, sizeof(call_id), "ping-%lu-%d@%s", (unsigned long)time(NULL), i, local_ip);
+        snprintf(via_branch, sizeof(via_branch), "z9hG4bK%lx%d", (unsigned long)random(), i);
 
         // Build OPTIONS message
         char options_msg[1024];
