@@ -24,9 +24,10 @@
 #include "user_manager/user_manager.h"   // For user management functions
 #include "call-sessions/call_sessions.h" // For call session management functions
 #include "passive_safety/passive_safety.h" // For passive safety and self-healing
-#include "uac/uac.h"                    // For UAC load testing module
-#include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
-#include "uac/uac_ping.h"               // For UAC ping/options testing
+// UAC code disabled - causing crashes
+// #include "uac/uac.h"                    // For UAC load testing module
+// #include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
+// #include "uac/uac_ping.h"               // For UAC ping/options testing
 
 // Define MODULE_NAME specific to main.c
 #define MODULE_NAME "MAIN"
@@ -42,13 +43,13 @@ volatile sig_atomic_t phonebook_reload_requested = 0; // For webhook-triggered r
 int num_registered_users = 0;
 int num_directory_entries = 0;
 
-// Global server IP for UAC
-char g_server_ip[64] = {0};
+// Global server IP for UAC - disabled
+// char g_server_ip[64] = {0};
 
 // Thread IDs for passive safety monitoring
 pthread_t fetcher_tid = 0;
 pthread_t status_updater_tid = 0;
-pthread_t bulk_tester_tid = 0;
+// pthread_t bulk_tester_tid = 0; // UAC disabled
 
 // Mutexes and Condition Variables (DEFINED here)
 pthread_mutex_t registered_users_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -56,8 +57,8 @@ pthread_mutex_t phonebook_file_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t updater_trigger_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t updater_trigger_cond = PTHREAD_COND_INITIALIZER;
 
-// Global flag for UAC test trigger
-static volatile sig_atomic_t uac_test_requested = 0;
+// Global flag for UAC test trigger - disabled
+// static volatile sig_atomic_t uac_test_requested = 0;
 
 // Signal handler for webhook-triggered phonebook reload
 void phonebook_reload_signal_handler(int sig) {
@@ -67,13 +68,13 @@ void phonebook_reload_signal_handler(int sig) {
     }
 }
 
-// Signal handler for UAC test trigger
-void uac_test_signal_handler(int sig) {
-    if (sig == SIGUSR2) {
-        uac_test_requested = 1;
-        syslog(6, "[UAC_SIGNAL] SIGUSR2 received - setting uac_test_requested flag"); // 6 = LOG_INFO
-    }
-}
+// Signal handler for UAC test trigger - disabled
+// void uac_test_signal_handler(int sig) {
+//     if (sig == SIGUSR2) {
+//         uac_test_requested = 1;
+//         syslog(6, "[UAC_SIGNAL] SIGUSR2 received - setting uac_test_requested flag"); // 6 = LOG_INFO
+//     }
+// }
 
 // sockaddr_to_ip_str prototype is in common.h, definition remains here
 const char* sockaddr_to_ip_str(const struct sockaddr_in* addr) {
@@ -83,9 +84,10 @@ const char* sockaddr_to_ip_str(const struct sockaddr_in* addr) {
     return ip_str;
 }
 
-// Get server IP address for UAC binding
+// Get server IP address for UAC binding - DISABLED
 // AREDN nodes have multiple interfaces (DTD, WAN, LAN)
 // For SIP/UAC, we want the LAN address where phones connect
+/* UAC DISABLED
 static int get_server_ip(char *ip_buffer, size_t buffer_size) {
     // Try environment variable first (allows override)
     const char *env_ip = getenv("SIP_SERVER_IP");
@@ -149,6 +151,7 @@ static int get_server_ip(char *ip_buffer, size_t buffer_size) {
     LOG_INFO("Detected server IP: %s", ip_buffer);
     return 0;
 }
+UAC DISABLED */
 
 int main(int argc, char *argv[]) {
     int sockfd;
@@ -174,8 +177,9 @@ int main(int argc, char *argv[]) {
     signal(SIGUSR1, phonebook_reload_signal_handler);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
 
-    signal(SIGUSR2, uac_test_signal_handler);
-    LOG_INFO("Registered SIGUSR2 handler for UAC test calls");
+    // UAC DISABLED
+    // signal(SIGUSR2, uac_test_signal_handler);
+    // LOG_INFO("Registered SIGUSR2 handler for UAC test calls");
 
     LOG_INFO("Attempting to set process priority...");
     if (setpriority(PRIO_PROCESS, 0, SIP_HANDLER_NICE_VALUE) == -1) { // SIP_HANDLER_NICE_VALUE from common.h
@@ -269,13 +273,14 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Passive safety thread launched (silent self-healing enabled).");
     LOG_DEBUG("Passive safety thread TID: %lu", (unsigned long)g_passive_safety_tid);
 
-    LOG_INFO("Creating UAC bulk tester thread...");
-    if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
-        LOG_ERROR("Failed to create UAC bulk tester thread.");
-        return EXIT_FAILURE;
-    }
-    LOG_DEBUG("UAC bulk tester thread launched.");
-    LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
+    // UAC DISABLED - was causing crashes
+    // LOG_INFO("Creating UAC bulk tester thread...");
+    // if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
+    //     LOG_ERROR("Failed to create UAC bulk tester thread.");
+    //     return EXIT_FAILURE;
+    // }
+    // LOG_DEBUG("UAC bulk tester thread launched.");
+    // LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
@@ -306,26 +311,26 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("Successfully bound to UDP port %d.", SIP_PORT);
 
-    // Initialize UAC module (after SIP server is bound)
-    LOG_INFO("[MAIN] Initializing UAC module");
-    int have_server_ip = 0;
-
-    // Try to get server IP for UAC
-    syslog(6, "[UAC_INIT] Detecting server IP for UAC binding");
-    if (get_server_ip(g_server_ip, sizeof(g_server_ip)) == 0) {
-        syslog(6, "[UAC_INIT] Server IP detected: %s", g_server_ip);
-        if (uac_init(g_server_ip) == 0) {
-            have_server_ip = 1;
-            syslog(6, "[UAC_INIT] ✓ UAC initialized on %s:%d (have_server_ip=%d)", g_server_ip, UAC_SIP_PORT, have_server_ip);
-        } else {
-            syslog(4, "[UAC_INIT] ✗ uac_init() failed");
-        }
-    } else {
-        syslog(4, "[UAC_INIT] ✗ get_server_ip() failed - UAC not initialized");
-    }
+    // UAC DISABLED - Initialize UAC module (after SIP server is bound)
+    // LOG_INFO("[MAIN] Initializing UAC module");
+    // int have_server_ip = 0;
+    //
+    // // Try to get server IP for UAC
+    // syslog(6, "[UAC_INIT] Detecting server IP for UAC binding");
+    // if (get_server_ip(g_server_ip, sizeof(g_server_ip)) == 0) {
+    //     syslog(6, "[UAC_INIT] Server IP detected: %s", g_server_ip);
+    //     if (uac_init(g_server_ip) == 0) {
+    //         have_server_ip = 1;
+    //         syslog(6, "[UAC_INIT] ✓ UAC initialized on %s:%d (have_server_ip=%d)", g_server_ip, UAC_SIP_PORT, have_server_ip);
+    //     } else {
+    //         syslog(4, "[UAC_INIT] ✗ uac_init() failed");
+    //     }
+    // } else {
+    //     syslog(4, "[UAC_INIT] ✗ get_server_ip() failed - UAC not initialized");
+    // }
 
     syslog(6, "[MAIN_LOOP] Server listening on UDP port %d", SIP_PORT);
-    syslog(6, "[MAIN_LOOP] Entering main loop (have_server_ip=%d, UAC port 5070)", have_server_ip);
+    syslog(6, "[MAIN_LOOP] Entering main loop");
 
     int timeout_count = 0; // Counter for select timeout logging
 
@@ -334,17 +339,17 @@ int main(int argc, char *argv[]) {
         FD_ZERO(&readfds);
         FD_SET(sockfd, &readfds);
 
-        // Add UAC socket to select if initialized
-        int max_fd = sockfd;
-        if (have_server_ip && uac_get_sockfd() >= 0) {
-            FD_SET(uac_get_sockfd(), &readfds);
-            if (uac_get_sockfd() > max_fd) {
-                max_fd = uac_get_sockfd();
-            }
-        }
+        // UAC DISABLED - Add UAC socket to select if initialized
+        // int max_fd = sockfd;
+        // if (have_server_ip && uac_get_sockfd() >= 0) {
+        //     FD_SET(uac_get_sockfd(), &readfds);
+        //     if (uac_get_sockfd() > max_fd) {
+        //         max_fd = uac_get_sockfd();
+        //     }
+        // }
 
         tv.tv_sec = 1; tv.tv_usec = 0;
-        retval = select(max_fd + 1, &readfds, NULL, NULL, &tv);
+        retval = select(sockfd + 1, &readfds, NULL, NULL, &tv);
 
         if (retval < 0) {
             if (errno == EINTR) {
@@ -354,81 +359,7 @@ int main(int argc, char *argv[]) {
             LOG_ERROR("select() error: %s", strerror(errno));
             break; // Exit on real select error
         } else if (retval == 0) {
-            // Timeout - check for UAC test request
-            timeout_count++;
-            if (timeout_count % 100 == 0) {
-                syslog(7, "[MAIN_LOOP] Select timeout #%d (uac_test_requested=%d, have_server_ip=%d)",
-                       timeout_count, uac_test_requested, have_server_ip);
-            }
-
-            if (uac_test_requested && have_server_ip) {
-                uac_test_requested = 0; // Reset flag
-                syslog(6, "[UAC_TEST] ✓ Both flags true, processing UAC test request");
-
-                // Check for ping/options test request first
-                FILE *f_ping = fopen("/tmp/uac_ping_request", "r");
-                if (f_ping) {
-                    char target[32] = {0};
-                    char count_str[8] = {0};
-
-                    // Read target and count from file
-                    if (fgets(target, sizeof(target), f_ping)) {
-                        target[strcspn(target, "\r\n")] = 0; // Remove newline
-                        if (fgets(count_str, sizeof(count_str), f_ping)) {
-                            count_str[strcspn(count_str, "\r\n")] = 0; // Remove newline
-                            int count = atoi(count_str);
-                            if (count < 1) count = 5;
-                            if (count > 20) count = 20;
-
-                            syslog(6, "[UAC_PING] Triggering ping/options test to %s (count=%d)", target, count);
-
-                            // Run ICMP ping test
-                            uac_timing_result ping_result = uac_ping_test(target, g_server_ip, count);
-                            if (ping_result.online) {
-                                syslog(6, "[UAC_PING] ✓ Ping test successful: RTT avg=%.2f ms, jitter=%.2f ms, loss=%.1f%%",
-                                       ping_result.avg_rtt_ms, ping_result.jitter_ms, ping_result.packet_loss_pct);
-                            } else {
-                                syslog(4, "[UAC_PING] ✗ Ping test failed: no response");
-                            }
-
-                            // Run SIP OPTIONS test
-                            uac_timing_result options_result = uac_options_test(target, g_server_ip, count);
-                            if (options_result.online) {
-                                syslog(6, "[UAC_PING] ✓ OPTIONS test successful: RTT avg=%.2f ms, jitter=%.2f ms, loss=%.1f%%",
-                                       options_result.avg_rtt_ms, options_result.jitter_ms, options_result.packet_loss_pct);
-                            } else {
-                                syslog(4, "[UAC_PING] ✗ OPTIONS test failed: no response");
-                            }
-                        }
-                    }
-                    fclose(f_ping);
-                    unlink("/tmp/uac_ping_request");
-                }
-                // Check for INVITE test request
-                else {
-                    FILE *f = fopen("/tmp/uac_test_target", "r");
-                    if (f) {
-                        char target[32] = {0};
-                        if (fgets(target, sizeof(target), f)) {
-                            // Remove newline
-                            target[strcspn(target, "\r\n")] = 0;
-                            syslog(6, "[UAC_TEST] Triggering UAC test call to %s via %s", target, g_server_ip); // 6 = LOG_INFO
-                            if (uac_make_call(target, g_server_ip) == 0) {
-                                syslog(6, "[UAC_TEST] ✓ UAC test call initiated successfully"); // 6 = LOG_INFO
-                            } else {
-                                syslog(3, "[UAC_TEST] ✗ UAC test call failed to initiate"); // 3 = LOG_ERR
-                            }
-                        }
-                        fclose(f);
-                        unlink("/tmp/uac_test_target");
-                    } else {
-                        syslog(4, "[UAC_TEST] UAC test requested but no target file found"); // 4 = LOG_WARNING
-                    }
-                }
-            } else if (uac_test_requested && !have_server_ip) {
-                syslog(4, "[UAC_TEST] UAC test requested but have_server_ip=0, cannot make call"); // 4 = LOG_WARNING
-                uac_test_requested = 0;
-            }
+            // Timeout - UAC DISABLED
             continue;
         }
 
@@ -446,30 +377,30 @@ int main(int argc, char *argv[]) {
             process_incoming_sip_message(sockfd, buffer, n, &cliaddr, len);
         }
 
-        // Handle UAC socket responses
-        if (have_server_ip && uac_get_sockfd() >= 0 && FD_ISSET(uac_get_sockfd(), &readfds)) {
-            char uac_buffer[MAX_SIP_MSG_LEN];
-            n = recvfrom(uac_get_sockfd(), uac_buffer, sizeof(uac_buffer) - 1, 0, NULL, NULL);
-            if (n > 0) {
-                uac_buffer[n] = '\0';
-                uac_process_response(uac_buffer, n);
-            } else if (n < 0) {
-                LOG_ERROR("recvfrom failed on UAC socket.");
-            }
-        }
+        // UAC DISABLED - Handle UAC socket responses
+        // if (have_server_ip && uac_get_sockfd() >= 0 && FD_ISSET(uac_get_sockfd(), &readfds)) {
+        //     char uac_buffer[MAX_SIP_MSG_LEN];
+        //     n = recvfrom(uac_get_sockfd(), uac_buffer, sizeof(uac_buffer) - 1, 0, NULL, NULL);
+        //     if (n > 0) {
+        //         uac_buffer[n] = '\0';
+        //         uac_process_response(uac_buffer, n);
+        //     } else if (n < 0) {
+        //         LOG_ERROR("recvfrom failed on UAC socket.");
+        //     }
+        // }
 
-        // Check UAC timeout periodically (every select cycle)
-        if (have_server_ip) {
-            uac_check_timeout();
-        }
+        // UAC DISABLED - Check UAC timeout periodically (every select cycle)
+        // if (have_server_ip) {
+        //     uac_check_timeout();
+        // }
     }
     // This code block will now only be reached if an unrecoverable error in the main loop occurs.
     LOG_WARN("Main SIP message processing loop unexpectedly terminated.");
 
-    // Shutdown UAC if initialized
-    if (have_server_ip) {
-        uac_shutdown();
-    }
+    // UAC DISABLED - Shutdown UAC if initialized
+    // if (have_server_ip) {
+    //     uac_shutdown();
+    // }
 
     close(sockfd);
 
