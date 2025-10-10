@@ -375,6 +375,11 @@ void *uac_bulk_tester_thread(void *arg) {
                      rtt_count, overall_avg_rtt);
         }
 
+        // Update database header with testable phone count
+        int total_results = phones_online + phones_offline;
+        uac_test_db_update_header(total_results, dns_resolved, g_uac_test_interval_seconds);
+        LOG_DEBUG("Updated database header: %d results, %d testable phones", total_results, dns_resolved);
+
         // Wait for next cycle
         LOG_INFO("Next UAC bulk test in %d seconds...", g_uac_test_interval_seconds);
         sleep(g_uac_test_interval_seconds);

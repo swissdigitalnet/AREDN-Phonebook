@@ -65,6 +65,7 @@ int main(void) {
     printf("{\n");
     printf("  \"version\": %d,\n", db->version);
     printf("  \"num_results\": %d,\n", db->num_results);
+    printf("  \"num_testable_phones\": %d,\n", db->num_testable_phones);
     printf("  \"last_update\": %ld,\n", (long)db->last_update);
     printf("  \"test_interval\": %d,\n", db->test_interval);
     printf("  \"results\": [\n");
