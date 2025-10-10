@@ -161,9 +161,9 @@ cat <<EOF
         // Load phonebook data with smart caching
         async function loadPhonebook(lastTestUpdate) {
             try {
-                // Check if phonebook cache exists
-                const cached = localStorage.getItem('phonebook_cache');
-                const cacheTestUpdate = localStorage.getItem('phonebook_cache_test_update');
+                // Check if phonebook cache exists (v2 - invalidates old caches after DB structure change)
+                const cached = localStorage.getItem('phonebook_cache_v2');
+                const cacheTestUpdate = localStorage.getItem('phonebook_cache_test_update_v2');
 
                 // Invalidate cache if test database is newer (phonebook may have changed)
                 const cacheValid = cached && cacheTestUpdate &&
@@ -188,8 +188,8 @@ cat <<EOF
                     });
 
                     // Save to localStorage cache with test database timestamp
-                    localStorage.setItem('phonebook_cache', JSON.stringify(phonebook));
-                    localStorage.setItem('phonebook_cache_test_update', lastTestUpdate.toString());
+                    localStorage.setItem('phonebook_cache_v2', JSON.stringify(phonebook));
+                    localStorage.setItem('phonebook_cache_test_update_v2', lastTestUpdate.toString());
                     console.log('Cached phonebook (' + Object.keys(phonebook).length + ' entries) at test update ' + lastTestUpdate);
                 }
             } catch (error) {

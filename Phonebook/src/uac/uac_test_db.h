@@ -32,8 +32,8 @@ typedef struct {
     uac_test_result_t results[MAX_TEST_RESULTS];
 } uac_test_db_t;
 
-// Database version
-#define UAC_TEST_DB_VERSION 1
+// Database version (increment when structure changes to force re-initialization)
+#define UAC_TEST_DB_VERSION 2
 
 // Function prototypes for database operations
 int uac_test_db_init(void);
