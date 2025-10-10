@@ -1,6 +1,7 @@
 #define MODULE_NAME "UAC_BULK"
 
 #include "uac_bulk_tester.h"
+#include "uac_test_db.h"
 #include "../common.h"
 #include "../config_loader/config_loader.h"
 #include "../passive_safety/passive_safety.h"
@@ -22,6 +23,12 @@ void *uac_bulk_tester_thread(void *arg) {
         return NULL;
     }
 
+    // Initialize shared memory database
+    if (uac_test_db_init() != 0) {
+        LOG_ERROR("Failed to initialize test database. Thread exiting.");
+        return NULL;
+    }
+
     // Wait for initial phonebook load (give phonebook_fetcher time to populate users)
     LOG_INFO("Waiting 60 seconds for initial phonebook load...");
     sleep(60);
@@ -31,6 +38,12 @@ void *uac_bulk_tester_thread(void *arg) {
         g_bulk_tester_last_heartbeat = time(NULL);
 
         LOG_INFO("=== Starting UAC bulk test cycle ===");
+
+        // Open results file for writing (truncate existing)
+        FILE *results_file = fopen("/tmp/uac_bulk_results.txt", "w");
+        if (!results_file) {
+            LOG_WARN("Failed to open /tmp/uac_bulk_results.txt for writing");
+        }
 
         int total_users = 0;
         int dns_resolved = 0;
@@ -85,6 +98,14 @@ void *uac_bulk_tester_thread(void *arg) {
                 // Release mutex before testing (tests may take time)
                 pthread_mutex_unlock(&registered_users_mutex);
 
+                // Initialize result variables
+                char ping_status[16] = "UNKNOWN";
+                float ping_rtt = 0.0;
+                float ping_jitter = 0.0;
+                char options_status[16] = "UNKNOWN";
+                float options_rtt = 0.0;
+                float options_jitter = 0.0;
+
                 // ====================================================
                 // PHASE 1: Ping Test (ICMP - Network Layer)
                 // ====================================================
@@ -96,6 +117,10 @@ void *uac_bulk_tester_thread(void *arg) {
                         user->user_id, g_server_ip, g_uac_ping_count);
 
                     if (ping_result.online) {
+                        snprintf(ping_status, sizeof(ping_status), "ONLINE");
+                        ping_rtt = ping_result.avg_rtt_ms;
+                        ping_jitter = ping_result.jitter_ms;
+
                         LOG_INFO("✓ Phone %s ONLINE (ping)", user->user_id);
                         LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
                                  ping_result.packets_sent, ping_result.packets_received,
@@ -108,8 +133,11 @@ void *uac_bulk_tester_thread(void *arg) {
                         total_avg_rtt += ping_result.avg_rtt_ms;
                         rtt_count++;
                     } else {
+                        snprintf(ping_status, sizeof(ping_status), "OFFLINE");
                         LOG_WARN("✗ Phone %s no response to ping", user->user_id);
                     }
+                } else {
+                    snprintf(ping_status, sizeof(ping_status), "DISABLED");
                 }
 
                 // ====================================================
@@ -126,6 +154,10 @@ void *uac_bulk_tester_thread(void *arg) {
                         phones_online++;
                         tests_triggered++;
 
+                        snprintf(options_status, sizeof(options_status), "ONLINE");
+                        options_rtt = options_result.avg_rtt_ms;
+                        options_jitter = options_result.jitter_ms;
+
                         LOG_INFO("✓ Phone %s ONLINE (options)", user->user_id);
                         LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
                                  options_result.packets_sent, options_result.packets_received,
@@ -140,12 +172,35 @@ void *uac_bulk_tester_thread(void *arg) {
                             rtt_count++;
                         }
 
+                        // Write results to shared memory database
+                        uac_test_result_t db_result = {0};
+                        strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
+                        strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
+                        db_result.ping_rtt = ping_rtt;
+                        db_result.ping_jitter = ping_jitter;
+                        strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
+                        db_result.options_rtt = options_rtt;
+                        db_result.options_jitter = options_jitter;
+                        uac_test_db_write_result(&db_result);
+
+                        // Write results to file before continuing (keep for backwards compatibility)
+                        if (results_file) {
+                            fprintf(results_file, "%s|%s|%s|%.2f|%.2f|%s|%.2f|%.2f\n",
+                                    user->user_id, user->display_name,
+                                    ping_status, ping_rtt, ping_jitter,
+                                    options_status, options_rtt, options_jitter);
+                            fflush(results_file);
+                        }
+
                         // Re-acquire mutex and continue to next user
                         pthread_mutex_lock(&registered_users_mutex);
                         continue;
                     } else {
+                        snprintf(options_status, sizeof(options_status), "OFFLINE");
                         LOG_WARN("✗ Phone %s no response to options", user->user_id);
                     }
+                } else {
+                    snprintf(options_status, sizeof(options_status), "DISABLED");
                 }
 
                 // ====================================================
@@ -241,6 +296,26 @@ void *uac_bulk_tester_thread(void *arg) {
                     phones_offline++;
                 }
 
+                // Write results to shared memory database for offline phones
+                uac_test_result_t db_result = {0};
+                strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
+                strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
+                db_result.ping_rtt = ping_rtt;
+                db_result.ping_jitter = ping_jitter;
+                strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
+                db_result.options_rtt = options_rtt;
+                db_result.options_jitter = options_jitter;
+                uac_test_db_write_result(&db_result);
+
+                // Write results to file for offline phones (keep for backwards compatibility)
+                if (results_file) {
+                    fprintf(results_file, "%s|%s|%s|%.2f|%.2f|%s|%.2f|%.2f\n",
+                            user->user_id, user->display_name,
+                            ping_status, ping_rtt, ping_jitter,
+                            options_status, options_rtt, options_jitter);
+                    fflush(results_file);
+                }
+
                 // Re-acquire mutex for next iteration
                 pthread_mutex_lock(&registered_users_mutex);
 
@@ -251,6 +326,12 @@ void *uac_bulk_tester_thread(void *arg) {
         }
 
         pthread_mutex_unlock(&registered_users_mutex);
+
+        // Close results file
+        if (results_file) {
+            fclose(results_file);
+            LOG_INFO("Results written to /tmp/uac_bulk_results.txt");
+        }
 
         LOG_INFO("=== UAC bulk test cycle complete ===");
         LOG_INFO("Total users: %d | DNS resolved: %d | DNS failed: %d | Tests triggered: %d",

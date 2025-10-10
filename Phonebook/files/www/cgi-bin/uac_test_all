@@ -65,6 +65,9 @@ cat <<'EOF'
         .no-dns {
             color: #999;
         }
+        .disabled {
+            color: #999;
+        }
         .rtt-good {
             color: #4CAF50;
         }
@@ -74,163 +77,177 @@ cat <<'EOF'
         .rtt-poor {
             color: #f44336;
         }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            background-color: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 10px;
+            margin: 20px 0;
+            color: #c62828;
+        }
     </style>
 </head>
 <body>
     <h1>UAC Bulk Test Results</h1>
 EOF
 
-echo "    <div class=\"info\">"
-echo "        <strong>Automatic Testing:</strong> Tests run every $TEST_INTERVAL seconds<br>"
-echo "        <strong>Last Update:</strong> $(date)<br>"
-echo "        <strong>Auto-refresh:</strong> This page refreshes every 60 seconds"
-echo "    </div>"
+cat <<EOF
+    <div class="info" id="info">
+        <strong>Automatic Testing:</strong> Tests run every $TEST_INTERVAL seconds<br>
+        <strong>Last Update:</strong> <span id="lastUpdate">Loading...</span><br>
+        <strong>Auto-refresh:</strong> This page refreshes every 60 seconds
+    </div>
 
-echo "    <table>"
-echo "        <tr>"
-echo "            <th>Phone Number</th>"
-echo "            <th>Name</th>"
-echo "            <th>Ping Status</th>"
-echo "            <th>Ping RTT (ms)</th>"
-echo "            <th>Ping Jitter (ms)</th>"
-echo "            <th>OPTIONS Status</th>"
-echo "            <th>OPTIONS RTT (ms)</th>"
-echo "            <th>OPTIONS Jitter (ms)</th>"
-echo "        </tr>"
+    <div id="errorContainer"></div>
 
-# Parse recent logs for test results
-# We'll look for the most recent test cycle's results
-logread | grep "UAC_BULK" | tail -300 | awk '
-BEGIN {
-    # Track current phone being tested
-    current_phone = ""
-    current_name = ""
-}
+    <table>
+        <thead>
+            <tr>
+                <th>Phone Number</th>
+                <th>Name</th>
+                <th>Ping Status</th>
+                <th>Ping RTT (ms)</th>
+                <th>Ping Jitter (ms)</th>
+                <th>OPTIONS Status</th>
+                <th>OPTIONS RTT (ms)</th>
+                <th>OPTIONS Jitter (ms)</th>
+            </tr>
+        </thead>
+        <tbody id="results">
+            <tr><td colspan="8" class="loading">Loading test results...</td></tr>
+        </tbody>
+    </table>
 
-# Extract phone number and name from test start line
-/Testing [0-9]+ \(.*\) with ping/ {
-    match($0, /Testing ([0-9]+) \(([^)]+)\)/, arr)
-    current_phone = arr[1]
-    current_name = arr[2]
-    ping_status[current_phone] = "TESTING"
-    display_name[current_phone] = current_name
-}
+    <script>
+        // Phonebook data (loaded from server)
+        let phonebook = {};
 
-# Ping results
-/✓ Phone [0-9]+ ONLINE \(ping\)/ {
-    match($0, /Phone ([0-9]+)/, arr)
-    phone = arr[1]
-    ping_status[phone] = "ONLINE"
-}
+        // Load phonebook data
+        async function loadPhonebook() {
+            try {
+                const response = await fetch('/cgi-bin/phonebook');
+                const text = await response.text();
+                const lines = text.trim().split('\\n');
 
-/RTT: min=.*ping/ {
-    if (current_phone != "") {
-        match($0, /min=([0-9.]+).*avg=([0-9.]+).*jitter=([0-9.]+)/, arr)
-        ping_rtt[current_phone] = arr[2]
-        ping_jitter[current_phone] = arr[3]
-    }
-}
+                lines.forEach(line => {
+                    const parts = line.split(',');
+                    if (parts.length >= 2) {
+                        const phone = parts[0].trim();
+                        const name = parts[1].trim();
+                        phonebook[phone] = name;
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to load phonebook:', error);
+            }
+        }
 
-/✗ Phone [0-9]+ no response to ping/ {
-    match($0, /Phone ([0-9]+)/, arr)
-    phone = arr[1]
-    ping_status[phone] = "OFFLINE"
-    ping_rtt[phone] = "-"
-    ping_jitter[phone] = "-"
-}
+        // Get display name for a phone number
+        function getDisplayName(phoneNumber) {
+            return phonebook[phoneNumber] || phoneNumber;
+        }
 
-# OPTIONS results
-/✓ Phone [0-9]+ ONLINE \(options\)/ {
-    match($0, /Phone ([0-9]+)/, arr)
-    phone = arr[1]
-    options_status[phone] = "ONLINE"
-}
+        // Get CSS class for status
+        function getStatusClass(status) {
+            if (status === 'ONLINE') return 'online';
+            if (status === 'OFFLINE') return 'offline';
+            if (status === 'NO_DNS' || status === 'NO DNS') return 'no-dns';
+            if (status === 'DISABLED') return 'disabled';
+            return '';
+        }
 
-/RTT: min=.*options/ {
-    if (current_phone != "") {
-        match($0, /min=([0-9.]+).*avg=([0-9.]+).*jitter=([0-9.]+)/, arr)
-        options_rtt[current_phone] = arr[2]
-        options_jitter[current_phone] = arr[3]
-    }
-}
+        // Get CSS class for RTT
+        function getRttClass(rtt) {
+            if (rtt <= 0) return '';
+            if (rtt > 200) return 'rtt-poor';
+            if (rtt > 100) return 'rtt-medium';
+            return 'rtt-good';
+        }
 
-/✗ Phone [0-9]+ no response to options/ {
-    match($0, /Phone ([0-9]+)/, arr)
-    phone = arr[1]
-    options_status[phone] = "OFFLINE"
-    options_rtt[phone] = "-"
-    options_jitter[phone] = "-"
-}
+        // Format RTT value
+        function formatRtt(value) {
+            if (value <= 0) return '-';
+            return value.toFixed(2);
+        }
 
-/✗ Phone [0-9]+ OFFLINE/ {
-    match($0, /Phone ([0-9]+)/, arr)
-    phone = arr[1]
-    if (options_status[phone] == "") {
-        options_status[phone] = "OFFLINE"
-        options_rtt[phone] = "-"
-        options_jitter[phone] = "-"
-    }
-}
+        // Load and display test results
+        async function loadResults() {
+            try {
+                const response = await fetch('/cgi-bin/uac_test_db_json');
+                const data = await response.json();
 
-# DNS failed - no test
-/DNS failed/ {
-    match($0, /Testing ([0-9]+)/, arr)
-    if (arr[1] != "") {
-        phone = arr[1]
-        ping_status[phone] = "NO DNS"
-        options_status[phone] = "NO DNS"
-        ping_rtt[phone] = "-"
-        ping_jitter[phone] = "-"
-        options_rtt[phone] = "-"
-        options_jitter[phone] = "-"
-    }
-}
+                if (data.error) {
+                    document.getElementById('errorContainer').innerHTML =
+                        '<div class="error">Error: ' + data.error + '</div>';
+                    document.getElementById('results').innerHTML =
+                        '<tr><td colspan="8" class="loading">No test data available yet</td></tr>';
+                    return;
+                }
 
-END {
-    # Output all collected results
-    for (phone in display_name) {
-        # Determine CSS classes for RTT values
-        ping_rtt_class = "rtt-good"
-        if (ping_rtt[phone] != "-" && ping_rtt[phone] > 100) ping_rtt_class = "rtt-medium"
-        if (ping_rtt[phone] != "-" && ping_rtt[phone] > 200) ping_rtt_class = "rtt-poor"
+                // Update last update time
+                if (data.last_update) {
+                    const lastUpdate = new Date(data.last_update * 1000);
+                    document.getElementById('lastUpdate').textContent = lastUpdate.toLocaleString();
+                }
 
-        options_rtt_class = "rtt-good"
-        if (options_rtt[phone] != "-" && options_rtt[phone] > 100) options_rtt_class = "rtt-medium"
-        if (options_rtt[phone] != "-" && options_rtt[phone] > 200) options_rtt_class = "rtt-poor"
+                // Build table rows
+                const tbody = document.getElementById('results');
+                tbody.innerHTML = '';
 
-        # Determine status CSS classes
-        ping_status_class = "offline"
-        if (ping_status[phone] == "ONLINE") ping_status_class = "online"
-        if (ping_status[phone] == "NO DNS") ping_status_class = "no-dns"
+                if (data.results && data.results.length > 0) {
+                    data.results.forEach(result => {
+                        const row = document.createElement('tr');
+                        const displayName = getDisplayName(result.phone_number);
 
-        options_status_class = "offline"
-        if (options_status[phone] == "ONLINE") options_status_class = "online"
-        if (options_status[phone] == "NO DNS") options_status_class = "no-dns"
+                        row.innerHTML =
+                            '<td>' + result.phone_number + '</td>' +
+                            '<td>' + displayName + '</td>' +
+                            '<td class="' + getStatusClass(result.ping_status) + '">' + result.ping_status + '</td>' +
+                            '<td class="' + getRttClass(result.ping_rtt) + '">' + formatRtt(result.ping_rtt) + '</td>' +
+                            '<td>' + formatRtt(result.ping_jitter) + '</td>' +
+                            '<td class="' + getStatusClass(result.options_status) + '">' + result.options_status + '</td>' +
+                            '<td class="' + getRttClass(result.options_rtt) + '">' + formatRtt(result.options_rtt) + '</td>' +
+                            '<td>' + formatRtt(result.options_jitter) + '</td>';
 
-        # Print table row
-        printf("        <tr>\n")
-        printf("            <td>%s</td>\n", phone)
-        printf("            <td>%s</td>\n", display_name[phone])
-        printf("            <td class=\"%s\">%s</td>\n", ping_status_class, ping_status[phone] ? ping_status[phone] : "UNKNOWN")
-        printf("            <td class=\"%s\">%s</td>\n", ping_rtt_class, ping_rtt[phone] ? ping_rtt[phone] : "-")
-        printf("            <td>%s</td>\n", ping_jitter[phone] ? ping_jitter[phone] : "-")
-        printf("            <td class=\"%s\">%s</td>\n", options_status_class, options_status[phone] ? options_status[phone] : "UNKNOWN")
-        printf("            <td class=\"%s\">%s</td>\n", options_rtt_class, options_rtt[phone] ? options_rtt[phone] : "-")
-        printf("            <td>%s</td>\n", options_jitter[phone] ? options_jitter[phone] : "-")
-        printf("        </tr>\n")
-    }
-}
-'
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="8" class="loading">No test results available</td></tr>';
+                }
+            } catch (error) {
+                console.error('Failed to load results:', error);
+                document.getElementById('errorContainer').innerHTML =
+                    '<div class="error">Failed to load test results: ' + error.message + '</div>';
+                document.getElementById('results').innerHTML =
+                    '<tr><td colspan="8" class="loading">Error loading results</td></tr>';
+            }
+        }
+
+        // Initialize page
+        async function init() {
+            await loadPhonebook();
+            await loadResults();
+        }
+
+        // Run on page load
+        init();
+    </script>
+EOF
 
 # HTML Footer
 cat <<'EOF'
-    </table>
+
     <br>
     <div class="info">
         <strong>Legend:</strong><br>
         <span class="online">● ONLINE</span> - Phone responded to test<br>
         <span class="offline">● OFFLINE</span> - Phone did not respond (DNS resolved but no response)<br>
         <span class="no-dns">● NO DNS</span> - Phone hostname does not resolve (node not on mesh)<br>
+        <span class="disabled">● DISABLED</span> - Test disabled in configuration<br>
         <br>
         <strong>RTT Color Coding:</strong><br>
         <span class="rtt-good">● Green</span> - Good (&lt;100ms)<br>
