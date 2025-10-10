@@ -18,7 +18,7 @@ cat <<'EOF'
 <html>
 <head>
     <title>UAC Bulk Test Results</title>
-    <meta http-equiv="refresh" content="60">
+    <meta http-equiv="refresh" content="10">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -99,7 +99,7 @@ cat <<EOF
     <div class="info" id="info">
         <strong>Automatic Testing:</strong> Tests run every $TEST_INTERVAL seconds<br>
         <strong>Last Update:</strong> <span id="lastUpdate">Loading...</span><br>
-        <strong>Auto-refresh:</strong> This page refreshes every 60 seconds
+        <strong>Auto-refresh:</strong> This page refreshes every 10 seconds
     </div>
 
     <div id="errorContainer"></div>
