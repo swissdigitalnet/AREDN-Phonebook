@@ -247,15 +247,6 @@ cat <<EOF
                     document.getElementById('lastUpdate').textContent = lastUpdate.toLocaleString();
                 }
 
-                // Update progress indicator
-                const numResults = data.num_results || 0;
-                const totalPhones = Object.keys(phonebook).length;
-                const progressPct = totalPhones > 0 ? Math.min(100, Math.round((numResults / totalPhones) * 100)) : 0;
-
-                document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested';
-                document.getElementById('progressText').textContent = progressPct + '%';
-                document.getElementById('progressBar').style.width = progressPct + '%';
-
                 // Return last_update timestamp for cache validation
                 const lastUpdateTimestamp = data.last_update || 0;
 
@@ -295,10 +286,26 @@ cat <<EOF
             }
         }
 
+        // Update progress indicator
+        function updateProgress(numResults) {
+            const totalPhones = Object.keys(phonebook).length;
+            const progressPct = totalPhones > 0 ? Math.min(100, Math.round((numResults / totalPhones) * 100)) : 0;
+
+            document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested';
+            document.getElementById('progressText').textContent = progressPct + '%';
+            document.getElementById('progressBar').style.width = progressPct + '%';
+        }
+
         // Initialize page
         async function init() {
             const lastTestUpdate = await loadResults();
             await loadPhonebook(lastTestUpdate);
+            // Update progress after phonebook is loaded
+            const response = await fetch('/cgi-bin/uac_test_db_json');
+            const data = await response.json();
+            if (!data.error && data.num_results) {
+                updateProgress(data.num_results);
+            }
         }
 
         // Run on page load
