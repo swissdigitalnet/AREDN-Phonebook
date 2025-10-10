@@ -10,23 +10,26 @@ AREDN-Phonebook1 is a SIP proxy server designed for AREDN (Amateur Radio Emergen
 
 This project uses GitHub Actions to create the bin files.
 
-**Important:** The user expects this automated workflow. When making changes:
+**IMPORTANT: NO RELEASES** - The user does NOT want GitHub releases. Tags are only used to trigger builds.
 
+**Deployment Workflow:**
 1. Commit and push to the branch
 2. Create a version tag to trigger the build (e.g., `git tag v1.5.2 && git push origin v1.5.2`)
 3. The build happens automatically via GitHub Actions
-4. Download the built package and install via opkg
+4. Download the built package from the workflow artifacts and install via opkg
+5. **DO NOT create or manage GitHub releases**
 
 ### Download and Installation
 
-**Download Process:**
-1. Get the release version from GitHub API:
+**Download Process (from GitHub Actions artifacts):**
+1. Get the workflow run for the tag:
+   ```bash
+   curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/runs?event=push | grep -A 5 "v{VERSION}"
+   ```
+2. Download artifacts from the workflow run (requires GitHub token or manual download)
+3. Alternatively, if releases exist (created by workflow), download from:
    ```bash
    curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/releases/tags/v{VERSION} | grep browser_download_url
-   ```
-2. Download the appropriate architecture package (x86 or ath79):
-   ```bash
-   curl -L -o /tmp/AREDN-Phonebook.ipk {DOWNLOAD_URL}
    ```
 
 **Installation Process:**
