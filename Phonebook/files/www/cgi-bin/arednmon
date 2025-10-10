@@ -126,9 +126,22 @@ cat <<EOF
         // Phonebook data (loaded from server)
         let phonebook = {};
 
-        // Load phonebook data
+        // Load phonebook data with caching
         async function loadPhonebook() {
             try {
+                // Try to load from localStorage cache first (faster)
+                const cached = localStorage.getItem('phonebook_cache');
+                const cacheTime = localStorage.getItem('phonebook_cache_time');
+                const now = Date.now();
+
+                // Use cache if less than 1 hour old
+                if (cached && cacheTime && (now - parseInt(cacheTime)) < 3600000) {
+                    phonebook = JSON.parse(cached);
+                    console.log('Loaded phonebook from cache (' + Object.keys(phonebook).length + ' entries)');
+                    return;
+                }
+
+                // Cache miss or expired - fetch from server
                 const response = await fetch('/cgi-bin/showphonebook');
                 const data = await response.json();
 
@@ -138,6 +151,11 @@ cat <<EOF
                         const phoneNumber = entry.telephone.split('@')[0];
                         phonebook[phoneNumber] = entry.name.trim();
                     });
+
+                    // Save to localStorage cache
+                    localStorage.setItem('phonebook_cache', JSON.stringify(phonebook));
+                    localStorage.setItem('phonebook_cache_time', now.toString());
+                    console.log('Cached phonebook (' + Object.keys(phonebook).length + ' entries)');
                 }
             } catch (error) {
                 console.error('Failed to load phonebook:', error);
