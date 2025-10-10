@@ -62,7 +62,85 @@ AREDN-Phonebook-Enhanced (single process)
 
 ---
 
-## 2) Core Features
+## 2) Deployment
+
+### 2.1 Test Environment
+
+**Primary Test Node:**
+- **Hostname:** `hb9bla-vm-1.local.mesh`
+- **Role:** x86_64 test server
+- **SSH Access:** Port 2222 (`ssh -p 2222 root@hb9bla-vm-1.local.mesh`)
+- **Package:** AREDN-Phonebook x86_64 .ipk
+
+**Deployment Workflow:**
+
+1. **Download artifact from GitHub Actions:**
+   ```bash
+   # Get the latest x86 build from a specific Actions run
+   gh run download <RUN_ID> --name "AREDN-Phonebook-x86-UAC-<BUILD>-<COMMIT>.ipk" --dir ./build-output
+
+   # Example:
+   gh run download 18399485975 --name "AREDN-Phonebook-x86-UAC-133-2cb71620c874762a6283d6b11e83bab1869d18e8" --dir ./build-output
+   ```
+
+2. **Upload to test node:**
+   ```bash
+   # Upload via SCP (port 2222, legacy protocol)
+   scp -P 2222 -O ./build-output/AREDN-Phonebook-*.ipk root@hb9bla-vm-1.local.mesh:/tmp/
+   ```
+
+3. **Install on test node:**
+   ```bash
+   # SSH into the server
+   ssh -p 2222 root@hb9bla-vm-1.local.mesh
+
+   # Check for existing installation
+   opkg list-installed | grep -i phonebook
+
+   # Remove old version if present
+   opkg remove AREDN-Phonebook
+
+   # Install new package
+   opkg install /tmp/AREDN-Phonebook-x86-UAC-*.ipk
+   ```
+
+4. **Verify installation:**
+   ```bash
+   # Check installed version
+   opkg list-installed | grep -i phonebook
+
+   # Verify process is running
+   ps | grep AREDN-Phonebook | grep -v grep
+
+   # Check logs for startup messages
+   logread | tail -50
+
+   # Monitor real-time logs
+   logread -f | grep -E '(PHONEBOOK|UAC|SIP|CONFIG)'
+   ```
+
+**Testing UAC Monitoring Features:**
+
+```bash
+# Monitor UAC bulk testing cycle (runs every 60 seconds by default)
+# Shows ICMP ping and SIP OPTIONS tests with RTT/jitter/loss statistics
+logread -f | grep -E '(UAC|✓|✗|RTT|jitter|loss)'
+```
+
+### 2.2 Production Deployment
+
+**Target Architectures:**
+- `ath79/generic` - MikroTik and similar MIPS routers
+- `x86/64` - x86_64 systems and VMs
+
+**GitHub Actions Build:**
+- Triggered on tag pushes or PR merges
+- Artifacts available in Actions runs
+- Release packages published for tagged versions
+
+---
+
+## 3) Core Features
 
 ### 2.1 SIP Proxy Server (Primary Functionality)
 - ✅ **SIP REGISTER handling** - User registration with 3600-second expiry
@@ -258,7 +336,122 @@ UAC_TEST_PREFIX=4415
 
 ---
 
-## 5) Error Handling
+## 5) CGI Command Reference
+
+The AREDN-Phonebook exposes several CGI endpoints for manual operations and testing. All endpoints are accessible via HTTP GET requests.
+
+### 5.1 Phonebook Management
+
+**Trigger Phonebook Fetch**
+```bash
+curl "http://node.local.mesh/cgi-bin/loadphonebook"
+```
+- Immediately triggers phonebook CSV download from configured servers
+- Sends SIGUSR1 signal to daemon
+- Returns JSON status response
+
+**Show Phonebook Status**
+```bash
+curl "http://node.local.mesh/cgi-bin/showphonebook"
+```
+- Returns current phonebook entries and statistics
+- JSON response with user count and registration status
+- Useful for monitoring and debugging
+
+### 5.2 UAC Testing (Phone Monitoring)
+
+**Single-Phone Ping/Options Test** ✅ (Non-Intrusive)
+```bash
+# Test with default count (5 requests)
+curl "http://node.local.mesh/cgi-bin/uac_ping?target=4415001"
+
+# Test with custom count (1-20 requests)
+curl "http://node.local.mesh/cgi-bin/uac_ping?target=4415001&count=10"
+```
+- Runs both ICMP ping and SIP OPTIONS tests
+- Tests network layer (ping) and application layer (SIP)
+- Returns RTT, jitter, and packet loss statistics
+- **Non-intrusive** - does not ring the phone
+- Check results: `logread | grep UAC_PING`
+
+**Single-Phone INVITE Test** ⚠️ (Rings Phone)
+```bash
+curl "http://node.local.mesh/cgi-bin/uac_test?target=4415001"
+```
+- Triggers actual SIP INVITE (will ring the phone)
+- Used for end-to-end call path validation
+- Automatically cancels/hangs up when phone responds
+- **Intrusive** - use sparingly
+- Check results: `logread | grep UAC`
+
+**View Bulk Test Results** (Read-Only)
+```bash
+# View in browser
+http://node.local.mesh/cgi-bin/uac_test_all
+
+# Or fetch with curl
+curl "http://node.local.mesh/cgi-bin/uac_test_all"
+```
+- Displays results from the most recent automated bulk test cycle
+- Shows HTML table with phone number, name, ping/options status, RTT, and jitter
+- Color-coded status (green=online, red=offline, gray=no DNS)
+- Auto-refreshes every 60 seconds
+- **Read-only** - does not trigger new tests (tests run automatically every `UAC_TEST_INTERVAL_SECONDS`)
+
+### 5.3 CGI Response Format
+
+All CGI endpoints return JSON responses:
+
+**Success Response:**
+```json
+{
+  "status": "success",
+  "message": "UAC ping/options test triggered to 4415001 with 5 requests",
+  "pid": 12345,
+  "target": "4415001",
+  "count": 5,
+  "note": "Check logs with: logread | grep UAC_PING"
+}
+```
+
+**Error Response:**
+```json
+{
+  "status": "error",
+  "message": "Missing target parameter. Usage: /cgi-bin/uac_ping?target=441422&count=5"
+}
+```
+
+### 5.4 Testing Workflow Example
+
+```bash
+# 1. View all bulk test results in browser (recommended)
+# Open in web browser:
+http://hb9bla-vm-1.local.mesh/cgi-bin/uac_test_all
+
+# 2. Check phonebook status
+curl "http://hb9bla-vm-1.local.mesh/cgi-bin/showphonebook"
+
+# 3. Test a specific phone (non-intrusive)
+curl "http://hb9bla-vm-1.local.mesh/cgi-bin/uac_ping?target=4415001&count=5"
+
+# 4. Monitor results in real-time logs
+ssh -p 2222 root@hb9bla-vm-1.local.mesh "logread -f | grep UAC_PING"
+
+# 5. If needed, test with actual INVITE (rings phone)
+curl "http://hb9bla-vm-1.local.mesh/cgi-bin/uac_test?target=4415001"
+```
+
+### 5.5 Notes
+
+- **DNS Requirement:** All UAC tests require DNS resolution of `{phone_number}.local.mesh`
+- **Signal Handling:** CGI scripts use SIGUSR2 to trigger daemon operations
+- **Bulk Testing:** Automated bulk tests run every `UAC_TEST_INTERVAL_SECONDS` (default: 60s)
+- **Prefix Filtering:** `UAC_TEST_PREFIX` only affects INVITE tests, not ping/options tests
+
+---
+
+## 6) Error Handling
 
 ### 5.1 SIP Protocol Errors
 

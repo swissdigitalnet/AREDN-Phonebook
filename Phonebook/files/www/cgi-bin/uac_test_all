@@ -1,112 +1,242 @@
 #!/bin/sh
-# UAC Bulk Phone Test
-# Tests all phones in phonebook that have DNS resolution
+# UAC Bulk Test Results
+# Displays results from the most recent automated bulk test cycle
+# The bulk test runs automatically every UAC_TEST_INTERVAL_SECONDS (default: 60s)
 # Usage: curl "http://node/cgi-bin/uac_test_all"
 
-echo "Content-Type: application/json"
-echo "Access-Control-Allow-Origin: *"
+echo "Content-Type: text/html; charset=utf-8"
 echo ""
 
-# Check if AREDN-Phonebook is running
-PID=$(pgrep -f "AREDN-Phonebook" | head -n1)
-if [ -z "$PID" ]; then
-    echo '{"status":"error","message":"AREDN-Phonebook is not running"}'
-    exit 1
-fi
+# Get configuration
+CONFIG_FILE="/etc/phonebook.conf"
+TEST_INTERVAL=$(grep "^UAC_TEST_INTERVAL_SECONDS=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
+TEST_INTERVAL=${TEST_INTERVAL:-60}
 
-# Check if CSV phonebook exists
-CSV_FILE="/www/arednstack/phonebook.csv"
-if [ ! -f "$CSV_FILE" ]; then
-    echo "{\"status\":\"error\",\"message\":\"Phonebook CSV not found at $CSV_FILE\"}"
-    exit 1
-fi
+# HTML Header
+cat <<'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>UAC Bulk Test Results</title>
+    <meta http-equiv="refresh" content="60">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .info {
+            background-color: #e7f3fe;
+            border-left: 4px solid #2196F3;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .online {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .offline {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .no-dns {
+            color: #999;
+        }
+        .rtt-good {
+            color: #4CAF50;
+        }
+        .rtt-medium {
+            color: #FF9800;
+        }
+        .rtt-poor {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <h1>UAC Bulk Test Results</h1>
+EOF
 
-# Initialize counters
-total_users=0
-dns_resolved=0
-dns_failed=0
-test_triggered=0
+echo "    <div class=\"info\">"
+echo "        <strong>Automatic Testing:</strong> Tests run every $TEST_INTERVAL seconds<br>"
+echo "        <strong>Last Update:</strong> $(date)<br>"
+echo "        <strong>Auto-refresh:</strong> This page refreshes every 60 seconds"
+echo "    </div>"
 
-# Output JSON header
-echo "{"
-echo "  \"status\": \"running\","
-echo "  \"message\": \"Testing all phones in phonebook\","
-echo "  \"results\": ["
+echo "    <table>"
+echo "        <tr>"
+echo "            <th>Phone Number</th>"
+echo "            <th>Name</th>"
+echo "            <th>Ping Status</th>"
+echo "            <th>Ping RTT (ms)</th>"
+echo "            <th>Ping Jitter (ms)</th>"
+echo "            <th>OPTIONS Status</th>"
+echo "            <th>OPTIONS RTT (ms)</th>"
+echo "            <th>OPTIONS Jitter (ms)</th>"
+echo "        </tr>"
 
-first_entry=true
+# Parse recent logs for test results
+# We'll look for the most recent test cycle's results
+logread | grep "UAC_BULK" | tail -300 | awk '
+BEGIN {
+    # Track current phone being tested
+    current_phone = ""
+    current_name = ""
+}
 
-# Read CSV and test each phone number (skip header line)
-tail -n +2 "$CSV_FILE" | while IFS=',' read -r firstname lastname callsign unused telephone extra; do
-    # Skip if telephone is empty
-    if [ -z "$telephone" ]; then
-        continue
-    fi
+# Extract phone number and name from test start line
+/Testing [0-9]+ \(.*\) with ping/ {
+    match($0, /Testing ([0-9]+) \(([^)]+)\)/, arr)
+    current_phone = arr[1]
+    current_name = arr[2]
+    ping_status[current_phone] = "TESTING"
+    display_name[current_phone] = current_name
+}
 
-    # Clean up telephone number (remove whitespace, newlines)
-    telephone=$(echo "$telephone" | tr -d ' \t\r\n')
+# Ping results
+/✓ Phone [0-9]+ ONLINE \(ping\)/ {
+    match($0, /Phone ([0-9]+)/, arr)
+    phone = arr[1]
+    ping_status[phone] = "ONLINE"
+}
 
-    # Skip if not numeric
-    case "$telephone" in
-        ''|*[!0-9]*) continue ;;
-    esac
+/RTT: min=.*ping/ {
+    if (current_phone != "") {
+        match($0, /min=([0-9.]+).*avg=([0-9.]+).*jitter=([0-9.]+)/, arr)
+        ping_rtt[current_phone] = arr[2]
+        ping_jitter[current_phone] = arr[3]
+    }
+}
 
-    total_users=$((total_users + 1))
+/✗ Phone [0-9]+ no response to ping/ {
+    match($0, /Phone ([0-9]+)/, arr)
+    phone = arr[1]
+    ping_status[phone] = "OFFLINE"
+    ping_rtt[phone] = "-"
+    ping_jitter[phone] = "-"
+}
 
-    # Build hostname for DNS check
-    hostname="${telephone}.local.mesh"
+# OPTIONS results
+/✓ Phone [0-9]+ ONLINE \(options\)/ {
+    match($0, /Phone ([0-9]+)/, arr)
+    phone = arr[1]
+    options_status[phone] = "ONLINE"
+}
 
-    # Check DNS resolution with timeout
-    if nslookup "$hostname" >/dev/null 2>&1; then
-        # DNS resolved - node is reachable
-        dns_resolved=$((dns_resolved + 1))
-        dns_status="resolved"
+/RTT: min=.*options/ {
+    if (current_phone != "") {
+        match($0, /min=([0-9.]+).*avg=([0-9.]+).*jitter=([0-9.]+)/, arr)
+        options_rtt[current_phone] = arr[2]
+        options_jitter[current_phone] = arr[3]
+    }
+}
 
-        # Trigger UAC test call
-        echo "$telephone" > /tmp/uac_test_target
-        if kill -USR2 "$PID" 2>/dev/null; then
-            test_triggered=$((test_triggered + 1))
-            test_status="triggered"
-            # Small delay between tests to avoid overwhelming the system
-            sleep 3
-        else
-            test_status="signal_failed"
-        fi
-    else
-        # DNS failed - node not reachable
-        dns_failed=$((dns_failed + 1))
-        dns_status="not_resolved"
-        test_status="skipped"
-    fi
+/✗ Phone [0-9]+ no response to options/ {
+    match($0, /Phone ([0-9]+)/, arr)
+    phone = arr[1]
+    options_status[phone] = "OFFLINE"
+    options_rtt[phone] = "-"
+    options_jitter[phone] = "-"
+}
 
-    # Build display name
-    display_name="$firstname $lastname"
-    if [ -n "$callsign" ]; then
-        display_name="$display_name ($callsign)"
-    fi
+/✗ Phone [0-9]+ OFFLINE/ {
+    match($0, /Phone ([0-9]+)/, arr)
+    phone = arr[1]
+    if (options_status[phone] == "") {
+        options_status[phone] = "OFFLINE"
+        options_rtt[phone] = "-"
+        options_jitter[phone] = "-"
+    }
+}
 
-    # Output JSON for this entry (with comma separator)
-    if [ "$first_entry" = true ]; then
-        first_entry=false
-    else
-        echo ","
-    fi
+# DNS failed - no test
+/DNS failed/ {
+    match($0, /Testing ([0-9]+)/, arr)
+    if (arr[1] != "") {
+        phone = arr[1]
+        ping_status[phone] = "NO DNS"
+        options_status[phone] = "NO DNS"
+        ping_rtt[phone] = "-"
+        ping_jitter[phone] = "-"
+        options_rtt[phone] = "-"
+        options_jitter[phone] = "-"
+    }
+}
 
-    echo "    {"
-    echo "      \"telephone\": \"$telephone\","
-    echo "      \"name\": \"$display_name\","
-    echo "      \"hostname\": \"$hostname\","
-    echo "      \"dns_status\": \"$dns_status\","
-    echo "      \"test_status\": \"$test_status\""
-    echo -n "    }"
-done
+END {
+    # Output all collected results
+    for (phone in display_name) {
+        # Determine CSS classes for RTT values
+        ping_rtt_class = "rtt-good"
+        if (ping_rtt[phone] != "-" && ping_rtt[phone] > 100) ping_rtt_class = "rtt-medium"
+        if (ping_rtt[phone] != "-" && ping_rtt[phone] > 200) ping_rtt_class = "rtt-poor"
 
-echo ""
-echo "  ],"
-echo "  \"summary\": {"
-echo "    \"total_users\": $total_users,"
-echo "    \"dns_resolved\": $dns_resolved,"
-echo "    \"dns_failed\": $dns_failed,"
-echo "    \"tests_triggered\": $test_triggered"
-echo "  },"
-echo "  \"note\": \"Check detailed logs with: logread | grep UAC\""
-echo "}"
+        options_rtt_class = "rtt-good"
+        if (options_rtt[phone] != "-" && options_rtt[phone] > 100) options_rtt_class = "rtt-medium"
+        if (options_rtt[phone] != "-" && options_rtt[phone] > 200) options_rtt_class = "rtt-poor"
+
+        # Determine status CSS classes
+        ping_status_class = "offline"
+        if (ping_status[phone] == "ONLINE") ping_status_class = "online"
+        if (ping_status[phone] == "NO DNS") ping_status_class = "no-dns"
+
+        options_status_class = "offline"
+        if (options_status[phone] == "ONLINE") options_status_class = "online"
+        if (options_status[phone] == "NO DNS") options_status_class = "no-dns"
+
+        # Print table row
+        printf("        <tr>\n")
+        printf("            <td>%s</td>\n", phone)
+        printf("            <td>%s</td>\n", display_name[phone])
+        printf("            <td class=\"%s\">%s</td>\n", ping_status_class, ping_status[phone] ? ping_status[phone] : "UNKNOWN")
+        printf("            <td class=\"%s\">%s</td>\n", ping_rtt_class, ping_rtt[phone] ? ping_rtt[phone] : "-")
+        printf("            <td>%s</td>\n", ping_jitter[phone] ? ping_jitter[phone] : "-")
+        printf("            <td class=\"%s\">%s</td>\n", options_status_class, options_status[phone] ? options_status[phone] : "UNKNOWN")
+        printf("            <td class=\"%s\">%s</td>\n", options_rtt_class, options_rtt[phone] ? options_rtt[phone] : "-")
+        printf("            <td>%s</td>\n", options_jitter[phone] ? options_jitter[phone] : "-")
+        printf("        </tr>\n")
+    }
+}
+'
+
+# HTML Footer
+cat <<'EOF'
+    </table>
+    <br>
+    <div class="info">
+        <strong>Legend:</strong><br>
+        <span class="online">● ONLINE</span> - Phone responded to test<br>
+        <span class="offline">● OFFLINE</span> - Phone did not respond (DNS resolved but no response)<br>
+        <span class="no-dns">● NO DNS</span> - Phone hostname does not resolve (node not on mesh)<br>
+        <br>
+        <strong>RTT Color Coding:</strong><br>
+        <span class="rtt-good">● Green</span> - Good (&lt;100ms)<br>
+        <span class="rtt-medium">● Orange</span> - Medium (100-200ms)<br>
+        <span class="rtt-poor">● Red</span> - Poor (&gt;200ms)<br>
+    </div>
+</body>
+</html>
+EOF

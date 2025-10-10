@@ -64,11 +64,11 @@ if [ -z "$PID" ]; then
     exit 1
 fi
 
-# Send signal to trigger UAC ping test (we'll use SIGUSR1 for ping tests)
-if kill -USR1 "$PID" 2>/dev/null; then
+# Send signal to trigger UAC ping test (use SIGUSR2, same as INVITE tests)
+if kill -USR2 "$PID" 2>/dev/null; then
     echo "{"
     echo "  \"status\": \"success\","
-    echo "  \"message\": \"UAC OPTIONS ping test triggered to $TARGET with $COUNT pings\","
+    echo "  \"message\": \"UAC ping/options test triggered to $TARGET with $COUNT requests\","
     echo "  \"pid\": $PID,"
     echo "  \"target\": \"$TARGET\","
     echo "  \"count\": $COUNT,"
