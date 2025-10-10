@@ -26,6 +26,7 @@ typedef struct {
 typedef struct {
     int version;               // Database version (for future compatibility)
     int num_results;           // Number of valid results
+    int num_testable_phones;   // Total number of phones with DNS resolution (testable)
     time_t last_update;        // Timestamp of last database update
     int test_interval;         // Test interval in seconds
     uac_test_result_t results[MAX_TEST_RESULTS];
@@ -37,7 +38,7 @@ typedef struct {
 // Function prototypes for database operations
 int uac_test_db_init(void);
 int uac_test_db_write_result(const uac_test_result_t *result);
-int uac_test_db_update_header(int num_results, int test_interval);
+int uac_test_db_update_header(int num_results, int num_testable_phones, int test_interval);
 void uac_test_db_close(void);
 
 #endif // UAC_TEST_DB_H

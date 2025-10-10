@@ -130,18 +130,19 @@ int uac_test_db_write_result(const uac_test_result_t *result) {
  * Update database header information
  * Returns: 0 on success, -1 on failure
  */
-int uac_test_db_update_header(int num_results, int test_interval) {
+int uac_test_db_update_header(int num_results, int num_testable_phones, int test_interval) {
     if (!g_test_db) {
         LOG_ERROR("Database not initialized");
         return -1;
     }
 
     g_test_db->num_results = num_results;
+    g_test_db->num_testable_phones = num_testable_phones;
     g_test_db->test_interval = test_interval;
     g_test_db->last_update = time(NULL);
 
-    LOG_DEBUG("Updated database header: %d results, %d second interval",
-              num_results, test_interval);
+    LOG_DEBUG("Updated database header: %d results, %d testable phones, %d second interval",
+              num_results, num_testable_phones, test_interval);
     return 0;
 }
 

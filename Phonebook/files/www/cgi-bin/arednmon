@@ -287,11 +287,11 @@ cat <<EOF
         }
 
         // Update progress indicator
-        function updateProgress(numResults) {
-            const totalPhones = Object.keys(phonebook).length;
+        function updateProgress(numResults, numTestablePhones) {
+            const totalPhones = numTestablePhones || 0;
             const progressPct = totalPhones > 0 ? Math.min(100, Math.round((numResults / totalPhones) * 100)) : 0;
 
-            document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested';
+            document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested*';
             document.getElementById('progressText').textContent = progressPct + '%';
             document.getElementById('progressBar').style.width = progressPct + '%';
         }
@@ -303,8 +303,8 @@ cat <<EOF
             // Update progress after phonebook is loaded
             const response = await fetch('/cgi-bin/uac_test_db_json');
             const data = await response.json();
-            if (!data.error && data.num_results) {
-                updateProgress(data.num_results);
+            if (!data.error && data.num_results !== undefined) {
+                updateProgress(data.num_results, data.num_testable_phones);
             }
         }
 
@@ -328,6 +328,9 @@ cat <<'EOF'
         <span class="rtt-good">● Green</span> - Good (&lt;100ms)<br>
         <span class="rtt-medium">● Orange</span> - Medium (100-200ms)<br>
         <span class="rtt-poor">● Red</span> - Poor (&gt;200ms)<br>
+        <br>
+        <strong>Note:</strong> * Only phones with DNS resolution (marked with asterisk in phonebook) are tested.<br>
+        The phonebook is updated every hour. Total count reflects phones currently resolvable on the mesh.
     </div>
 </body>
 </html>
