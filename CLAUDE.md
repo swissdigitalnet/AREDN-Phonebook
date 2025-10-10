@@ -8,39 +8,31 @@ AREDN-Phonebook1 is a SIP proxy server designed for AREDN (Amateur Radio Emergen
 
 ## Build System
 
-This project uses OpenWRT's build system to create `.ipk` packages for AREDN routers.
-
-### Local Development Commands
-
-```bash
-# Navigate to the Phonebook directory
-cd Phonebook
-
-# Manual compilation for testing (requires OpenWRT SDK setup)
-make defconfig
-make package/phonebook/compile V=s
-```
-
-### GitHub Actions Build & Deploy
-
-The project uses GitHub Actions for **automated build and installation**:
-
-**Build Process:**
-- Triggered automatically on tag pushes (format: `*.*.*`)
-- Builds for `ath79/generic` and `x86/64` architectures
-- Uses OpenWRT SDK 23.05.3
-- Output: `.ipk` files attached to GitHub releases
-
-**Deployment Workflow:**
-1. **Push changes** to the UAC branch
-2. **Create and push a version tag** (e.g., `v1.5.2`) to trigger the build
-3. **Wait for GitHub Actions** to build the packages automatically
-4. **Download the `.ipk`** from the GitHub releases page
-5. **Install via AREDN web interface**: Administration → Package Management → Upload → Install
+This project uses GitHub Actions to create the bin files.
 
 **Important:** The user expects this automated workflow. When making changes:
+
 1. Commit and push to the branch
-2. Create a version tag to trigger the build
+2. Create a version tag to trigger the build (e.g., `git tag v1.5.2 && git push origin v1.5.2`)
 3. The build happens automatically via GitHub Actions
-4. Installation is done via AREDN web interface (not manual commands)
+4. Download the built package and install via opkg
+
+### Download and Installation
+
+**Download Process:**
+1. Get the release version from GitHub API:
+   ```bash
+   curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/releases/tags/v{VERSION} | grep browser_download_url
+   ```
+2. Download the appropriate architecture package (x86 or ath79):
+   ```bash
+   curl -L -o /tmp/AREDN-Phonebook.ipk {DOWNLOAD_URL}
+   ```
+
+**Installation Process:**
+1. Ask for the node name if not known (e.g., `hb9bla-vm-1.local.mesh`)
+2. Detect architecture: `ssh root@{NODE} -p 2222 "uname -m"`
+3. Transfer package: `scp -P 2222 -O /tmp/AREDN-Phonebook.ipk root@{NODE}:/tmp/`
+4. Install: `ssh root@{NODE} -p 2222 "opkg install /tmp/AREDN-Phonebook.ipk"`
+5. Restart service: `ssh root@{NODE} -p 2222 "/etc/init.d/AREDN-Phonebook restart"`
 
