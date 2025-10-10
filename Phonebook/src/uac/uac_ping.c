@@ -149,10 +149,10 @@ uac_timing_result uac_options_test(const char *phone_number,
 
     LOG_INFO("Starting OPTIONS ping test to %s (%d pings)", phone_number, ping_count);
 
-    // Get UAC socket (we'll reuse the existing UAC socket)
-    int sockfd = uac_get_sockfd();
+    // Create dedicated socket for OPTIONS testing (avoid conflicts with main UAC socket)
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-        LOG_ERROR("UAC not initialized");
+        LOG_ERROR("Failed to create socket for OPTIONS test: %s", strerror(errno));
         return result;
     }
 
@@ -228,6 +228,9 @@ uac_timing_result uac_options_test(const char *phone_number,
     } else {
         LOG_WARN("OPTIONS ping test failed: No responses from %s", phone_number);
     }
+
+    // Close dedicated socket
+    close(sockfd);
 
     return result;
 }
