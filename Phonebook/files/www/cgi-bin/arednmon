@@ -126,22 +126,25 @@ cat <<EOF
         // Phonebook data (loaded from server)
         let phonebook = {};
 
-        // Load phonebook data with caching
-        async function loadPhonebook() {
+        // Load phonebook data with smart caching
+        async function loadPhonebook(lastTestUpdate) {
             try {
-                // Try to load from localStorage cache first (faster)
+                // Check if phonebook cache exists
                 const cached = localStorage.getItem('phonebook_cache');
-                const cacheTime = localStorage.getItem('phonebook_cache_time');
-                const now = Date.now();
+                const cacheTestUpdate = localStorage.getItem('phonebook_cache_test_update');
 
-                // Use cache if less than 1 hour old
-                if (cached && cacheTime && (now - parseInt(cacheTime)) < 3600000) {
+                // Invalidate cache if test database is newer (phonebook may have changed)
+                const cacheValid = cached && cacheTestUpdate &&
+                                   parseInt(cacheTestUpdate) >= lastTestUpdate;
+
+                if (cacheValid) {
                     phonebook = JSON.parse(cached);
-                    console.log('Loaded phonebook from cache (' + Object.keys(phonebook).length + ' entries)');
+                    console.log('Using cached phonebook (' + Object.keys(phonebook).length + ' entries)');
                     return;
                 }
 
-                // Cache miss or expired - fetch from server
+                // Cache invalid or missing - fetch from server
+                console.log('Fetching phonebook from server...');
                 const response = await fetch('/cgi-bin/showphonebook');
                 const data = await response.json();
 
@@ -152,10 +155,10 @@ cat <<EOF
                         phonebook[phoneNumber] = entry.name.trim();
                     });
 
-                    // Save to localStorage cache
+                    // Save to localStorage cache with test database timestamp
                     localStorage.setItem('phonebook_cache', JSON.stringify(phonebook));
-                    localStorage.setItem('phonebook_cache_time', now.toString());
-                    console.log('Cached phonebook (' + Object.keys(phonebook).length + ' entries)');
+                    localStorage.setItem('phonebook_cache_test_update', lastTestUpdate.toString());
+                    console.log('Cached phonebook (' + Object.keys(phonebook).length + ' entries) at test update ' + lastTestUpdate);
                 }
             } catch (error) {
                 console.error('Failed to load phonebook:', error);
@@ -203,7 +206,7 @@ cat <<EOF
                         '<div class="error">Error: ' + data.error + '</div>';
                     document.getElementById('results').innerHTML =
                         '<tr><td colspan="8" class="loading">No test data available yet</td></tr>';
-                    return;
+                    return data.last_update || 0;
                 }
 
                 // Update last update time
@@ -211,6 +214,9 @@ cat <<EOF
                     const lastUpdate = new Date(data.last_update * 1000);
                     document.getElementById('lastUpdate').textContent = lastUpdate.toLocaleString();
                 }
+
+                // Return last_update timestamp for cache validation
+                const lastUpdateTimestamp = data.last_update || 0;
 
                 // Build table rows
                 const tbody = document.getElementById('results');
@@ -236,19 +242,22 @@ cat <<EOF
                 } else {
                     tbody.innerHTML = '<tr><td colspan="8" class="loading">No test results available</td></tr>';
                 }
+
+                return lastUpdateTimestamp;
             } catch (error) {
                 console.error('Failed to load results:', error);
                 document.getElementById('errorContainer').innerHTML =
                     '<div class="error">Failed to load test results: ' + error.message + '</div>';
                 document.getElementById('results').innerHTML =
                     '<tr><td colspan="8" class="loading">Error loading results</td></tr>';
+                return 0;
             }
         }
 
         // Initialize page
         async function init() {
-            await loadPhonebook();
-            await loadResults();
+            const lastTestUpdate = await loadResults();
+            await loadPhonebook(lastTestUpdate);
         }
 
         // Run on page load
