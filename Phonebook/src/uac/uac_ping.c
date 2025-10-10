@@ -254,9 +254,9 @@ uac_timing_result uac_options_test(const char *phone_number,
             LOG_DEBUG("OPTIONS ping %d: No response", i + 1);
         }
 
-        // Wait 200ms between pings to avoid flooding
+        // Wait 600ms between pings (allows up to 500ms RTT to complete before next ping)
         if (i < ping_count - 1) {
-            usleep(200000); // 200ms
+            usleep(600000); // 600ms
         }
     }
 
@@ -432,9 +432,9 @@ uac_timing_result uac_ping_test(const char *phone_number,
             LOG_DEBUG("ICMP ping %d/%d: No response", i + 1, ping_count);
         }
 
-        // Wait 200ms between pings
+        // Wait 600ms between pings (allows up to 500ms RTT to complete before next ping)
         if (i < ping_count - 1) {
-            usleep(200000);
+            usleep(600000);
         }
     }
 
