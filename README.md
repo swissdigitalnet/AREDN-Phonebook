@@ -12,8 +12,9 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 - 🔌 **Plug-and-Play**: Works immediately after installation
 - 📱 **Phone Integration**: Provides XML directory for SIP phones (tested with Yealink)
 - 🔧 **Passive Safety**: Self-healing with automatic error recovery
-- 📊 **Phone Monitoring**: SIP OPTIONS ping tests with RTT/jitter measurement (v1.4.5+)
-- 🎯 **Dual-Mode Testing**: Non-intrusive OPTIONS ping + optional INVITE fallback
+- 📊 **AREDNmon Dashboard**: Real-time web-based network monitoring with visual status display
+- 🎯 **Dual-Mode Testing**: ICMP ping + SIP OPTIONS tests with RTT/jitter measurement
+- 📈 **Performance Metrics**: Color-coded latency indicators and progress tracking
 
 ## 📦 Installation
 
@@ -79,6 +80,48 @@ Configure your SIP phone to use the node's directory:
 1. 🔗 **Directory URL**: `http://localnode.local.mesh/arednstack/phonebook_generic_direct.xml`
 2. 📡 **SIP Server**: `localnode.local.mesh`
 3. 🔄 **Refresh**: Directory updates automatically every xx seconds from router (your Update Time Interval)
+
+## 📊 AREDNmon - Network Monitoring Dashboard
+
+AREDNmon provides real-time network monitoring with a web-based dashboard showing the status of all phones on your mesh network.
+
+### 🌐 Access Dashboard
+- **URL**: `http://[your-node].local.mesh/cgi-bin/arednmon`
+- **Auto-refresh**: Updates every 30 seconds automatically
+
+### ✨ Dashboard Features
+- 📈 **Real-time Status Display**: See all phones with ONLINE/OFFLINE/NO_DNS status
+- 📊 **Performance Metrics**: RTT (round-trip time) and jitter measurements
+- 🎨 **Color-coded Results**: Green (<100ms), Orange (100-200ms), Red (>200ms)
+- 📱 **Contact Names**: Automatically shows names from phonebook
+- 📉 **Progress Tracking**: Visual progress bar showing test completion
+- 🔄 **Smart Caching**: Phonebook data cached in browser for performance
+- ⚡ **Dual Testing**: Both ICMP ping and SIP OPTIONS tests
+
+### 📋 Dashboard Columns
+| Column | Description |
+|--------|-------------|
+| **Phone Number** | SIP extension number |
+| **Name** | Contact name from phonebook |
+| **Ping Status** | ICMP network-layer connectivity |
+| **Ping RTT** | Network round-trip time in ms |
+| **Ping Jitter** | Network jitter in ms |
+| **OPTIONS Status** | SIP application-layer connectivity |
+| **OPTIONS RTT** | SIP round-trip time in ms |
+| **OPTIONS Jitter** | SIP jitter in ms |
+
+### ⚙️ Test Configuration
+Tests run automatically based on `/etc/phonebook.conf` settings:
+- **Test Interval**: Default 600 seconds (10 minutes)
+- **Ping Count**: Default 5 ICMP pings per phone
+- **OPTIONS Count**: Default 5 SIP OPTIONS per phone
+- Only phones with DNS resolution are tested (marked with * in phonebook)
+
+### 💡 Status Meanings
+- 🟢 **ONLINE**: Phone responded successfully to test
+- 🔴 **OFFLINE**: DNS resolved but phone didn't respond
+- ⚪ **NO DNS**: Phone hostname doesn't resolve (node not on mesh)
+- ⚫ **DISABLED**: Testing disabled in configuration
 
 ## 🔗 Webhook Endpoints
 
