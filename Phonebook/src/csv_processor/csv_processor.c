@@ -339,10 +339,10 @@ int csv_processor_convert_csv_to_xml_and_get_path(char *output_path, size_t outp
         LOG_DEBUG("Processing line %d: '%.*s...'", ln,
                  (line_len > 30) ? 30 : line_len, line);
 
-        char *cols[5] = {NULL};
+        char *cols[4] = {NULL};
         char *p = line;
-        for (int i = 0; i < 5; i++) {
-            if (i < 4) {
+        for (int i = 0; i < 4; i++) {
+            if (i < 3) {
                 char *c = strchr(p, ',');
                 if (c) {
                     *c = '\0';
@@ -355,20 +355,20 @@ int csv_processor_convert_csv_to_xml_and_get_path(char *output_path, size_t outp
             } else {
                 cols[i] = p;
             }
-            if (!p && i < 4) {
-                LOG_WARN("Line %d has fewer than 5 columns. Missing column %d and subsequent. Line: '%.*s'", ln, i+1, (int)strcspn(line, "\r\n"), line);
+            if (!p && i < 3) {
+                LOG_WARN("Line %d has fewer than 4 columns. Missing column %d and subsequent. Line: '%.*s'", ln, i+1, (int)strcspn(line, "\r\n"), line);
                 break;
             }
         }
 
-        if (cols[4]) {
-            char *e = strchr(cols[4], ',');
+        if (cols[3]) {
+            char *e = strchr(cols[3], ',');
             if (e) *e = '\0';
-            cols[4][strcspn(cols[4], "\r\n")] = '\0';
+            cols[3][strcspn(cols[3], "\r\n")] = '\0';
         }
 
-        if (!cols[4] || !*cols[4]) {
-            LOG_WARN("Skipping line %d due to missing or empty Telephone number (column 5). Line: '%.*s'", ln, (int)strcspn(line, "\r\n"), line);
+        if (!cols[3] || !*cols[3]) {
+            LOG_WARN("Skipping line %d due to missing or empty Telephone number (column 4). Line: '%.*s'", ln, (int)strcspn(line, "\r\n"), line);
             continue;
         }
 
@@ -398,8 +398,8 @@ int csv_processor_convert_csv_to_xml_and_get_path(char *output_path, size_t outp
         xml_escape(full_name_raw, esc_name, sizeof(esc_name));
 
         fprintf(xml, "  <DirectoryEntry>\n    <Name>%s</Name>\n    <Telephone>%s</Telephone>\n  </DirectoryEntry>\n",
-                esc_name, cols[4]);
-        LOG_DEBUG("Added XML entry for Telephone: '%s'", cols[4]);
+                esc_name, cols[3]);
+        LOG_DEBUG("Added XML entry for Telephone: '%s'", cols[3]);
     }
 
     if (ferror(csv)) {
