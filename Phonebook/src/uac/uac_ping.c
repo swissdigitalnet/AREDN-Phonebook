@@ -325,47 +325,62 @@ static float send_icmp_ping(int sockfd, struct sockaddr_in *dest_addr, int seq_n
         return -1.0;
     }
 
-    // Wait for response with 1 second timeout
-    fd_set readfds;
-    struct timeval tv;
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
+    // Wait for response with 1 second timeout - loop to handle multiple responses
+    double deadline = start_time + 1000.0; // 1 second from start
 
-    FD_ZERO(&readfds);
-    FD_SET(sockfd, &readfds);
+    while (1) {
+        // Calculate remaining time
+        double now = get_time_ms();
+        double remaining_ms = deadline - now;
+        if (remaining_ms <= 0) {
+            // Timeout
+            return -1.0;
+        }
 
-    int ret = select(sockfd + 1, &readfds, NULL, NULL, &tv);
-    if (ret <= 0) {
-        // Timeout or error
-        return -1.0;
+        // Set up select with remaining timeout
+        fd_set readfds;
+        struct timeval tv;
+        tv.tv_sec = (int)(remaining_ms / 1000);
+        tv.tv_usec = (int)((remaining_ms - tv.tv_sec * 1000) * 1000);
+
+        FD_ZERO(&readfds);
+        FD_SET(sockfd, &readfds);
+
+        int ret = select(sockfd + 1, &readfds, NULL, NULL, &tv);
+        if (ret <= 0) {
+            // Timeout or error
+            return -1.0;
+        }
+
+        // Receive response
+        struct sockaddr_in from_addr;
+        socklen_t from_len = sizeof(from_addr);
+        ssize_t received = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0,
+                                    (struct sockaddr *)&from_addr, &from_len);
+        if (received < 0) {
+            return -1.0;
+        }
+
+        double end_time = get_time_ms();
+
+        // Parse ICMP response (skip IP header)
+        struct ip *ip_hdr = (struct ip *)recv_buf;
+        int ip_hdr_len = ip_hdr->ip_hl << 2;
+        struct icmp *icmp_reply = (struct icmp *)(recv_buf + ip_hdr_len);
+
+        // Verify this is our echo reply
+        if (icmp_reply->icmp_type == ICMP_ECHOREPLY &&
+            icmp_reply->icmp_id == (getpid() & 0xFFFF) &&
+            icmp_reply->icmp_seq == seq_num) {
+            float rtt = (float)(end_time - start_time);
+            LOG_DEBUG("ICMP ping seq=%d: RTT = %.2f ms", seq_num, rtt);
+            return rtt;
+        }
+
+        // Not our packet - continue loop to read next packet
+        LOG_DEBUG("ICMP: Ignoring response (type=%d, id=%d, seq=%d, expected seq=%d)",
+                  icmp_reply->icmp_type, icmp_reply->icmp_id, icmp_reply->icmp_seq, seq_num);
     }
-
-    // Receive response
-    struct sockaddr_in from_addr;
-    socklen_t from_len = sizeof(from_addr);
-    ssize_t received = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0,
-                                (struct sockaddr *)&from_addr, &from_len);
-    if (received < 0) {
-        return -1.0;
-    }
-
-    double end_time = get_time_ms();
-
-    // Parse ICMP response (skip IP header)
-    struct ip *ip_hdr = (struct ip *)recv_buf;
-    int ip_hdr_len = ip_hdr->ip_hl << 2;
-    struct icmp *icmp_reply = (struct icmp *)(recv_buf + ip_hdr_len);
-
-    // Verify this is our echo reply
-    if (icmp_reply->icmp_type == ICMP_ECHOREPLY &&
-        icmp_reply->icmp_id == (getpid() & 0xFFFF) &&
-        icmp_reply->icmp_seq == seq_num) {
-        float rtt = (float)(end_time - start_time);
-        LOG_DEBUG("ICMP ping seq=%d: RTT = %.2f ms", seq_num, rtt);
-        return rtt;
-    }
-
-    return -1.0;
 }
 
 // Send multiple ICMP ping requests and measure RTT/jitter
