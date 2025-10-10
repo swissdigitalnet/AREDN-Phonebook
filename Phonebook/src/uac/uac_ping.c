@@ -149,6 +149,13 @@ uac_timing_result uac_options_test(const char *phone_number,
 
     LOG_INFO("Starting OPTIONS ping test to %s (%d pings)", phone_number, ping_count);
 
+    // Resolve phone number to IP address (just like ICMP ping does)
+    char target_ip[INET_ADDRSTRLEN];
+    if (resolve_phone_to_ip(phone_number, target_ip, sizeof(target_ip)) < 0) {
+        LOG_WARN("OPTIONS ping test failed: Cannot resolve %s.%s", phone_number, AREDN_MESH_DOMAIN);
+        return result;
+    }
+
     // Create dedicated socket for OPTIONS testing (avoid conflicts with main UAC socket)
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
@@ -181,11 +188,11 @@ uac_timing_result uac_options_test(const char *phone_number,
             continue;
         }
 
-        // Set up server address
+        // Set up server address - USE TARGET IP (phone's IP), NOT local server IP!
         struct sockaddr_in server_addr;
         memset(&server_addr, 0, sizeof(server_addr));
         server_addr.sin_family = AF_INET;
-        inet_pton(AF_INET, server_ip, &server_addr.sin_addr);
+        inet_pton(AF_INET, target_ip, &server_addr.sin_addr);  // FIX: target_ip not server_ip!
         server_addr.sin_port = htons(5060);
 
         // Send OPTIONS request and start timer
@@ -226,13 +233,13 @@ uac_timing_result uac_options_test(const char *phone_number,
     if (result.packets_received > 0) {
         uac_calculate_timing_stats(result.samples, result.packets_received, &result);
 
-        LOG_INFO("OPTIONS ping test complete: %s", phone_number);
+        LOG_INFO("OPTIONS ping test complete: %s (%s)", phone_number, target_ip);
         LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
                  result.packets_sent, result.packets_received, result.packet_loss_pct);
         LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
                  result.min_rtt_ms, result.avg_rtt_ms, result.max_rtt_ms, result.jitter_ms);
     } else {
-        LOG_WARN("OPTIONS ping test failed: No responses from %s", phone_number);
+        LOG_WARN("OPTIONS ping test failed: No responses from %s (%s)", phone_number, target_ip);
     }
 
     // Close dedicated socket
