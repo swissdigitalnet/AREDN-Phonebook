@@ -269,14 +269,14 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Passive safety thread launched (silent self-healing enabled).");
     LOG_DEBUG("Passive safety thread TID: %lu", (unsigned long)g_passive_safety_tid);
 
-    // UAC DISABLED - was causing crashes
-    // LOG_INFO("Creating UAC bulk tester thread...");
-    // if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
-    //     LOG_ERROR("Failed to create UAC bulk tester thread.");
-    //     return EXIT_FAILURE;
-    // }
-    // LOG_DEBUG("UAC bulk tester thread launched.");
-    // LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
+    // Phase 4: UAC Thread Creation
+    LOG_INFO("Creating UAC bulk tester thread...");
+    if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create UAC bulk tester thread.");
+        return EXIT_FAILURE;
+    }
+    LOG_DEBUG("UAC bulk tester thread launched.");
+    LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
@@ -307,23 +307,23 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("Successfully bound to UDP port %d.", SIP_PORT);
 
-    // UAC DISABLED - Initialize UAC module (after SIP server is bound)
-    // LOG_INFO("[MAIN] Initializing UAC module");
-    // int have_server_ip = 0;
-    //
-    // // Try to get server IP for UAC
-    // syslog(6, "[UAC_INIT] Detecting server IP for UAC binding");
-    // if (get_server_ip(g_server_ip, sizeof(g_server_ip)) == 0) {
-    //     syslog(6, "[UAC_INIT] Server IP detected: %s", g_server_ip);
-    //     if (uac_init(g_server_ip) == 0) {
-    //         have_server_ip = 1;
-    //         syslog(6, "[UAC_INIT] ✓ UAC initialized on %s:%d (have_server_ip=%d)", g_server_ip, UAC_SIP_PORT, have_server_ip);
-    //     } else {
-    //         syslog(4, "[UAC_INIT] ✗ uac_init() failed");
-    //     }
-    // } else {
-    //     syslog(4, "[UAC_INIT] ✗ get_server_ip() failed - UAC not initialized");
-    // }
+    // Phase 5: Initialize UAC module (after SIP server is bound)
+    LOG_INFO("[MAIN] Initializing UAC module");
+    int have_server_ip = 0;
+
+    // Try to get server IP for UAC
+    syslog(6, "[UAC_INIT] Detecting server IP for UAC binding");
+    if (get_server_ip(g_server_ip, sizeof(g_server_ip)) == 0) {
+        syslog(6, "[UAC_INIT] Server IP detected: %s", g_server_ip);
+        if (uac_init(g_server_ip) == 0) {
+            have_server_ip = 1;
+            syslog(6, "[UAC_INIT] ✓ UAC initialized on %s:%d (have_server_ip=%d)", g_server_ip, UAC_SIP_PORT, have_server_ip);
+        } else {
+            syslog(4, "[UAC_INIT] ✗ uac_init() failed");
+        }
+    } else {
+        syslog(4, "[UAC_INIT] ✗ get_server_ip() failed - UAC not initialized");
+    }
 
     syslog(6, "[MAIN_LOOP] Server listening on UDP port %d", SIP_PORT);
     syslog(6, "[MAIN_LOOP] Entering main loop");
@@ -335,17 +335,17 @@ int main(int argc, char *argv[]) {
         FD_ZERO(&readfds);
         FD_SET(sockfd, &readfds);
 
-        // UAC DISABLED - Add UAC socket to select if initialized
-        // int max_fd = sockfd;
-        // if (have_server_ip && uac_get_sockfd() >= 0) {
-        //     FD_SET(uac_get_sockfd(), &readfds);
-        //     if (uac_get_sockfd() > max_fd) {
-        //         max_fd = uac_get_sockfd();
-        //     }
-        // }
+        // Phase 5: Add UAC socket to select if initialized
+        int max_fd = sockfd;
+        if (have_server_ip && uac_get_sockfd() >= 0) {
+            FD_SET(uac_get_sockfd(), &readfds);
+            if (uac_get_sockfd() > max_fd) {
+                max_fd = uac_get_sockfd();
+            }
+        }
 
         tv.tv_sec = 1; tv.tv_usec = 0;
-        retval = select(sockfd + 1, &readfds, NULL, NULL, &tv);
+        retval = select(max_fd + 1, &readfds, NULL, NULL, &tv);
 
         if (retval < 0) {
             if (errno == EINTR) {
@@ -373,30 +373,30 @@ int main(int argc, char *argv[]) {
             process_incoming_sip_message(sockfd, buffer, n, &cliaddr, len);
         }
 
-        // UAC DISABLED - Handle UAC socket responses
-        // if (have_server_ip && uac_get_sockfd() >= 0 && FD_ISSET(uac_get_sockfd(), &readfds)) {
-        //     char uac_buffer[MAX_SIP_MSG_LEN];
-        //     n = recvfrom(uac_get_sockfd(), uac_buffer, sizeof(uac_buffer) - 1, 0, NULL, NULL);
-        //     if (n > 0) {
-        //         uac_buffer[n] = '\0';
-        //         uac_process_response(uac_buffer, n);
-        //     } else if (n < 0) {
-        //         LOG_ERROR("recvfrom failed on UAC socket.");
-        //     }
-        // }
+        // Phase 5: Handle UAC socket responses
+        if (have_server_ip && uac_get_sockfd() >= 0 && FD_ISSET(uac_get_sockfd(), &readfds)) {
+            char uac_buffer[MAX_SIP_MSG_LEN];
+            n = recvfrom(uac_get_sockfd(), uac_buffer, sizeof(uac_buffer) - 1, 0, NULL, NULL);
+            if (n > 0) {
+                uac_buffer[n] = '\0';
+                uac_process_response(uac_buffer, n);
+            } else if (n < 0) {
+                LOG_ERROR("recvfrom failed on UAC socket.");
+            }
+        }
 
-        // UAC DISABLED - Check UAC timeout periodically (every select cycle)
-        // if (have_server_ip) {
-        //     uac_check_timeout();
-        // }
+        // Phase 5: Check UAC timeout periodically (every select cycle)
+        if (have_server_ip) {
+            uac_check_timeout();
+        }
     }
     // This code block will now only be reached if an unrecoverable error in the main loop occurs.
     LOG_WARN("Main SIP message processing loop unexpectedly terminated.");
 
-    // UAC DISABLED - Shutdown UAC if initialized
-    // if (have_server_ip) {
-    //     uac_shutdown();
-    // }
+    // Phase 5: Shutdown UAC if initialized
+    if (have_server_ip) {
+        uac_shutdown();
+    }
 
     close(sockfd);
 
