@@ -173,6 +173,13 @@ uac_timing_result uac_options_test(const char *phone_number,
 
     LOG_INFO("Starting OPTIONS ping test to %s (%d pings)", phone_number, ping_count);
 
+    // Initialize random number generator (needed for Call-ID and branch generation)
+    static int random_seeded = 0;
+    if (!random_seeded) {
+        srandom(time(NULL) ^ getpid());
+        random_seeded = 1;
+    }
+
     // Resolve phone number to IP address (just like ICMP ping does)
     char target_ip[INET_ADDRSTRLEN];
     if (resolve_phone_to_ip(phone_number, target_ip, sizeof(target_ip)) < 0) {
