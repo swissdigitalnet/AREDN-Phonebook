@@ -85,6 +85,8 @@ Configure your SIP phone to use the node's directory:
 
 ## 📊 AREDNmon - Network Monitoring Dashboard
 
+**Access**: `http://[your-node].local.mesh/cgi-bin/arednmon`
+
 ![AREDNmon Dashboard](images/AREDNmon.png)
 
 AREDNmon provides real-time network monitoring with a web-based dashboard showing the status of all phones on your mesh network.

@@ -37,3 +37,9 @@ Thumbs.db
 # Large SDK files
 openwrt-sdk.tar.xz
 *.tar.xz
+
+# Build artifacts and downloaded packages
+AREDN-Phonebook-*-UAC-*/
+AREDN-Phonebook-*-Phonebook-*/
+build-output/
+downloads/
