@@ -129,18 +129,14 @@ cat <<EOF
         // Load phonebook data
         async function loadPhonebook() {
             try {
-                const response = await fetch('/cgi-bin/phonebook');
-                const text = await response.text();
-                const lines = text.trim().split('\\n');
+                const response = await fetch('/cgi-bin/showphonebook');
+                const data = await response.json();
 
-                lines.forEach(line => {
-                    const parts = line.split(',');
-                    if (parts.length >= 2) {
-                        const phone = parts[0].trim();
-                        const name = parts[1].trim();
-                        phonebook[phone] = name;
-                    }
-                });
+                if (data.entries && data.entries.length > 0) {
+                    data.entries.forEach(entry => {
+                        phonebook[entry.telephone] = entry.name.trim();
+                    });
+                }
             } catch (error) {
                 console.error('Failed to load phonebook:', error);
             }
