@@ -33,7 +33,7 @@ define Build/Prepare
 endef
 
 define Build/Compile
-	# Build main AREDN-Phonebook server (UAC disabled)
+	# Build main AREDN-Phonebook server with UAC support
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \
 		-static \
 		-I$(PKG_BUILD_DIR) \
@@ -49,15 +49,21 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/log_manager/log_manager.c \
 		$(PKG_BUILD_DIR)/config_loader/config_loader.c \
 		$(PKG_BUILD_DIR)/passive_safety/passive_safety.c \
+		$(PKG_BUILD_DIR)/uac/uac.c \
+		$(PKG_BUILD_DIR)/uac/uac_bulk_tester.c \
+		$(PKG_BUILD_DIR)/uac/uac_ping.c \
+		$(PKG_BUILD_DIR)/uac/uac_test_db.c \
+		$(PKG_BUILD_DIR)/uac/uac_sip_builder.c \
+		$(PKG_BUILD_DIR)/uac/uac_sip_parser.c \
 		-lpthread -lm -lrt
 
-	# UAC DISABLED - Build UAC test database JSON reader CGI
-	# $(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \
-	# 	-static \
-	# 	-I$(PKG_BUILD_DIR) \
-	# 	-o $(PKG_BUILD_DIR)/uac_test_db_json \
-	# 	$(PKG_BUILD_DIR)/uac/uac_test_db_reader.c \
-	# 	-lrt
+	# Build UAC test database JSON reader CGI
+	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \
+		-static \
+		-I$(PKG_BUILD_DIR) \
+		-o $(PKG_BUILD_DIR)/uac_test_db_json \
+		$(PKG_BUILD_DIR)/uac/uac_test_db_reader.c \
+		-lrt
 endef
 
 define Package/AREDN-Phonebook/install
@@ -70,11 +76,10 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_DIR) $(1)/www/cgi-bin
 	$(INSTALL_BIN) ./files/www/cgi-bin/loadphonebook $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/showphonebook $(1)/www/cgi-bin/
-	# UAC DISABLED
-	# $(INSTALL_BIN) ./files/www/cgi-bin/uac_test $(1)/www/cgi-bin/
-	# $(INSTALL_BIN) ./files/www/cgi-bin/uac_test_all $(1)/www/cgi-bin/
-	# $(INSTALL_BIN) ./files/www/cgi-bin/uac_ping $(1)/www/cgi-bin/
-	# $(INSTALL_BIN) $(PKG_BUILD_DIR)/uac_test_db_json $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/uac_test $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/uac_test_all $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/uac_ping $(1)/www/cgi-bin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/uac_test_db_json $(1)/www/cgi-bin/
 endef
 
 $(eval $(call BuildPackage,AREDN-Phonebook))
