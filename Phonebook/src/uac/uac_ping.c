@@ -189,6 +189,7 @@ uac_timing_result uac_options_test(const char *phone_number,
         server_addr.sin_port = htons(5060);
 
         // Send OPTIONS request and start timer
+        double start_time = get_time_ms();
         ssize_t sent = sendto(sockfd, options_msg, strlen(options_msg), 0,
                              (struct sockaddr*)&server_addr, sizeof(server_addr));
         if (sent < 0) {
@@ -200,6 +201,11 @@ uac_timing_result uac_options_test(const char *phone_number,
 
         // Wait for response and measure RTT (1 second timeout)
         float rtt = wait_for_options_response(sockfd, call_id, 1000);
+        if (rtt > 0) {
+            // Adjust RTT to include send time
+            double end_time = get_time_ms();
+            rtt = (float)(end_time - start_time);
+        }
 
         if (rtt > 0) {
             result.samples[result.packets_received] = rtt;
