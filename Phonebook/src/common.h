@@ -129,7 +129,7 @@ typedef struct {
 // extern volatile sig_atomic_t phonebook_updated_flag; // REMOVED
 extern volatile sig_atomic_t phonebook_reload_requested; // For webhook-triggered reload
 
-// These are defined in config_loader.c and populated from sipserver.conf
+// These are defined in config_loader.c and populated from phonebook.conf
 extern int g_pb_interval_seconds;
 extern int g_status_update_interval_seconds;
 extern ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];

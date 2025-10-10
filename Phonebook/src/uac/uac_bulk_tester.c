@@ -52,11 +52,6 @@ void *uac_bulk_tester_thread(void *arg) {
                 continue;
             }
 
-            // Only test phone numbers starting with configured prefix
-            if (strncmp(user->user_id, g_uac_test_prefix, strlen(g_uac_test_prefix)) != 0) {
-                continue;
-            }
-
             total_users++;
 
             // Build hostname for DNS check: <phone_number>.local.mesh
@@ -91,42 +86,84 @@ void *uac_bulk_tester_thread(void *arg) {
                 pthread_mutex_unlock(&registered_users_mutex);
 
                 // ====================================================
-                // PHASE 1: SIP OPTIONS Ping Test (Latency/Jitter)
+                // PHASE 1: Ping Test (ICMP - Network Layer)
                 // ====================================================
-                LOG_INFO("Testing %s (%s) with OPTIONS ping (%d pings)...",
-                         user->user_id, user->display_name, g_uac_options_ping_count);
+                if (g_uac_ping_count > 0) {
+                    LOG_INFO("Testing %s (%s) with ping (%d pings)...",
+                             user->user_id, user->display_name, g_uac_ping_count);
 
-                uac_ping_result_t ping_result = uac_options_ping_test(
-                    user->user_id, g_server_ip, g_uac_options_ping_count);
+                    uac_timing_result ping_result = uac_ping_test(
+                        user->user_id, g_server_ip, g_uac_ping_count);
 
-                if (ping_result.online) {
-                    phones_online++;
-                    tests_triggered++;
+                    if (ping_result.online) {
+                        LOG_INFO("✓ Phone %s ONLINE (ping)", user->user_id);
+                        LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
+                                 ping_result.packets_sent, ping_result.packets_received,
+                                 ping_result.packet_loss_pct);
+                        LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
+                                 ping_result.min_rtt_ms, ping_result.avg_rtt_ms,
+                                 ping_result.max_rtt_ms, ping_result.jitter_ms);
 
-                    LOG_INFO("✓ Phone %s ONLINE (OPTIONS)", user->user_id);
-                    LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
-                             ping_result.packets_sent, ping_result.packets_received,
-                             ping_result.packet_loss_pct);
-                    LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
-                             ping_result.min_rtt_ms, ping_result.avg_rtt_ms,
-                             ping_result.max_rtt_ms, ping_result.jitter_ms);
-
-                    // Track RTT stats for summary
-                    total_avg_rtt += ping_result.avg_rtt_ms;
-                    rtt_count++;
-
-                    // Re-acquire mutex and continue to next user
-                    pthread_mutex_lock(&registered_users_mutex);
-                    continue;
-                } else {
-                    LOG_WARN("✗ Phone %s no response to OPTIONS ping", user->user_id);
+                        // Track RTT stats for summary
+                        total_avg_rtt += ping_result.avg_rtt_ms;
+                        rtt_count++;
+                    } else {
+                        LOG_WARN("✗ Phone %s no response to ping", user->user_id);
+                    }
                 }
 
                 // ====================================================
-                // PHASE 2: SIP INVITE Test (Optional - only if enabled)
+                // PHASE 2: Options Test (SIP OPTIONS - Application Layer)
+                // ====================================================
+                if (g_uac_options_count > 0) {
+                    LOG_INFO("Testing %s (%s) with options (%d requests)...",
+                             user->user_id, user->display_name, g_uac_options_count);
+
+                    uac_timing_result options_result = uac_options_test(
+                        user->user_id, g_server_ip, g_uac_options_count);
+
+                    if (options_result.online) {
+                        phones_online++;
+                        tests_triggered++;
+
+                        LOG_INFO("✓ Phone %s ONLINE (options)", user->user_id);
+                        LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
+                                 options_result.packets_sent, options_result.packets_received,
+                                 options_result.packet_loss_pct);
+                        LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
+                                 options_result.min_rtt_ms, options_result.avg_rtt_ms,
+                                 options_result.max_rtt_ms, options_result.jitter_ms);
+
+                        // Track RTT stats for summary (only if ping wasn't counted)
+                        if (g_uac_ping_count <= 0) {
+                            total_avg_rtt += options_result.avg_rtt_ms;
+                            rtt_count++;
+                        }
+
+                        // Re-acquire mutex and continue to next user
+                        pthread_mutex_lock(&registered_users_mutex);
+                        continue;
+                    } else {
+                        LOG_WARN("✗ Phone %s no response to options", user->user_id);
+                    }
+                }
+
+                // ====================================================
+                // PHASE 3: SIP INVITE Test (Optional - only if enabled AND prefix matches)
                 // ====================================================
                 if (g_uac_call_test_enabled) {
-                    LOG_INFO("OPTIONS ping failed, trying INVITE test for %s...", user->user_id);
+                    // Check if phone number matches the configured prefix for INVITE testing
+                    if (strncmp(user->user_id, g_uac_test_prefix, strlen(g_uac_test_prefix)) != 0) {
+                        // Phone doesn't match prefix - skip INVITE test but mark as offline
+                        LOG_INFO("Phone %s does not match prefix '%s', skipping INVITE test",
+                                 user->user_id, g_uac_test_prefix);
+                        phones_offline++;
+                        pthread_mutex_lock(&registered_users_mutex);
+                        continue;
+                    }
+
+                    LOG_INFO("Ping/OPTIONS failed, trying INVITE test for %s (matches prefix '%s')...",
+                             user->user_id, g_uac_test_prefix);
 
                     // Wait for UAC to return to IDLE state before making call
                     // The UAC only supports one call at a time
