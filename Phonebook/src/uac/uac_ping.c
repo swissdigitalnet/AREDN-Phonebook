@@ -102,6 +102,30 @@ static float wait_for_options_response(int sockfd, const char *call_id, int time
     return rtt;
 }
 
+// Helper: Resolve phone number to IP address via DNS
+static int resolve_phone_to_ip(const char *phone_number, char *ip_address, size_t ip_size) {
+    char hostname[128];
+    snprintf(hostname, sizeof(hostname), "%s.%s", phone_number, AREDN_MESH_DOMAIN);
+
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_RAW;
+    struct addrinfo *res = NULL;
+
+    int status = getaddrinfo(hostname, NULL, &hints, &res);
+    if (status != 0) {
+        LOG_WARN("Failed to resolve %s: %s", hostname, gai_strerror(status));
+        return -1;
+    }
+
+    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+    inet_ntop(AF_INET, &(ipv4->sin_addr), ip_address, ip_size);
+
+    freeaddrinfo(res);
+    LOG_DEBUG("Resolved %s to %s", hostname, ip_address);
+    return 0;
+}
+
 // Calculate statistics from RTT samples
 void uac_calculate_timing_stats(float *samples, int sample_count, uac_timing_result *result) {
     if (sample_count == 0 || !result) {
@@ -261,30 +285,6 @@ static unsigned short calculate_checksum(unsigned short *buf, int len) {
     sum = (sum >> 16) + (sum & 0xFFFF);
     sum += (sum >> 16);
     return (unsigned short)(~sum);
-}
-
-// Helper: Resolve phone number to IP address via DNS
-static int resolve_phone_to_ip(const char *phone_number, char *ip_address, size_t ip_size) {
-    char hostname[128];
-    snprintf(hostname, sizeof(hostname), "%s.%s", phone_number, AREDN_MESH_DOMAIN);
-
-    struct addrinfo hints = {0};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_RAW;
-    struct addrinfo *res = NULL;
-
-    int status = getaddrinfo(hostname, NULL, &hints, &res);
-    if (status != 0) {
-        LOG_WARN("Failed to resolve %s: %s", hostname, gai_strerror(status));
-        return -1;
-    }
-
-    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-    inet_ntop(AF_INET, &(ipv4->sin_addr), ip_address, ip_size);
-
-    freeaddrinfo(res);
-    LOG_DEBUG("Resolved %s to %s", hostname, ip_address);
-    return 0;
 }
 
 // Send ICMP ping and wait for response
