@@ -7,7 +7,6 @@ on:
       - '*.*.*'
     branches:
       - 'development'
-      - 'UAC'
       - 'dev-*'
   pull_request:
 
