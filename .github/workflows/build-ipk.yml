@@ -152,24 +152,20 @@ jobs:
             exit 1
           fi
 
-          # Create unique build number from git commit and run number (full SHA)
-          BUILD_NUM="${{ github.run_number }}-${{ github.sha }}"
-
-          # Rename IPK file to include architecture and build number
-          ARCH_IPK="AREDN-Phonebook-${{ matrix.target.arch }}-${{ github.ref_name }}-${BUILD_NUM}.ipk"
+          # Rename IPK file to simple format: AREDN-Phonebook-{arch}-{version}.ipk
+          ARCH_IPK="AREDN-Phonebook-${{ matrix.target.arch }}-${{ github.ref_name }}.ipk"
           cp "$IPK_FILE" "$ARCH_IPK"
 
           echo "ipk_path=$ARCH_IPK" >> $GITHUB_OUTPUT
           echo "Original IPK: $IPK_FILE"
           echo "Renamed to: $ARCH_IPK"
-          echo "Build number: ${BUILD_NUM}"
           ls -la "$ARCH_IPK"
 
       # Upload IPK as artifact for development builds
       - name: Upload IPK as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AREDN-Phonebook-${{ matrix.target.arch }}-${{ github.ref_name }}-${{ github.run_number }}-${{ github.sha }}
+          name: AREDN-Phonebook-${{ matrix.target.arch }}-${{ github.ref_name }}
           path: ${{ steps.find_ipk.outputs.ipk_path }}
           retention-days: 30
 
