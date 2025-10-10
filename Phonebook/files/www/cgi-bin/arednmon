@@ -1,8 +1,8 @@
 #!/bin/sh
-# UAC Bulk Test Results
-# Displays results from the most recent automated bulk test cycle
-# The bulk test runs automatically every UAC_TEST_INTERVAL_SECONDS (default: 60s)
-# Usage: curl "http://node/cgi-bin/uac_test_all"
+# AREDNmon - AREDN Mesh Network Monitor
+# Displays network monitoring results from automated bulk test cycles
+# The bulk test runs automatically every UAC_TEST_INTERVAL_SECONDS (default: 600s)
+# Usage: curl "http://node/cgi-bin/arednmon"
 
 echo "Content-Type: text/html; charset=utf-8"
 echo ""
@@ -17,7 +17,7 @@ cat <<'EOF'
 <!DOCTYPE html>
 <html>
 <head>
-    <title>UAC Bulk Test Results</title>
+    <title>AREDNmon - Network Monitor</title>
     <meta http-equiv="refresh" content="30">
     <style>
         body {
@@ -92,7 +92,7 @@ cat <<'EOF'
     </style>
 </head>
 <body>
-    <h1>UAC Bulk Test Results</h1>
+    <h1>AREDNmon - Network Monitor</h1>
 EOF
 
 cat <<EOF
