@@ -1,5 +1,5 @@
 #!/bin/sh /etc/rc.common
-# This is an OpenWrt init.d script for your SIP proxy
+# This is an OpenWrt init.d script for AREDN Phonebook
 
 START=99 # Start late in the boot sequence
 STOP=10  # Stop early during shutdown
@@ -11,7 +11,7 @@ start_service() {
     # Create the directory for the phonebook if it doesn't exist
     mkdir -p /www/arednstack
 
-    # Start the SIP server in the background
+    # Start the phonebook service in the background
     # It will log to syslog automatically via procd
     procd_open_instance
     procd_set_param command /usr/bin/AREDN-Phonebook

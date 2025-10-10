@@ -21,8 +21,9 @@ define Package/AREDN-Phonebook
 endef
 
 define Package/AREDN-Phonebook/description
-  AREDN Phonebook SIP Server with UAC load testing support.
-  Includes passive safety features for Amateur Radio Emergency Data Networks.
+  AREDN Phonebook with SIP directory service and network monitoring.
+  Includes UAC testing, AREDNmon dashboard, and passive safety features
+  for Amateur Radio Emergency Data Networks.
 endef
 
 define Build/Prepare
