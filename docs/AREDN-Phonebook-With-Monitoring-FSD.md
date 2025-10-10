@@ -2,8 +2,7 @@
 ## With Integrated Mesh Quality Monitoring
 
 **Audience:** C developers and AREDN network operators
-**Goal:** Enhance AREDN-Phonebook with lightweight mesh quality monitoring while maintaining its core emergency phonebook functionality
-**Foundation:** Building upon AREDN-Phonebook v1.4.5 and mesh monitoring concepts v0.9
+**Goal:** AREDN-Phonebook with SIP server and lightweight mesh quality monitoring while maintaining its core emergency phonebook functionality
 
 ---
 
@@ -30,66 +29,83 @@ The enhanced system maintains backward compatibility while adding optional monit
 
 ```
 AREDN-Phonebook-Enhanced (single process)
-├── Core SIP Proxy Module (existing)
+├── Core SIP Proxy Module
 │   ├── REGISTER handler
 │   ├── INVITE routing
 │   └── User database
-├── Phonebook Module (existing)
+├── Phonebook Module
 │   ├── CSV fetcher thread
 │   ├── XML generator
 │   └── Status updater thread
-├── Passive Safety Module (existing)
+├── Passive Safety Module
 │   └── Self-healing thread
-└── Mesh Monitor Module (NEW)
-    ├── Routing introspection
-    ├── Path quality probes
-    ├── Metrics calculator
-    ├── Health reporter
-    └── Software health tracker
+└── UAC Phone Testing Module
+    ├── OPTIONS ping test
+    ├── RTT/jitter measurement
+    └── Bulk phone testing
 ```
 
 ### 1.2 Thread Architecture
 
-- **Main Thread:** SIP message processing (unchanged)
-- **Fetcher Thread:** Phonebook updates (unchanged)
-- **Updater Thread:** User status management (unchanged)
-- **Safety Thread:** Self-healing operations (unchanged)
-- **Monitor Thread:** (NEW) Mesh quality measurements via dedicated uloop
+- **Main Thread:** SIP message processing
+- **Fetcher Thread:** Phonebook updates
+- **Updater Thread:** User status management
+- **Safety Thread:** Self-healing operations
+- **UAC Thread:** SIP phone testing (OPTIONS ping and optional INVITE)
 
 ### 1.3 Resource Sharing
 
 - Shared logging system (`log_manager`)
-- Shared configuration (`/etc/sipserver.conf` + new `mesh_monitor` section)
+- Shared configuration (`/etc/sipserver.conf`)
 - Shared memory pools for efficiency
 - Unified signal handling and lifecycle
 
 ---
 
-## 2) Enhanced Feature Set
+## 2) Core Features
 
-### 2.1 Core Phonebook Features (Preserved)
-- ✅ Automatic phonebook fetching every 30 minutes
-- ✅ Emergency boot with persistent storage
-- ✅ Flash-friendly operation (minimal writes)
-- ✅ SIP REGISTER/INVITE handling
-- ✅ XML directory for Yealink phones
-- ✅ Webhook endpoints (loadphonebook, showphonebook)
-- ✅ Passive safety with self-healing
+### 2.1 SIP Proxy Server (Primary Functionality)
+- ✅ **SIP REGISTER handling** - User registration with 3600-second expiry
+- ✅ **INVITE routing** - Call establishment with DNS resolution (`{user_id}.local.mesh`)
+- ✅ **Call session tracking** - BYE, CANCEL, ACK, and OPTIONS method support
+- ✅ **Stateful proxy** - Tracks active calls and routes responses correctly
+- ✅ **No authentication** - Trust-based model for mesh networks
+- ✅ **Error handling** - 404, 503, 481, 501 responses with appropriate recovery
+- ✅ **UDP port 5060** - Standard SIP port binding
 
-### 2.2 New Monitoring Features
-- 🆕 **Mesh Path Quality:** Loss, RTT, jitter (RFC3550) measurements
-- 🆕 **Routing Awareness:** OLSR/Babel link quality metrics
-- 🆕 **Hop-by-Hop Analysis:** Per-link quality in multi-hop paths
-- 🆕 **Network Health Dashboard:** JSON API for monitoring tools
-- 🆕 **Degradation Detection:** Early warning for voice quality issues
-- 🆕 **Historical Trending:** Rolling window statistics
-- ✅ **SIP Phone Testing:** OPTIONS ping and optional INVITE tests for phone reachability
+### 2.2 Phonebook Module (Core Directory Service)
+- ✅ **Automatic CSV fetching** - Downloads phonebook every 1 hour (default: 3600 seconds) from configured servers
+- ✅ **XML directory generation** - Creates Yealink-compatible directory at `/www/arednstack/phonebook_generic_direct.xml`
+- ✅ **CSV storage** - Persists phonebook data at `/www/arednstack/phonebook.csv` for emergency boot
+- ✅ **Emergency boot mode** - Loads existing phonebook on startup for immediate service
+- ✅ **Flash-friendly operation** - Minimal writes, 16-byte hash-based change detection
+- ✅ **User status tracking** - Updates registered user availability every 10 minutes (default: 600 seconds)
+- ✅ **Webhook endpoints** - `/cgi-bin/loadphonebook` (trigger fetch), `/cgi-bin/showphonebook` (view entries)
+
+### 2.3 Passive Safety System (Self-Healing)
+- ✅ **Configuration validation** - Auto-corrects invalid fetch/update intervals (minimum 5 min for fetch, 1 min for updates)
+- ✅ **Thread health monitoring** - Detects hung threads (30 min timeout for fetcher, 20 min for updater)
+- ✅ **Stale session cleanup** - Terminates call sessions >2 hours old (7200 seconds)
+- ✅ **Resource leak prevention** - RAII-style cleanup, static allocation, orphaned file cleanup
+- ✅ **Continuous operation** - Individual thread failures don't stop entire service, automatic thread restart
+- ✅ **Silent operation** - Runs in background every 5 minutes without user intervention
+- ✅ **Graceful degradation** - Doubles fetch interval when call load exceeds 80% capacity
+- ✅ **File integrity checks** - Validates phonebook files (minimum 50 bytes), automatic rollback on corruption
+- ✅ **Default fallback server** - Uses `localnode.local.mesh:80/phonebook.csv` if no servers configured
+
+### 2.4 UAC Phone Testing (Optional Add-On)
+- ✅ **OPTIONS ping test** - Non-intrusive phone reachability testing (default mode)
+- ✅ **INVITE call test** - Optional brief ring test (disabled by default)
+- ✅ **RTT/jitter measurement** - RFC3550-like statistics (min/max/avg RTT, jitter, packet loss)
+- ✅ **Bulk testing thread** - Automated testing of all registered phones
+- ✅ **Configurable intervals** - Test frequency, ping count, and INVITE test phone prefix filtering
+- ✅ **CGI endpoint** - `/cgi-bin/uac_ping` for on-demand tests
 
 ---
 
 ## 3) Module Specifications
 
-### 3.1 Monitoring Module Structure
+### 3.1 UAC (User Agent Client) Module Structure
 
 ```c
 // Existing UAC (User Agent Client) module for SIP phone testing
@@ -101,52 +117,105 @@ Phonebook/src/uac/
 ├── uac_ping.h               // ✅ SIP OPTIONS/PING ping API
 ├── uac_ping.c               // ✅ RTT/jitter measurement (RFC3550-like)
 └── uac_bulk_tester.c        // ✅ Bulk phone testing with dual-mode
-
-// Future mesh monitoring (mesh-wide network quality)
-Phonebook/src/mesh_monitor/
-├── mesh_monitor.h           // Public API
-├── mesh_monitor.c           // Main coordinator
-├── routing_adapter.c        // OLSR/Babel interface
-├── probe_engine.c          // UDP probe sender/receiver
-├── metrics_calculator.c    // RFC3550 jitter, loss, RTT
-├── health_reporter.c       // JSON generation and batching
-├── software_health.c       // Software health tracking
-└── monitor_config.c        // Configuration parser
 ```
 
-### 3.2 Integration Points
+### 3.2 SIP Protocol Handling (`sip_core/`)
 
-```c
-// In main.c - Initialize monitoring after phonebook
-if (g_mesh_monitor_enabled) {
-    mesh_monitor_init(&config);
-    pthread_create(&monitor_tid, NULL, mesh_monitor_thread, NULL);
-}
+**Purpose**: Handles all SIP protocol message processing, parsing, and routing.
 
-// In passive_safety.c - Add monitoring health checks
-void passive_monitor_recovery_check(void) {
-    if (monitor_probe_stuck()) {
-        restart_probe_engine();
-    }
-}
+#### 3.2.1 Message Parsing Functions
+- `extract_sip_header()`: Extracts specific SIP headers from messages
+- `parse_user_id_from_uri()`: Parses user ID from SIP URIs
+- `extract_uri_from_header()`: Extracts complete URIs from headers
+- `extract_tag_from_header()`: Extracts tag parameters from headers
+- `get_sip_method()`: Identifies SIP method (REGISTER, INVITE, etc.)
 
-// In status_updater.c - Correlate SIP failures with mesh quality
-if (registration_failed && mesh_path_degraded(peer)) {
-    LOG_WARN("Registration failure likely due to mesh path issues");
-}
-```
+#### 3.2.2 Registration Process
+**REGISTER Method Handling:**
+1. Client sends `REGISTER` to server
+2. Server extracts user ID and display name from SIP headers
+3. Calls `add_or_update_registered_user()` to update database
+4. User marked as active and available for calls
+5. Server responds `200 OK` with 3600-second expiry
+6. **No authentication required** (mesh network trust model)
+
+#### 3.2.3 Call Establishment Process
+**INVITE Method Handling:**
+1. Client sends `INVITE` with target user ID
+2. Server looks up target using `find_registered_user()`
+3. **DNS resolution**: Constructs hostname `{user_id}.local.mesh`
+4. Creates call session using `create_call_session()` for tracking
+5. Server sends "100 Trying" response to caller
+6. INVITE proxied to resolved callee address with reconstructed Request-URI
+7. Callee responses proxied back to caller via session data
+8. Call state updated based on response codes
+
+#### 3.2.4 Call Termination Process
+**BYE Method Handling:**
+- Finds call session by Call-ID
+- Determines caller vs callee by comparing addresses
+- BYE proxied to other party
+- Server responds "200 OK" to BYE sender
+- Call session terminated and resources freed
+
+**CANCEL Method Handling:**
+- Only valid for INVITE_SENT or RINGING states
+- Proxies CANCEL to callee
+- Responds with "200 OK"
+- Terminates call session
+
+**ACK Method:**
+- Acknowledges call establishment
+- Proxies ACK to callee for ESTABLISHED calls
+
+**OPTIONS Method:**
+- Capability negotiation
+- Responds with "200 OK" and supported methods
+
+#### 3.2.5 Response Handling
+- Processes SIP responses (200 OK, 180 Ringing, etc.)
+- Routes responses back to original caller using stored call session data
+- Updates call session state based on response codes
+- Handles error responses (4xx, 5xx) by terminating sessions
+
+#### 3.2.6 Address Resolution
+- Uses DNS resolution for call routing
+- Constructs hostnames: `{user_id}.local.mesh`
+- Always uses port 5060 for SIP communication
+- Falls back to "404 Not Found" if resolution fails
 
 ---
 
 ## 4) Configuration Schema
 
-### 4.1 Enhanced /etc/sipserver.conf
+### 4.1 Current /etc/sipserver.conf
 
 ```ini
-# Existing phonebook configuration
+# ===================================================================
+# Phonebook Configuration
+# ===================================================================
 [phonebook]
-fetch_interval_seconds = 1800
+# Phonebook fetch interval in seconds
+# How often to download the phonebook CSV from configured servers
+# Default: 3600 (1 hour)
+# Minimum: 300 (5 minutes) - enforced by passive safety
+PB_INTERVAL_SECONDS=3600
+
+# Status update interval in seconds
+# How often to check and update registered user availability
+# Default: 600 (10 minutes)
+# Minimum: 60 (1 minute) - enforced by passive safety
+STATUS_UPDATE_INTERVAL_SECONDS=600
+
+# Phonebook servers (comma-separated list)
+# Format: hostname1.local.mesh,hostname2.local.mesh
+# Default: localnode.local.mesh (if none configured)
 servers = pb1.local.mesh,pb2.local.mesh
+
+# Flash protection mode
+# 1 = enabled (hash-based change detection, minimal writes)
+# 0 = disabled (write on every fetch)
+# Default: 1
 flash_protection = 1
 
 # ===================================================================
@@ -164,23 +233,149 @@ UAC_TEST_INTERVAL_SECONDS=60
 # Default: 0 (disabled - OPTIONS ping only)
 UAC_CALL_TEST_ENABLED=0
 
-# UAC OPTIONS Test Settings
-# Number of OPTIONS requests to send per phone for latency measurement.
-# Each OPTIONS ping measures round-trip time. Multiple pings allow jitter calculation.
-# Range: 1-20, Default: 5
-UAC_OPTIONS_PING_COUNT=5
+# UAC Ping Test Settings (ICMP - Network Layer)
+# Number of ICMP ping requests to send per phone for latency measurement.
+# Tests network-layer connectivity and measures RTT/jitter at the IP level.
+# Set to 0 to disable ICMP ping testing.
+# Range: 0-20, Default: 5
+UAC_PING_COUNT=5
 
-# UAC PING Test Settings
-# Number of SIP PING requests to send per phone for latency measurement.
-# Note: SIP PING is non-standard, so this uses OPTIONS instead.
-# Default: 5
-UAC_PING_PING_COUNT=5
+# UAC Options Test Settings (SIP OPTIONS - Application Layer)
+# Number of SIP OPTIONS requests to send per phone for latency measurement.
+# Tests application-layer connectivity and measures RTT/jitter at the SIP level.
+# Each OPTIONS request measures round-trip time. Multiple requests allow jitter calculation.
+# Set to 0 to disable OPTIONS testing.
+# Range: 0-20, Default: 5
+UAC_OPTIONS_COUNT=5
 
-# UAC Test Phone Number Prefix
-# Only test phone numbers starting with this prefix.
+# UAC Test Phone Number Prefix (INVITE test only)
+# Only perform INVITE tests on phone numbers starting with this prefix.
+# Ping and OPTIONS tests will run for ALL phones regardless of prefix.
+# This allows selective calling tests while monitoring all phones.
 # Default: 4415
 UAC_TEST_PREFIX=4415
+```
 
+---
+
+## 5) Error Handling
+
+### 5.1 SIP Protocol Errors
+
+The SIP proxy implements comprehensive error handling for protocol-level issues:
+
+**404 Not Found:**
+- **Trigger:** User not registered or DNS resolution failed
+- **Behavior:** Sends "404 Not Found" response to caller
+- **Resolution:** Verify target user is registered and DNS is operational
+
+**503 Service Unavailable:**
+- **Trigger:** Maximum call sessions reached (`MAX_CALL_SESSIONS` limit)
+- **Behavior:** Rejects new INVITE requests
+- **Resolution:** Wait for active calls to terminate or increase session limit
+
+**481 Call/Transaction Does Not Exist:**
+- **Trigger:** BYE or CANCEL received for unknown Call-ID
+- **Behavior:** Responds with "481" error
+- **Resolution:** Indicates client state mismatch, usually benign
+
+**501 Not Implemented:**
+- **Trigger:** Unsupported SIP methods received
+- **Behavior:** Responds with "501 Not Implemented"
+- **Supported Methods:** REGISTER, INVITE, ACK, BYE, CANCEL, OPTIONS
+
+### 5.2 System-Level Errors
+
+**File Access Errors:**
+- **Configuration Missing:** Uses default configuration values
+- **Phonebook CSV Unreadable:** Continues with existing cached data
+- **XML Generation Failure:** Retries on next fetch cycle
+- **Hash File Corruption:** Regenerates hash on next successful fetch
+
+**Network Errors:**
+- **Phonebook Server Unreachable:** Tries next configured server in sequence
+- **DNS Resolution Failure:** Returns 404 to caller, logs warning
+- **Socket Binding Failure:** Fatal error, logs and exits (requires restart)
+- **Network Timeout:** Abandons current operation, retries next cycle
+
+**Resource Limit Errors:**
+- **Maximum Users Reached (`MAX_REGISTERED_USERS=256`):** Rejects new registrations, logs warning
+- **Maximum Call Sessions (`MAX_CALL_SESSIONS=10`):** Returns 503 to new callers
+- **Memory Allocation Failure:** Logs error, attempts graceful degradation
+- **Thread Creation Failure:** Fatal error for critical threads, logs and exits
+
+### 5.3 Recovery Mechanisms
+
+**Configuration Self-Correction:**
+- **Invalid Fetch Interval:** Adjusts to minimum 300 seconds (5 minutes)
+- **Invalid Update Interval:** Adjusts to minimum 60 seconds (1 minute)
+- **No Servers Configured:** Logs error, uses fallback default
+- Passive safety system validates and corrects parameters automatically
+
+**Hash-Based Change Detection:**
+- **Purpose:** Prevents unnecessary processing of unchanged phonebooks
+- **Mechanism:** Calculates 16-byte conceptual hash of CSV content
+- **Storage:** Hash stored at `/www/arednstack/phonebook.csv.hash`
+- **Behavior:** Skips user database update if hash matches previous
+- **Benefit:** Reduces CPU usage, prevents unnecessary flash writes, avoids race conditions
+
+**File Integrity Protection:**
+- **Backup Strategy:** Creates `.backup` file before any phonebook update
+- **Temporary Files:** Uses `.temp` extension for atomic operations
+- **Corruption Detection:** Validates files are at least 50 bytes
+- **Automatic Rollback:** Restores `.backup` if update fails
+- **Orphan Cleanup:** Removes leftover `.backup` and `.temp` files every 5 minutes
+
+**Resource Cleanup:**
+- **Stale Call Sessions:** Passive safety terminates sessions >2 hours old (7200 seconds)
+- **Hung Threads:** Automatic detection and restart
+  - **Fetcher thread:** 30-minute timeout (1800 seconds)
+  - **Updater thread:** 20-minute timeout (1200 seconds)
+- **File Handle Leaks:** Ensures all file operations use RAII-style cleanup
+- **Memory Cleanup:** Static allocation minimizes leak potential
+
+**Continuous Operation:**
+- **Phonebook Fetch Failure:** Continues with cached data indefinitely
+- **Individual Thread Failure:** Other threads continue operation
+- **Transient Errors:** Logged but do not interrupt service
+- **Emergency Boot:** Loads existing phonebook on startup for immediate service
+
+---
+
+# PLANNED FEATURES
+
+## 9) Mesh Monitoring Features (Future - Phase 2)
+
+### 9.1 Monitoring Module Structure (PLANNED)
+
+```c
+// Future mesh monitoring (mesh-wide network quality)
+Phonebook/src/mesh_monitor/
+├── mesh_monitor.h           // Public API
+├── mesh_monitor.c           // Main coordinator
+├── routing_adapter.c        // OLSR/Babel interface
+├── probe_engine.c          // UDP probe sender/receiver
+├── metrics_calculator.c    // RFC3550 jitter, loss, RTT
+├── health_reporter.c       // JSON generation and batching
+├── software_health.c       // Software health tracking
+└── monitor_config.c        // Configuration parser
+```
+
+### 9.3 New Monitoring Features (PLANNED)
+- 🆕 **Mesh Path Quality:** Loss, RTT, jitter (RFC3550) measurements
+- 🆕 **Routing Awareness:** OLSR/Babel link quality metrics
+- 🆕 **Hop-by-Hop Analysis:** Per-link quality in multi-hop paths
+- 🆕 **Network Health Dashboard:** JSON API for monitoring tools
+- 🆕 **Degradation Detection:** Early warning for voice quality issues
+- 🆕 **Historical Trending:** Rolling window statistics
+
+---
+
+## 10) Enhanced Configuration (Future)
+
+### 10.1 Mesh Monitor Configuration Section (PLANNED)
+
+```ini
 # ===================================================================
 # Mesh Monitor - Network-Wide Quality Monitoring (Future)
 # ===================================================================
@@ -216,13 +411,13 @@ network_status_report_s = 40    # Report network status every 40 seconds
 collector_url =                 # Optional: external collector endpoint
 ```
 
-### 4.2 Monitoring Modes
+### 10.2 Monitoring Modes (PLANNED)
 
 - **Disabled:** No monitoring overhead (default for low-memory nodes)
 - **Lightweight:** Agent discovery with basic metrics
 - **Full:** Complete path analysis with hop-by-hop metrics
 
-### 4.3 Agent Discovery Strategy
+### 10.3 Agent Discovery Strategy (PLANNED)
 
 **Purpose:** Discover all nodes with agents (phonebook servers or probe responders) mesh-wide, not just direct neighbors.
 
@@ -251,9 +446,9 @@ collector_url =                 # Optional: external collector endpoint
 
 ---
 
-## 5) JSON Wire Protocols
+## 11) JSON Wire Protocols (Future)
 
-### 5.1 Enhanced Phonebook Status (Existing endpoint enhanced)
+### 11.1 Enhanced Phonebook Status (PLANNED)
 
 **Endpoint:** `GET /cgi-bin/showphonebook`
 
@@ -304,9 +499,9 @@ collector_url =                 # Optional: external collector endpoint
 }
 ```
 
-### 5.2 Connection Check Query
+### 11.2 Connection Check Query (PLANNED)
 
-**Endpoint:** `GET /cgi-bin/connectioncheck?target=W6XYZ-2` (NEW)
+**Endpoint:** `GET /cgi-bin/connectioncheck?target=W6XYZ-2`
 
 Queries existing network probe data for specific destination (does not trigger new probe):
 
@@ -332,29 +527,20 @@ Queries existing network probe data for specific destination (does not trigger n
 }
 ```
 
-**If target not in recent probes:**
-```json
-{
-  "target": "W6XYZ-2",
-  "status": "no_data",
-  "message": "No recent probe data available for this target"
-}
-```
-
 ---
 
-## 6) Monitoring Access Architecture
+## 12) Monitoring Access Architecture (Future)
 
-### 6.1 Local-First Design Principle
+### 12.1 Local-First Design Principle
 
 **All monitoring data is accessible locally via CGI endpoints first.** Remote reporting to a centralized collector is optional and uses the same data.
 
-### 6.2 Access Methods
+### 12.2 Access Methods
 
-#### 6.2.1 Local CGI Access (Primary, Always Available)
+#### 12.2.1 Local CGI Access (Primary, Always Available)
 
 **Interface:** HTTP CGI scripts on the agent (`uhttpd` on OpenWrt)
-**Endpoints:** See Section 5 for all endpoints
+**Endpoints:** See Section 11 for all endpoints
 **Access:** `http://node.local.mesh/cgi-bin/...`
 **Dependencies:** None - works standalone
 **Use cases:**
@@ -369,7 +555,7 @@ Queries existing network probe data for specific destination (does not trigger n
 - No external dependencies
 - Works even if mesh partitioned
 
-#### 6.2.2 Remote Reporting (Optional, Centralized Monitoring)
+#### 12.2.2 Remote Reporting (Optional, Centralized Monitoring)
 
 > **Note:** Remote reporting configuration is documented here for agent completeness, but the backend collector is implemented in a separate project.
 
@@ -389,261 +575,11 @@ Queries existing network probe data for specific destination (does not trigger n
 - Long-term data retention (backend)
 - Automated alerting (backend)
 
-### 6.3 Data Flow Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    AREDN Router Agent                    │
-├─────────────────────────────────────────────────────────┤
-│                                                           │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐    │
-│  │ SIP Proxy   │  │ Health       │  │ Probe       │    │
-│  │ (existing)  │  │ Monitor      │  │ Thread      │    │
-│  │             │  │ (existing)   │  │ (optional)  │    │
-│  └──────┬──────┘  └──────┬───────┘  └──────┬──────┘    │
-│         │                │                  │            │
-│         └────────────────┼──────────────────┘            │
-│                          │                               │
-│                    ┌─────▼──────┐                        │
-│                    │ Agent      │                        │
-│                    │ State      │                        │
-│                    │ (RAM/tmp)  │                        │
-│                    └─────┬──────┘                        │
-│                          │                               │
-│         ┌────────────────┼────────────────┐             │
-│         │                │                │             │
-│    ┌────▼────┐     ┌─────▼─────┐   ┌────▼────┐        │
-│    │ CGI     │     │ State     │   │ Remote  │        │
-│    │ Scripts │     │ File(s)   │   │ Reporter│        │
-│    │         │     │ /tmp/*.json   │(optional)│        │
-│    └────┬────┘     └───────────┘   └────┬────┘        │
-│         │                                │             │
-└─────────┼────────────────────────────────┼─────────────┘
-          │ HTTP GET                       │ HTTP POST
-          │ (local)                        │ (remote)
-          ▼                                ▼
-   ┌──────────────┐              ┌──────────────────┐
-   │ Local Web    │              │ Pi Collector     │
-   │ Browser/curl │              │ (AREDNmon)       │
-   └──────────────┘              └──────────────────┘
-```
-
-### 6.4 Implementation Details
-
-#### 6.4.1 State Storage
-
-**Health state file:** `/tmp/meshmon_health.json` (updated every 60s by passive_safety_thread)
-
-**Schema:** Unified format for both local CGI access and remote reporting (meshmon.v1 type: "agent_health")
-
-**Note:** The "agent_health" message type represents the **Phonebook Health Status** - the health of the AREDN-Phonebook application running on this node.
-
-```json
-{
-  "schema": "meshmon.v1",
-  "type": "agent_health",
-  "node": "W6ABC-1",
-  "sent_at": "2025-09-29T18:45:00Z",
-  "cpu_pct": 3.1,
-  "mem_mb": 8.2,
-  "queue_len": 0,
-  "uptime_seconds": 86400,
-  "restart_count": 0,
-  "threads_responsive": true,
-  "health_score": 95.5,
-  "checks": {
-    "memory_stable": true,
-    "no_recent_crashes": true,
-    "sip_service_ok": true,
-    "phonebook_current": true
-  },
-  "sip_service": {
-    "active_calls": 2,
-    "registered_users": 15
-  },
-  "monitoring": {
-    "probe_queue_depth": 0,
-    "last_probe_sent": "2025-09-29T18:44:00Z"
-  }
-}
-```
-
-**Notes:**
-- Uses `meshmon.v1` schema for consistency with remote reporting
-- `queue_len` = monitoring probe queue depth (same as `monitoring.probe_queue_depth`)
-- `threads_responsive` at top level (from architecture spec) + expanded `checks` object
-- Can be sent as-is to collector or read by local CGI scripts
-
-**Probe circular buffer:** In-memory (last 10-20 probes, ~10 KB)
-**Crash history:** `/tmp/meshmon_crashes.json` (last 5 crashes, ~2 KB)
-
-#### 6.4.2 CGI Implementation
-
-**Option A: Shell Scripts (Lightweight, recommended for start)**
-```bash
-#!/bin/sh
-# /www/cgi-bin/health
-
-echo "Content-Type: application/json"
-echo ""
-cat /tmp/meshmon_health.json
-```
-
-**Option B: C Programs (High Performance)**
-```c
-// Compiled CGI binary
-// Reads shared memory or queries agent directly
-// More efficient for high-frequency polling
-```
-
-**Recommendation:** Start with shell scripts. Upgrade to C if CGI performance becomes bottleneck.
-
-#### 6.4.3 Remote Reporter Thread (Optional)
-
-When `remote_enabled=1` in config:
-
-**Two separate reporting timers:**
-
-```c
-// Network status reporter - runs every 40 seconds
-void *network_status_reporter_thread(void *arg) {
-    while (1) {
-        sleep(network_status_report_interval);
-
-        // Read latest network probe results
-        probe_result_t *probes = get_recent_probes();
-
-        // Send path_result + hop_result messages
-        for (int i = 0; i < probe_count; i++) {
-            char *json = encode_path_result(&probes[i]);
-            http_post(collector_url, json);
-            free(json);
-
-            json = encode_hop_result(&probes[i]);
-            http_post(collector_url, json);
-            free(json);
-        }
-    }
-}
-
-// Phonebook health reporter - runs every 4 hours OR on significant change
-void *phonebook_health_reporter_thread(void *arg) {
-    agent_health_t last_reported = {0};
-    time_t last_report_time = 0;
-
-    while (1) {
-        sleep(60);  // Check every minute
-
-        agent_health_t current = read_health_state();
-        time_t now = time(NULL);
-        bool should_report = false;
-
-        // Scheduled report (every 4 hours)
-        if (now - last_report_time >= phonebook_health_report_interval) {
-            should_report = true;
-        }
-
-        // Event-driven: CPU change > threshold
-        if (abs(current.cpu_pct - last_reported.cpu_pct) > cpu_change_threshold) {
-            should_report = true;
-        }
-
-        // Event-driven: Memory change > threshold
-        if (abs(current.mem_mb - last_reported.mem_mb) > mem_change_threshold) {
-            should_report = true;
-        }
-
-        // Event-driven: Thread became unresponsive
-        if (current.checks.threads_responsive != last_reported.checks.threads_responsive) {
-            should_report = true;
-        }
-
-        // Event-driven: Restart occurred
-        if (current.restart_count > last_reported.restart_count) {
-            should_report = true;
-        }
-
-        if (should_report) {
-            char *json = encode_agent_health(&current);
-            http_post(collector_url, json);
-            free(json);
-
-            last_reported = current;
-            last_report_time = now;
-        }
-    }
-}
-```
-
-**Key principles:**
-- CGI and remote reporters read from same source (no duplication)
-- Network status: High frequency (40s) - network conditions change rapidly
-- Phonebook health: Low frequency (4h) + event-driven - health changes slowly
-- Reduces bandwidth: ~97% reduction in health reports while maintaining responsiveness
-
-### 6.5 Configuration
-
-```
-# /etc/config/meshmon
-
-config monitoring 'agent'
-    option enabled '1'
-    option node_id 'W6ABC-1'
-
-    # Local CGI (always enabled if monitoring enabled)
-    option cgi_enabled '1'
-
-    # Remote reporting (optional)
-    option remote_enabled '1'
-    option collector_url 'http://collector.local.mesh:5000/ingest'
-    option network_status_report_s '40'            # Network status every 40s
-    option phonebook_health_report_s '14400'       # Phonebook health every 4h (or on change)
-    option health_change_threshold_cpu '20'        # Report if CPU change > 20%
-    option health_change_threshold_mem_mb '10'     # Report if memory change > 10 MB
-
-    # Network probing (optional)
-    option probing_enabled '1'
-    option probe_neighbor_count '2'
-    option probe_rotate_peers '1'
-    option reduce_on_voip_calls '1'
-```
-
-### 6.6 Deployment Modes
-
-**Mode 1: Local CGI Only (Minimal)**
-- `cgi_enabled=1`, `remote_enabled=0`, `probing_enabled=0`
-- Zero network overhead
-- Manual monitoring only
-- Best for: Single-node debugging
-
-**Mode 2: Local + Remote Health (Hybrid Light)**
-- `cgi_enabled=1`, `remote_enabled=1`, `probing_enabled=0`
-- Reports agent health to collector
-- No active probing
-- Best for: Basic centralized monitoring
-
-**Mode 3: Full Monitoring (Hybrid Complete)**
-- `cgi_enabled=1`, `remote_enabled=1`, `probing_enabled=1`
-- Local CGI + remote reporting + active probing
-- Complete visibility local and centralized
-- Best for: Production deployments
-
-### 6.7 Memory Footprint
-
-**Monitoring overhead:**
-- Health state files: ~1-2 KB
-- Probe circular buffer: ~10 KB (if probing enabled)
-- Crash history: ~2 KB
-- Remote reporter thread: ~100 KB stack
-- **Total: ~13 KB data + 100 KB code**
-
-**No historical data storage** - agent remains stateless for long-term trends.
-
 ---
 
-## 7) Network Behavior & Resource Budgets
+## 13) Network Behavior & Resource Budgets (Future)
 
-### 7.1 Enhanced Resource Targets
+### 13.1 Enhanced Resource Targets
 
 | Component | Original | With Monitoring | Notes |
 |-----------|----------|-----------------|-------|
@@ -654,7 +590,7 @@ config monitoring 'agent'
 | Flash Writes | 1-2/day | 2-3/day | Quality history cache |
 | Network BW | ~1 KB/s | ~10 KB/s | During probe windows |
 
-### 6.2 Degradation Strategy
+### 13.2 Degradation Strategy
 
 ```
 IF (memory < 64MB) THEN
@@ -667,9 +603,9 @@ ELSE
 
 ---
 
-## 7) Routing Daemon Integration
+## 14) Routing Daemon Integration (Future)
 
-### 7.1 OLSR Integration (AREDN primary)
+### 14.1 OLSR Integration (AREDN primary)
 
 ```c
 // Query jsoninfo plugin
@@ -687,13 +623,13 @@ typedef struct {
 } unified_peer_info_t;
 ```
 
-### 7.2 Babel Support (Future AREDN)
+### 14.2 Babel Support (Future AREDN)
 
 - Control socket at `/var/run/babeld.sock`
 - Text protocol parsing for routes and neighbors
 - Automatic detection and fallback
 
-### 7.3 Link Technology Detection (RF vs Tunnel)
+### 14.3 Link Technology Detection (RF vs Tunnel)
 
 **Goal:** Identify whether each hop uses wireless/RF or wired/tunnel technology to help isolate bottlenecks.
 
@@ -740,367 +676,14 @@ const char* classify_link_type(const char* iface) {
 }
 ```
 
-**Option 3: Query AREDN Node Info (Most Reliable)**
-```bash
-# AREDN nodes expose /cgi-bin/sysinfo.json
-curl http://neighbor-node.local.mesh/cgi-bin/sysinfo.json
-
-# Contains interface details and tunnel status
-{
-  "interfaces": {
-    "wlan0": {"type": "RF", "channel": 5, "bandwidth": 20},
-    "tun50": {"type": "tunnel", "peer": "node-remote"}
-  }
-}
-```
-
 **Implementation Priority:**
 1. Start with Option 2 (interface name matching) - simplest, no external dependencies
 2. Add Option 1 (OLSR interface query) when routing adapter is implemented
 3. Consider Option 3 (AREDN sysinfo) for maximum accuracy in Phase 3
 
-**Enhanced hop_result schema with link type:**
-```json
-{
-  "schema": "meshmon.v1",
-  "type": "hop_result",
-  "src": "node-A",
-  "dst": "node-K",
-  "sent_at": "2025-09-29T18:41:05Z",
-  "hops": [
-    {
-      "seq": 0,
-      "node": "node-A",
-      "interface": "wlan0",
-      "link_type": "RF",
-      "to_next": {
-        "ip": "10.0.0.4",
-        "lq": 0.92,
-        "nlq": 0.89,
-        "etx": 1.19,
-        "rtt_ms": 12.3
-      }
-    },
-    {
-      "seq": 1,
-      "node": "node-D",
-      "interface": "tun50",
-      "link_type": "tunnel",
-      "to_next": {
-        "ip": "172.16.50.8",
-        "lq": 1.0,
-        "nlq": 1.0,
-        "etx": 1.0,
-        "rtt_ms": 45.2
-      }
-    },
-    {
-      "seq": 2,
-      "node": "node-H",
-      "interface": "wlan0",
-      "link_type": "RF",
-      "to_next": {
-        "ip": "10.0.0.11",
-        "lq": 0.67,
-        "nlq": 0.72,
-        "etx": 2.15,
-        "rtt_ms": 28.7
-      }
-    }
-  ]
-}
-```
-
-**Bottleneck Analysis Benefits:**
-- RF links with high ETX (>2.0) → Check antenna alignment, interference
-- Tunnel links with high RTT → Check Internet backhaul quality
-- Mixed path quality → Identify which technology is causing issues
-
-### 7.4 Hop-by-Hop Bottleneck Identification
-
-**Goal:** Isolate which specific hop in a multi-hop path is causing performance degradation.
-
-**Data Collection:**
-
-Each probe window collects:
-1. **End-to-end metrics** → `path_result` message (RTT, jitter, loss for full path)
-2. **Per-hop metrics** → `hop_result` message (RTT, LQ/NLQ/ETX for each hop)
-
-**Analysis Approach:**
-
-```c
-// Agent calculates per-hop contribution to total RTT
-typedef struct {
-    int hop_index;
-    char node[32];
-    float rtt_ms;              // RTT to this hop
-    float rtt_contribution_pct; // % of total path RTT
-    float lq, nlq, etx;
-    char link_type[16];
-    bool is_bottleneck;        // Flagged if contribution > 40%
-} hop_analysis_t;
-
-// Example calculation:
-// Path A→D→H→K: Total RTT = 86.2 ms
-// Hop A→D: 12.3 ms (14% contribution)
-// Hop D→H: 45.2 ms (52% contribution) ← BOTTLENECK
-// Hop H→K: 28.7 ms (33% contribution)
-```
-
-**Bottleneck Detection Rules:**
-
-1. **High RTT Contribution** - Hop contributes >40% of total path RTT
-2. **High ETX** - ETX > 2.0 indicates poor link quality
-3. **High Loss on Hop** - Requires ICMP probe to each hop (optional, expensive)
-4. **Asymmetric Quality** - Large difference between LQ and NLQ
-
-**Agent Data Collection:**
-
-Agent collects raw per-hop metrics and stores in memory (circular buffer, last 10-20 probe windows):
-
-```c
-typedef struct {
-    char dst_node[32];
-    time_t timestamp;
-    float end_to_end_rtt_ms;
-    float end_to_end_jitter_ms;
-    float end_to_end_loss_pct;
-    int hop_count;
-    struct {
-        char node[32];
-        char interface[16];
-        char link_type[16];
-        float rtt_ms;
-        float lq, nlq, etx;
-    } hops[MAX_HOPS];
-} probe_result_t;
-```
-
-**Local CGI Access:**
-
-`GET /cgi-bin/network` returns raw network performance data (same format sent to collector):
-
-```json
-{
-  "schema": "meshmon.v1",
-  "node": "node-A",
-  "timestamp": "2025-09-29T18:45:00Z",
-  "recent_probes": [
-    {
-      "dst": "node-K",
-      "probed_at": "2025-09-29T18:44:00Z",
-      "path_result": {
-        "rtt_ms_avg": 86.2,
-        "jitter_ms": 15.3,
-        "loss_pct": 2.1
-      },
-      "hop_result": {
-        "hops": [
-          {
-            "seq": 0,
-            "node": "node-A",
-            "interface": "wlan0",
-            "link_type": "RF",
-            "to_next": {"ip": "10.0.0.4", "lq": 0.92, "nlq": 0.89, "etx": 1.19, "rtt_ms": 12.3}
-          },
-          {
-            "seq": 1,
-            "node": "node-D",
-            "interface": "tun50",
-            "link_type": "tunnel",
-            "to_next": {"ip": "172.16.50.8", "lq": 1.0, "nlq": 1.0, "etx": 1.0, "rtt_ms": 45.2}
-          },
-          {
-            "seq": 2,
-            "node": "node-H",
-            "interface": "wlan0",
-            "link_type": "RF",
-            "to_next": {"ip": "10.0.0.11", "lq": 0.67, "nlq": 0.72, "etx": 2.15, "rtt_ms": 28.7}
-          }
-        ]
-      }
-    }
-  ]
-}
-```
-
-**Remote Reporting:**
-
-Same data sent to collector as `path_result` and `hop_result` messages (meshmon.v1 schema).
-
-**Analysis Done by Backend:**
-
-Backend collector analyzes raw data to:
-- Calculate RTT contribution percentages
-- Flag bottleneck hops (>40% contribution, ETX >2.0)
-- Aggregate patterns across multiple nodes
-- Generate summaries and actionable alerts
-- Provide user-facing interpretations with visual indicators
-
 ---
 
-## 9) Implementation Phases
-
-### Phase 1: SIP Phone Testing (COMPLETE ✅)
-- [x] UAC module with INVITE/CANCEL/BYE support
-- [x] SIP OPTIONS ping test (uac_ping.c)
-- [x] RTT/jitter measurement (RFC3550-like statistics)
-- [x] Dual-mode bulk tester (OPTIONS + optional INVITE)
-- [x] Configuration options (ping count, test mode)
-- [x] CGI endpoint for on-demand ping tests
-- [x] Statistics logging (min/max/avg RTT, jitter, packet loss)
-
-### Phase 2: Mesh Monitoring Foundation (PLANNED)
-- [ ] Create mesh_monitor module structure
-- [ ] Implement routing adapter (OLSR first)
-- [ ] UDP probe engine (agent-to-agent)
-- [ ] Network-wide metrics collection
-- [ ] Enhanced showphonebook endpoint
-
-### Phase 3: Integration & Optimization (PLANNED)
-- [ ] Wire mesh monitoring into existing threads
-- [ ] Shared configuration parsing
-- [ ] Memory pool sharing
-- [ ] Remote reporting (optional)
-
-### Current Status: Phase 1 Complete
-- ✅ **SIP Phone Testing:** Production ready with OPTIONS ping and optional INVITE
-- ✅ **RTT/Jitter Measurement:** Fully implemented per RFC3550 guidelines
-- ✅ **Bulk Testing:** Automated testing of all registered phones
-- ✅ **Configuration:** Flexible settings for ping count and test modes
-- 🔄 **Mesh Monitoring:** Planned for Phase 2 (separate from phone testing)
-
-**Note:** Backend features like historical trending, quality correlation analysis, and web dashboards are handled by a separate backend project.
-
----
-
-## 10) Backward Compatibility
-
-### 10.1 Zero-Impact Default
-- Monitoring disabled by default
-- No configuration changes required
-- Existing webhooks unchanged
-- Same binary works on old/new nodes
-
-### 10.2 Graceful Enhancement
-- Old nodes ignore monitoring fields in JSON
-- New features behind feature flags
-- Automatic capability detection
-- Progressive enhancement model
-
----
-
-## 11) Emergency Operation Modes
-
-### 11.1 Priority Hierarchy
-1. **SIP Proxy** - Always highest priority
-2. **Phonebook Fetch** - Required for directory
-3. **Passive Safety** - Ensures reliability
-4. **Mesh Monitor** - Lowest priority, first to disable
-
-### 11.2 Resource Starvation Response
-```
-IF (CPU > 80%) THEN
-    Pause monitoring for 5 minutes
-IF (Memory < 10MB free) THEN
-    Disable monitoring until reboot
-IF (Flash writes > 100/hour) THEN
-    Disable quality history
-```
-
----
-
-## 12) Testing Strategy
-
-### 12.1 Unit Tests (Local CGI Scripts)
-
-All monitoring functionality is testable locally via CGI endpoints without requiring a backend collector:
-
-```bash
-# Test health monitoring
-curl http://node.local.mesh/cgi-bin/health
-
-# Test network performance
-curl http://node.local.mesh/cgi-bin/network
-
-# Test crash reporting
-curl http://node.local.mesh/cgi-bin/crash
-
-# Test phonebook integration
-curl http://node.local.mesh/cgi-bin/showphonebook
-```
-
-**Validation:**
-- RFC3550 jitter calculator with test vectors
-- JSON output schema validation
-- Routing parser with OLSR/Babel fixtures
-- Memory pool management
-- Thread responsiveness checks
-- Crash signal handler behavior
-
-### 12.2 Remote Reporting Tests (No Backend Required)
-
-Test remote reporting functionality without implementing the full collector backend:
-
-**Option 1: Simple HTTP Echo Server**
-```bash
-# On test machine, run simple receiver
-nc -l -p 5000 | tee received_messages.json
-```
-
-**Option 2: Minimal Python Test Collector**
-```python
-#!/usr/bin/env python3
-# test_collector.py - Validates agent messages without storage
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
-
-class TestCollector(BaseHTTPRequestHandler):
-    def do_POST(self):
-        length = int(self.headers['Content-Length'])
-        body = self.rfile.read(length)
-
-        # Validate JSON schema
-        try:
-            data = json.loads(body)
-            assert data.get('schema') == 'meshmon.v1'
-            print(f"✓ Valid {data.get('type')} from {data.get('node', data.get('src'))}")
-            self.send_response(200)
-        except Exception as e:
-            print(f"✗ Invalid message: {e}")
-            self.send_response(400)
-
-        self.end_headers()
-
-HTTPServer(('0.0.0.0', 5000), TestCollector).serve_forever()
-```
-
-**Option 3: Log File Analysis**
-```bash
-# Configure agent to log POST bodies before sending
-tail -f /tmp/meshmon_outgoing.log | jq .
-
-# Validate message schemas
-grep '"schema":"meshmon.v1"' /tmp/meshmon_outgoing.log | jq '.type' | sort | uniq -c
-```
-
-**Test scenarios:**
-- Agent starts with `remote_enabled=1`, collector URL configured
-- Verify agent_health messages sent at configured interval
-- Verify path_result messages sent when probing enabled
-- Verify crash_report messages after simulated crash
-- Test exponential backoff when collector unreachable
-- Verify message queue behavior during network partition
-
-### 12.3 Field Validation
-- Deploy to 3+ node test network
-- Verify no impact on voice calls during active monitoring
-- Measure actual CPU/memory resource usage
-- Stress test with deliberately degraded links
-- Validate local CGI access during mesh partition
-- Test behavior when collector temporarily offline
-
----
+# APPENDICES
 
 ## Appendix A: File Structure
 
@@ -1111,48 +694,40 @@ Phonebook/
 │   ├── common.h                   (modified)
 │   ├── passive_safety/           (enhanced)
 │   │   └── passive_safety.c      (monitoring checks added)
-│   └── mesh_monitor/             (NEW)
+│   ├── uac/                      (✅ COMPLETE - Phase 1)
+│   │   ├── uac.h                 // UAC core API
+│   │   ├── uac.c                 // UAC state machine
+│   │   ├── uac_sip_builder.c     // SIP message builders
+│   │   ├── uac_sip_parser.c      // SIP response parser
+│   │   ├── uac_ping.h            // OPTIONS/PING API
+│   │   ├── uac_ping.c            // RTT/jitter measurement
+│   │   └── uac_bulk_tester.c     // Bulk phone testing
+│   └── mesh_monitor/             (PLANNED - Phase 2)
 │       ├── mesh_monitor.h
 │       ├── mesh_monitor.c
 │       ├── routing_adapter.c
 │       ├── probe_engine.c
 │       ├── metrics_calculator.c
 │       ├── health_reporter.c
-│       ├── software_health.c    (NEW)
+│       ├── software_health.c
 │       └── monitor_config.c
 ├── files/
 │   ├── etc/
 │   │   ├── sipserver.conf        (enhanced)
 │   │   └── config/
-│   │       └── meshmon           (NEW - UCI config)
+│   │       └── meshmon           (PLANNED - UCI config)
 │   └── www/
 │       └── cgi-bin/
 │           ├── loadphonebook     (existing - trigger fetch)
 │           ├── showphonebook     (existing - show entries)
 │           ├── uac_test          (existing - trigger INVITE test)
 │           ├── uac_test_all      (existing - trigger bulk INVITE test)
-│           ├── uac_ping          (✅ NEW - on-demand OPTIONS ping test)
+│           ├── uac_ping          (✅ COMPLETE - on-demand OPTIONS ping test)
 │           ├── health            (PLANNED - phonebook health status)
 │           ├── network           (PLANNED - network performance)
 │           ├── crash             (PLANNED - crash reports)
 │           └── connectioncheck   (PLANNED - on-demand probe trigger)
 └── Makefile                       (updated dependencies)
-```
-
----
-
-## Appendix B: Memory Layout
-
-```
-[AREDN-Phonebook Memory Map with Monitoring]
-
-0-4 MB:   Core SIP proxy + user database
-4-6 MB:   Phonebook cache + XML buffer
-6-8 MB:   Thread stacks + passive safety
-8-10 MB:  [NEW] Probe engine buffers
-10-12 MB: [NEW] Routing cache
-12-14 MB: [NEW] Metrics history (optional)
-14-16 MB: Peak temporary allocations
 ```
 
 ---
@@ -1164,7 +739,7 @@ This appendix provides complete technical specifications for the two primary int
 - **Centralized collectors** (backend aggregation systems)
 - **Integration tools** (dashboards, alerting systems)
 
-### B.1 Agent-to-Agent Interface (UDP Probe Protocol)
+### B.1 Agent-to-Agent Interface (UDP Probe Protocol) - PLANNED
 
 #### B.1.1 Overview
 
@@ -1351,7 +926,7 @@ send_probe("10.124.142.47")
 
 ---
 
-### B.2 Agent-to-Collector Interface (HTTP JSON API)
+### B.2 Agent-to-Collector Interface (HTTP JSON API) - PLANNED
 
 > **⚠️ BACKEND IMPLEMENTATION:** This section documents the interface for backend implementers. The collector server, database, dashboards, and alerting are implemented in a separate backend project, not in this agent codebase.
 
@@ -1647,7 +1222,7 @@ curl http://node.local.mesh/cgi-bin/crash
 - [ ] Optional: Implement probe sender for testing
 - [ ] Optional: Export metrics in meshmon.v1 JSON format
 
-**Reference Implementation:** `Phonebook/src/mesh_monitor/probe_engine.c`
+**Reference Implementation:** `Phonebook/src/mesh_monitor/probe_engine.c` (PLANNED)
 
 #### B.3.2 For Collector Implementers
 
@@ -1664,7 +1239,7 @@ curl http://node.local.mesh/cgi-bin/crash
 - [ ] Network topology graph generation
 - [ ] Historical trending and analysis
 
-**Reference:** Section 6 and AREDNmon-Architecture.md
+**Reference:** Section 12 and AREDNmon-Architecture.md
 
 ---
 

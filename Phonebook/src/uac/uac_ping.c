@@ -1,4 +1,4 @@
-// uac_ping.c - SIP OPTIONS and PING testing with RTT/jitter measurement
+// uac_ping.c - SIP OPTIONS and ICMP PING testing with RTT/jitter measurement
 #define MODULE_NAME "UAC_PING"
 
 #include "uac_ping.h"
@@ -10,6 +10,13 @@
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
+#include <netinet/ip_icmp.h>
+#include <netdb.h>
+#include <unistd.h>
+
+// ICMP packet structure
+#define ICMP_PACKET_SIZE 64
+#define ICMP_HEADER_SIZE 8
 
 // Helper: Get current time in milliseconds
 static double get_time_ms(void) {
@@ -96,7 +103,7 @@ static float wait_for_options_response(int sockfd, const char *call_id, int time
 }
 
 // Calculate statistics from RTT samples
-void uac_calculate_ping_stats(float *samples, int sample_count, uac_ping_result_t *result) {
+void uac_calculate_timing_stats(float *samples, int sample_count, uac_timing_result *result) {
     if (sample_count == 0 || !result) {
         return;
     }
@@ -130,10 +137,10 @@ void uac_calculate_ping_stats(float *samples, int sample_count, uac_ping_result_
 }
 
 // Send multiple SIP OPTIONS requests and measure RTT/jitter
-uac_ping_result_t uac_options_ping_test(const char *phone_number,
-                                         const char *server_ip,
-                                         int ping_count) {
-    uac_ping_result_t result = {0};
+uac_timing_result uac_options_test(const char *phone_number,
+                                    const char *server_ip,
+                                    int ping_count) {
+    uac_timing_result result = {0};
 
     if (!phone_number || !server_ip || ping_count <= 0 || ping_count > MAX_PING_SAMPLES) {
         LOG_ERROR("Invalid parameters for OPTIONS ping test");
@@ -211,7 +218,7 @@ uac_ping_result_t uac_options_ping_test(const char *phone_number,
 
     // Calculate statistics if we got any responses
     if (result.packets_received > 0) {
-        uac_calculate_ping_stats(result.samples, result.packets_received, &result);
+        uac_calculate_timing_stats(result.samples, result.packets_received, &result);
 
         LOG_INFO("OPTIONS ping test complete: %s", phone_number);
         LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
@@ -225,12 +232,189 @@ uac_ping_result_t uac_options_ping_test(const char *phone_number,
     return result;
 }
 
-// SIP PING test (placeholder - PING is not standard SIP, using OPTIONS instead)
-uac_ping_result_t uac_ping_ping_test(const char *phone_number,
-                                      const char *server_ip,
-                                      int ping_count) {
-    // SIP doesn't have a standard PING method
-    // We'll use OPTIONS for both tests (they measure the same thing)
-    LOG_DEBUG("Using OPTIONS for PING test (SIP has no standard PING method)");
-    return uac_options_ping_test(phone_number, server_ip, ping_count);
+// Helper: Calculate ICMP checksum
+static unsigned short calculate_checksum(unsigned short *buf, int len) {
+    unsigned long sum = 0;
+    while (len > 1) {
+        sum += *buf++;
+        len -= 2;
+    }
+    if (len == 1) {
+        sum += *(unsigned char *)buf;
+    }
+    sum = (sum >> 16) + (sum & 0xFFFF);
+    sum += (sum >> 16);
+    return (unsigned short)(~sum);
 }
+
+// Helper: Resolve phone number to IP address via DNS
+static int resolve_phone_to_ip(const char *phone_number, char *ip_address, size_t ip_size) {
+    char hostname[128];
+    snprintf(hostname, sizeof(hostname), "%s.%s", phone_number, AREDN_MESH_DOMAIN);
+
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_RAW;
+    struct addrinfo *res = NULL;
+
+    int status = getaddrinfo(hostname, NULL, &hints, &res);
+    if (status != 0) {
+        LOG_WARN("Failed to resolve %s: %s", hostname, gai_strerror(status));
+        return -1;
+    }
+
+    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+    inet_ntop(AF_INET, &(ipv4->sin_addr), ip_address, ip_size);
+
+    freeaddrinfo(res);
+    LOG_DEBUG("Resolved %s to %s", hostname, ip_address);
+    return 0;
+}
+
+// Send ICMP ping and wait for response
+static float send_icmp_ping(int sockfd, struct sockaddr_in *dest_addr, int seq_num) {
+    char send_buf[ICMP_PACKET_SIZE];
+    char recv_buf[ICMP_PACKET_SIZE + 20]; // IP header + ICMP packet
+
+    // Build ICMP echo request
+    struct icmp *icmp_hdr = (struct icmp *)send_buf;
+    memset(send_buf, 0, sizeof(send_buf));
+
+    icmp_hdr->icmp_type = ICMP_ECHO;
+    icmp_hdr->icmp_code = 0;
+    icmp_hdr->icmp_id = getpid() & 0xFFFF;
+    icmp_hdr->icmp_seq = seq_num;
+
+    // Fill data with timestamp
+    struct timeval *send_time = (struct timeval *)(send_buf + ICMP_HEADER_SIZE);
+    gettimeofday(send_time, NULL);
+
+    // Calculate checksum
+    icmp_hdr->icmp_cksum = 0;
+    icmp_hdr->icmp_cksum = calculate_checksum((unsigned short *)icmp_hdr, ICMP_PACKET_SIZE);
+
+    // Send ICMP echo request
+    double start_time = get_time_ms();
+    ssize_t sent = sendto(sockfd, send_buf, ICMP_PACKET_SIZE, 0,
+                         (struct sockaddr *)dest_addr, sizeof(*dest_addr));
+    if (sent < 0) {
+        LOG_WARN("Failed to send ICMP ping: %s", strerror(errno));
+        return -1.0;
+    }
+
+    // Wait for response with 1 second timeout
+    fd_set readfds;
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+
+    FD_ZERO(&readfds);
+    FD_SET(sockfd, &readfds);
+
+    int ret = select(sockfd + 1, &readfds, NULL, NULL, &tv);
+    if (ret <= 0) {
+        // Timeout or error
+        return -1.0;
+    }
+
+    // Receive response
+    struct sockaddr_in from_addr;
+    socklen_t from_len = sizeof(from_addr);
+    ssize_t received = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0,
+                                (struct sockaddr *)&from_addr, &from_len);
+    if (received < 0) {
+        return -1.0;
+    }
+
+    double end_time = get_time_ms();
+
+    // Parse ICMP response (skip IP header)
+    struct ip *ip_hdr = (struct ip *)recv_buf;
+    int ip_hdr_len = ip_hdr->ip_hl << 2;
+    struct icmp *icmp_reply = (struct icmp *)(recv_buf + ip_hdr_len);
+
+    // Verify this is our echo reply
+    if (icmp_reply->icmp_type == ICMP_ECHOREPLY &&
+        icmp_reply->icmp_id == (getpid() & 0xFFFF) &&
+        icmp_reply->icmp_seq == seq_num) {
+        float rtt = (float)(end_time - start_time);
+        LOG_DEBUG("ICMP ping seq=%d: RTT = %.2f ms", seq_num, rtt);
+        return rtt;
+    }
+
+    return -1.0;
+}
+
+// Send multiple ICMP ping requests and measure RTT/jitter
+uac_timing_result uac_ping_test(const char *phone_number,
+                                 const char *server_ip,
+                                 int ping_count) {
+    uac_timing_result result = {0};
+
+    if (!phone_number || ping_count <= 0 || ping_count > MAX_PING_SAMPLES) {
+        LOG_ERROR("Invalid parameters for ICMP ping test");
+        return result;
+    }
+
+    LOG_INFO("Starting ICMP ping test to %s (%d pings)", phone_number, ping_count);
+
+    // Resolve phone number to IP address
+    char target_ip[INET_ADDRSTRLEN];
+    if (resolve_phone_to_ip(phone_number, target_ip, sizeof(target_ip)) < 0) {
+        LOG_WARN("ICMP ping test failed: Cannot resolve %s.%s", phone_number, AREDN_MESH_DOMAIN);
+        return result;
+    }
+
+    // Create raw ICMP socket
+    int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sockfd < 0) {
+        LOG_ERROR("Failed to create ICMP socket: %s (requires root/CAP_NET_RAW)", strerror(errno));
+        return result;
+    }
+
+    // Set up destination address
+    struct sockaddr_in dest_addr;
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    inet_pton(AF_INET, target_ip, &dest_addr.sin_addr);
+
+    result.packets_sent = ping_count;
+    result.packets_received = 0;
+
+    // Send pings
+    for (int i = 0; i < ping_count; i++) {
+        float rtt = send_icmp_ping(sockfd, &dest_addr, i + 1);
+
+        if (rtt > 0) {
+            result.samples[result.packets_received] = rtt;
+            result.packets_received++;
+            result.online = true;
+            LOG_DEBUG("ICMP ping %d/%d: RTT = %.2f ms", i + 1, ping_count, rtt);
+        } else {
+            LOG_DEBUG("ICMP ping %d/%d: No response", i + 1, ping_count);
+        }
+
+        // Wait 200ms between pings
+        if (i < ping_count - 1) {
+            usleep(200000);
+        }
+    }
+
+    close(sockfd);
+
+    // Calculate statistics
+    if (result.packets_received > 0) {
+        uac_calculate_timing_stats(result.samples, result.packets_received, &result);
+
+        LOG_INFO("ICMP ping test complete: %s (%s)", phone_number, target_ip);
+        LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
+                 result.packets_sent, result.packets_received, result.packet_loss_pct);
+        LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
+                 result.min_rtt_ms, result.avg_rtt_ms, result.max_rtt_ms, result.jitter_ms);
+    } else {
+        LOG_WARN("ICMP ping test failed: No responses from %s (%s)", phone_number, target_ip);
+    }
+
+    return result;
+}
+

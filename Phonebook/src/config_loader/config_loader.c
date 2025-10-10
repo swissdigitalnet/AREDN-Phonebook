@@ -14,9 +14,9 @@ int g_pb_interval_seconds = 3600; // Default: 1 hour
 int g_status_update_interval_seconds = 600; // Default: 10 minutes
 int g_uac_test_interval_seconds = 60; // Default: 60 seconds
 int g_uac_call_test_enabled = 0;
-int g_uac_options_ping_count = 5;
-int g_uac_ping_ping_count = 5;
-char g_uac_test_prefix[16] = "4415";
+int g_uac_ping_count = 5;      // ICMP ping count (default: 5)
+int g_uac_options_count = 5;   // SIP OPTIONS count (default: 5)
+char g_uac_test_prefix[16] = "4415"; // Phone number prefix for INVITE tests only
 ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 int g_num_phonebook_servers = 0; // Will be populated by the loader
 
@@ -101,21 +101,21 @@ int load_configuration(const char *config_filepath) {
             int parsed_value = atoi(value);
             g_uac_call_test_enabled = (parsed_value != 0) ? 1 : 0;
             LOG_DEBUG("Config: UAC_CALL_TEST_ENABLED = %d", g_uac_call_test_enabled);
-        } else if (strcmp(key, "UAC_OPTIONS_PING_COUNT") == 0) {
+        } else if (strcmp(key, "UAC_PING_COUNT") == 0) {
             int parsed_value = atoi(value);
-            if (parsed_value > 0) {
-                g_uac_options_ping_count = parsed_value;
-                LOG_DEBUG("Config: UAC_OPTIONS_PING_COUNT = %d", g_uac_options_ping_count);
+            if (parsed_value >= 0 && parsed_value <= 20) {
+                g_uac_ping_count = parsed_value;
+                LOG_DEBUG("Config: UAC_PING_COUNT = %d", g_uac_ping_count);
             } else {
-                LOG_WARN("Invalid UAC_OPTIONS_PING_COUNT value '%s'. Using default %d.", value, g_uac_options_ping_count);
+                LOG_WARN("Invalid UAC_PING_COUNT value '%s'. Using default %d.", value, g_uac_ping_count);
             }
-        } else if (strcmp(key, "UAC_PING_PING_COUNT") == 0) {
+        } else if (strcmp(key, "UAC_OPTIONS_COUNT") == 0) {
             int parsed_value = atoi(value);
-            if (parsed_value > 0) {
-                g_uac_ping_ping_count = parsed_value;
-                LOG_DEBUG("Config: UAC_PING_PING_COUNT = %d", g_uac_ping_ping_count);
+            if (parsed_value >= 0 && parsed_value <= 20) {
+                g_uac_options_count = parsed_value;
+                LOG_DEBUG("Config: UAC_OPTIONS_COUNT = %d", g_uac_options_count);
             } else {
-                LOG_WARN("Invalid UAC_PING_PING_COUNT value '%s'. Using default %d.", value, g_uac_ping_ping_count);
+                LOG_WARN("Invalid UAC_OPTIONS_COUNT value '%s'. Using default %d.", value, g_uac_options_count);
             }
         } else if (strcmp(key, "UAC_TEST_PREFIX") == 0) {
             strncpy(g_uac_test_prefix, value, sizeof(g_uac_test_prefix) - 1);

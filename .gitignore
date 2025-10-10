@@ -1,7 +1,12 @@
-# Claude Code configuration and documentation
+# AI Code Assistant configuration and documentation
 .claude/
 CLAUDE.md
 claude.md
+AGENTS.md
+.cursor/
+.aider*
+.gemini/
+.copilot/
 
 # Microsoft Office documents
 *.docx
@@ -28,3 +33,7 @@ Thumbs.db
 
 # Log files
 *.log
+
+# Large SDK files
+openwrt-sdk.tar.xz
+*.tar.xz

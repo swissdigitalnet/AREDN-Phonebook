@@ -164,7 +164,7 @@ int main(int argc, char *argv[]) {
     LOG_INFO("Starting main function for %s process (PID %d).", MODULE_NAME, getpid());
 
     // --- Load configuration from file ---
-    load_configuration("/etc/sipserver.conf"); // Call the loader function
+    load_configuration("/etc/phonebook.conf"); // Call the loader function
 
     // --- Passive Safety: Self-correct configuration ---
     validate_and_correct_config(); // Fix common config errors automatically

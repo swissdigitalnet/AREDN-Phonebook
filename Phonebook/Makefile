@@ -29,7 +29,7 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
 	mkdir -p $(PKG_BUILD_DIR)/files/etc
-	$(CP) ./files/etc/sipserver.conf $(PKG_BUILD_DIR)/files/etc/
+	$(CP) ./files/etc/phonebook.conf $(PKG_BUILD_DIR)/files/etc/
 endef
 
 define Build/Compile
@@ -60,7 +60,7 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/AREDN-Phonebook $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_CONF) $(PKG_BUILD_DIR)/files/etc/sipserver.conf $(1)/etc/
+	$(INSTALL_CONF) $(PKG_BUILD_DIR)/files/etc/phonebook.conf $(1)/etc/
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/AREDN-Phonebook $(1)/etc/init.d/
 	$(INSTALL_DIR) $(1)/www/cgi-bin

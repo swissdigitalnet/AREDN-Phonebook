@@ -9,7 +9,7 @@
 // Maximum number of ping samples to collect
 #define MAX_PING_SAMPLES 20
 
-// Ping statistics result structure
+// Timing test result structure (used for both ping and options tests)
 typedef struct {
     bool online;              // Phone responded to at least one request
     int packets_sent;         // Total packets sent
@@ -20,36 +20,38 @@ typedef struct {
     float avg_rtt_ms;         // Average RTT in milliseconds
     float jitter_ms;          // Jitter (variance in RTT) in milliseconds
     float samples[MAX_PING_SAMPLES]; // Individual RTT samples
-} uac_ping_result_t;
+} uac_timing_result;
+
+/**
+ * Send multiple ICMP ping requests to a phone and measure RTT/jitter
+ * Uses real ICMP ECHO packets (network layer)
+ * @param phone_number Target phone number (e.g., "441530") - used to resolve DNS
+ * @param server_ip Not used (kept for API compatibility)
+ * @param ping_count Number of ICMP ping requests to send
+ * @return Timing test result
+ */
+uac_timing_result uac_ping_test(const char *phone_number,
+                                 const char *server_ip,
+                                 int ping_count);
 
 /**
  * Send multiple SIP OPTIONS requests to a phone and measure RTT/jitter
+ * Uses SIP OPTIONS method (application layer)
  * @param phone_number Target phone number (e.g., "441530")
  * @param server_ip SIP server/proxy IP address
  * @param ping_count Number of OPTIONS requests to send
- * @return Ping statistics result
+ * @return Timing test result
  */
-uac_ping_result_t uac_options_ping_test(const char *phone_number,
-                                         const char *server_ip,
-                                         int ping_count);
+uac_timing_result uac_options_test(const char *phone_number,
+                                    const char *server_ip,
+                                    int ping_count);
 
 /**
- * Send multiple SIP PING requests to a phone and measure RTT/jitter
- * @param phone_number Target phone number (e.g., "441530")
- * @param server_ip SIP server/proxy IP address
- * @param ping_count Number of PING requests to send
- * @return Ping statistics result
- */
-uac_ping_result_t uac_ping_ping_test(const char *phone_number,
-                                      const char *server_ip,
-                                      int ping_count);
-
-/**
- * Calculate ping statistics from RTT samples
+ * Calculate timing statistics from RTT samples
  * @param samples Array of RTT samples in milliseconds
  * @param sample_count Number of samples
  * @param result Output statistics structure
  */
-void uac_calculate_ping_stats(float *samples, int sample_count, uac_ping_result_t *result);
+void uac_calculate_timing_stats(float *samples, int sample_count, uac_timing_result *result);
 
 #endif // UAC_PING_H
