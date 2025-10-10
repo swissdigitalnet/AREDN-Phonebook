@@ -1,8 +1,8 @@
 # 📞 AREDN Phonebook
 
-> 🎯 **Emergency-Ready SIP Directory Service for Amateur Radio Mesh Networks**
+> 🎯 **Emergency-Ready Directory & Monitoring for Amateur Radio Mesh Networks**
 
-AREDN Phonebook is a SIP server that provides directory services for Amateur Radio Emergency Data Network (AREDN) mesh networks. During normal times, it automatically fetches a phonebook from common servers and maintains a copy on the router, making it easy for SIP phones to access directory listings across the mesh network. The router stores this phonebook so the latest copied version is always available.
+AREDN Phonebook provides SIP directory services and network monitoring for Amateur Radio Emergency Data Network (AREDN) mesh networks. During normal times, it automatically fetches a phonebook from common servers and maintains a copy on the router, making it easy for SIP phones to access directory listings across the mesh network. The router stores this phonebook so the latest copied version is always available.
 
 ## ✨ Features
 
