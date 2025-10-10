@@ -7,6 +7,7 @@ on:
       - '*.*.*'
     branches:
       - 'development'
+      - 'UAC'
       - 'dev-*'
   pull_request:
 
@@ -174,26 +175,28 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ steps.find_ipk.outputs.ipk_path }}
-          name: AREDN SIP Server ${{ github.ref_name }}
+          name: AREDN Phonebook ${{ github.ref_name }}
           body: |
-            AREDN Phonebook SIP Server Release ${{ github.ref_name }}
+            AREDN Phonebook Release ${{ github.ref_name }}
 
             ## Architecture Support
             - ath79/generic (MikroTik devices)
-            - x86/64 (Intel devices)
+            - x86/64 (Intel devices, VMs)
             - ipq40xx/generic (AREDN mesh devices)
 
             ## Features
-            - Passive safety self-healing system
-            - Automatic resource management
-            - Thread recovery monitoring
-            - Smart file operations with rollback
-            - Enhanced reliability for emergency operations
+            - SIP phonebook server with web interface
+            - AREDNmon network monitoring dashboard
+            - Automated bulk testing (ping + SIP OPTIONS)
+            - Real-time status display with auto-refresh
+            - Shared memory database for high performance
+            - Smart phonebook caching
+            - Minimal resource footprint
 
             ## Installation
             ```bash
             # Download appropriate IPK for your architecture
-            opkg install sipserver-*.ipk
+            opkg install AREDN-Phonebook-*.ipk
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
