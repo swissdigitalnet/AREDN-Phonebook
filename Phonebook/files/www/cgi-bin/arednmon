@@ -298,11 +298,25 @@ cat <<EOF
 
         // Initialize page
         async function init() {
-            const lastTestUpdate = await loadResults();
-            await loadPhonebook(lastTestUpdate);
-            // Update progress after phonebook is loaded
+            // Fetch test results data first (don't render yet)
             const response = await fetch('/cgi-bin/uac_test_db_json');
             const data = await response.json();
+
+            // If no test data yet, show waiting message
+            if (data.error || (data.num_results === 0 && data.num_testable_phones === 0)) {
+                document.getElementById('testProgress').textContent = 'Waiting for first test cycle to complete...';
+                document.getElementById('results').innerHTML =
+                    '<tr><td colspan="8" class="loading">Waiting for first test cycle (runs every 60 seconds)...</td></tr>';
+                return;
+            }
+
+            // Load phonebook before rendering anything
+            await loadPhonebook(data.last_update || 0);
+
+            // Now render results with phonebook data available
+            await loadResults();
+
+            // Update progress
             if (!data.error && data.num_results !== undefined) {
                 updateProgress(data.num_results, data.num_testable_phones);
             }
