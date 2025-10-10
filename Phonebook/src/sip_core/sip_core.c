@@ -484,101 +484,89 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
 
         } else if (strcmp(method, "INVITE") == 0) {
             LOG_INFO("Received INVITE for %s from %s.", to_user_id, from_user_id);
-            RegisteredUser *callee = find_registered_user(to_user_id);
-            if (callee) {
-                // For simplified model, callee's IP/port are always derived via DNS + SIP_PORT
-                struct sockaddr_in resolved_callee_addr;
-                memset(&resolved_callee_addr, 0, sizeof(resolved_callee_addr));
-                resolved_callee_addr.sin_family = AF_INET;
 
-                char hostname_to_resolve[MAX_USER_ID_LEN + sizeof(AREDN_MESH_DOMAIN) + 1];
-                snprintf(hostname_to_resolve, sizeof(hostname_to_resolve), "%s.%s", to_user_id, AREDN_MESH_DOMAIN);
+            // Route based on DNS resolution (works for both local and remote phones)
+            struct sockaddr_in resolved_callee_addr;
+            memset(&resolved_callee_addr, 0, sizeof(resolved_callee_addr));
+            resolved_callee_addr.sin_family = AF_INET;
 
-                struct addrinfo hints, *res;
-                int status;
-                bool resolved = false;
+            char hostname_to_resolve[MAX_USER_ID_LEN + sizeof(AREDN_MESH_DOMAIN) + 1];
+            snprintf(hostname_to_resolve, sizeof(hostname_to_resolve), "%s.%s", to_user_id, AREDN_MESH_DOMAIN);
 
-                memset(&hints, 0, sizeof hints);
-                hints.ai_family = AF_INET;
-                hints.ai_socktype = SOCK_DGRAM; // Or SOCK_STREAM depending on proxy type
+            struct addrinfo hints, *res;
+            int status;
+            bool resolved = false;
 
-                if ((status = getaddrinfo(hostname_to_resolve, NULL, &hints, &res)) != 0) {
-                    LOG_ERROR("getaddrinfo for %s failed: %s", hostname_to_resolve, gai_strerror(status));
-                } else {
-                    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-                    if (inet_pton(AF_INET, sockaddr_to_ip_str(ipv4), &resolved_callee_addr.sin_addr) > 0) {
-                        resolved = true;
-                        LOG_DEBUG("Resolved user '%s' (%s) to IP %s", to_user_id, hostname_to_resolve, sockaddr_to_ip_str(ipv4));
-                    }
-                    freeaddrinfo(res);
-                }
+            memset(&hints, 0, sizeof hints);
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_DGRAM;
 
-                if (!resolved) {
-                    LOG_INFO("INVITE failed: Callee %s hostname '%s' could not be resolved or invalid IP.", to_user_id, hostname_to_resolve);
-                    send_response_to_registered(sockfd, from_user_id, cliaddr, cli_len,
-                                                "SIP/2.0 404 Not Found", call_id_hdr, cseq_hdr,
-                                                from_hdr, to_hdr, via_hdr, NULL, NULL, NULL);
-                    return;
-                }
-                resolved_callee_addr.sin_port = htons(SIP_PORT); // Always use SIP_PORT
-
-                CallSession *session = create_call_session();
-                if (!session) {
-                    LOG_INFO("INVITE failed: Max call sessions reached.");
-                    send_response_to_registered(sockfd,
-                                                from_user_id,
-                                                cliaddr, cli_len,
-                                                "SIP/2.0 503 Service Unavailable",
-                                                call_id_hdr, cseq_hdr,
-                                                from_hdr, to_hdr, via_hdr,
-                                                NULL, NULL, NULL);
-                    return;
-                }
-                strncpy(session->call_id, call_id_hdr, sizeof(session->call_id) - 1);
-                session->call_id[sizeof(session->call_id) - 1] = '\0';
-                strncpy(session->cseq, cseq_hdr, sizeof(session->cseq) - 1);
-                session->cseq[sizeof(session->cseq) - 1] = '\0';
-                strncpy(session->from_tag, from_tag, sizeof(session->from_tag) - 1);
-                session->from_tag[sizeof(session->from_tag) - 1] = '\0';
-
-                memcpy(&session->original_caller_addr, cliaddr, cli_len);
-                memcpy(&session->callee_addr, &resolved_callee_addr, sizeof(resolved_callee_addr)); // Copy resolved address
-
-                LOG_DEBUG("Callee '%s' target: %s:%d",
-                            to_user_id, sockaddr_to_ip_str(&session->callee_addr), ntohs(session->callee_addr.sin_port));
-
-                send_response_to_registered(sockfd,
-                                            from_user_id,
-                                            cliaddr, cli_len,
-                                            "SIP/2.0 100 Trying",
-                                            call_id_hdr, cseq_hdr,
-                                            from_hdr, to_hdr, via_hdr,
-                                            NULL,
-                                            NULL, NULL);
-                LOG_INFO("Sent 100 Trying for Call-ID %s.", session->call_id);
-                session->state = CALL_STATE_INVITE_SENT;
-
-                char new_request_line_uri[MAX_CONTACT_URI_LEN];
-                snprintf(new_request_line_uri, sizeof(new_request_line_uri),
-                         "sip:%s@%s:%d", to_user_id, sockaddr_to_ip_str(&resolved_callee_addr), SIP_PORT); // Construct URI from resolved data
-
-                char proxied_invite[MAX_SIP_MSG_LEN];
-                reconstruct_invite_message(buffer, new_request_line_uri, proxied_invite, sizeof(proxied_invite));
-
-                send_sip_message(sockfd, &session->callee_addr, sizeof(session->callee_addr), proxied_invite);
-                LOG_INFO("Proxied INVITE for Call-ID %s from %s to %s.",
-                            session->call_id, from_user_id, to_user_id);
-
+            if ((status = getaddrinfo(hostname_to_resolve, NULL, &hints, &res)) != 0) {
+                LOG_ERROR("getaddrinfo for %s failed: %s", hostname_to_resolve, gai_strerror(status));
             } else {
-                LOG_INFO("INVITE failed: Callee '%s' not found or not active.", to_user_id);
+                struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+                if (inet_pton(AF_INET, sockaddr_to_ip_str(ipv4), &resolved_callee_addr.sin_addr) > 0) {
+                    resolved = true;
+                    LOG_INFO("Resolved callee '%s' (%s) to IP %s", to_user_id, hostname_to_resolve, sockaddr_to_ip_str(ipv4));
+                }
+                freeaddrinfo(res);
+            }
+
+            if (!resolved) {
+                LOG_INFO("INVITE failed: Callee %s hostname '%s' could not be resolved.", to_user_id, hostname_to_resolve);
+                send_response_to_registered(sockfd, from_user_id, cliaddr, cli_len,
+                                            "SIP/2.0 404 Not Found", call_id_hdr, cseq_hdr,
+                                            from_hdr, to_hdr, via_hdr, NULL, NULL, NULL);
+                return;
+            }
+            resolved_callee_addr.sin_port = htons(SIP_PORT);
+
+            CallSession *session = create_call_session();
+            if (!session) {
+                LOG_INFO("INVITE failed: Max call sessions reached.");
                 send_response_to_registered(sockfd,
                                             from_user_id,
                                             cliaddr, cli_len,
-                                            "SIP/2.0 404 Not Found",
+                                            "SIP/2.0 503 Service Unavailable",
                                             call_id_hdr, cseq_hdr,
                                             from_hdr, to_hdr, via_hdr,
                                             NULL, NULL, NULL);
+                return;
             }
+            strncpy(session->call_id, call_id_hdr, sizeof(session->call_id) - 1);
+            session->call_id[sizeof(session->call_id) - 1] = '\0';
+            strncpy(session->cseq, cseq_hdr, sizeof(session->cseq) - 1);
+            session->cseq[sizeof(session->cseq) - 1] = '\0';
+            strncpy(session->from_tag, from_tag, sizeof(session->from_tag) - 1);
+            session->from_tag[sizeof(session->from_tag) - 1] = '\0';
+
+            memcpy(&session->original_caller_addr, cliaddr, cli_len);
+            memcpy(&session->callee_addr, &resolved_callee_addr, sizeof(resolved_callee_addr));
+
+            LOG_DEBUG("Callee '%s' target: %s:%d",
+                        to_user_id, sockaddr_to_ip_str(&session->callee_addr), ntohs(session->callee_addr.sin_port));
+
+            send_response_to_registered(sockfd,
+                                        from_user_id,
+                                        cliaddr, cli_len,
+                                        "SIP/2.0 100 Trying",
+                                        call_id_hdr, cseq_hdr,
+                                        from_hdr, to_hdr, via_hdr,
+                                        NULL,
+                                        NULL, NULL);
+            LOG_INFO("Sent 100 Trying for Call-ID %s.", session->call_id);
+            session->state = CALL_STATE_INVITE_SENT;
+
+            char new_request_line_uri[MAX_CONTACT_URI_LEN];
+            snprintf(new_request_line_uri, sizeof(new_request_line_uri),
+                     "sip:%s@%s:%d", to_user_id, sockaddr_to_ip_str(&resolved_callee_addr), SIP_PORT);
+
+            char proxied_invite[MAX_SIP_MSG_LEN];
+            reconstruct_invite_message(buffer, new_request_line_uri, proxied_invite, sizeof(proxied_invite));
+
+            send_sip_message(sockfd, &session->callee_addr, sizeof(session->callee_addr), proxied_invite);
+            LOG_INFO("Proxied INVITE for Call-ID %s from %s to %s.",
+                        session->call_id, from_user_id, to_user_id);
 
         } else if (strcmp(method, "BYE") == 0) {
             LOG_INFO("Received BYE for Call-ID %s.", call_id_hdr);
