@@ -26,6 +26,7 @@
 #include "passive_safety/passive_safety.h" // For passive safety and self-healing
 #include "uac/uac.h"                    // For UAC load testing module
 #include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
+#include "uac/uac_ping.h"               // For UAC ping/options testing
 
 // Define MODULE_NAME specific to main.c
 #define MODULE_NAME "MAIN"
@@ -364,24 +365,65 @@ int main(int argc, char *argv[]) {
                 uac_test_requested = 0; // Reset flag
                 syslog(6, "[UAC_TEST] ✓ Both flags true, processing UAC test request");
 
-                // Read target number from file
-                FILE *f = fopen("/tmp/uac_test_target", "r");
-                if (f) {
+                // Check for ping/options test request first
+                FILE *f_ping = fopen("/tmp/uac_ping_request", "r");
+                if (f_ping) {
                     char target[32] = {0};
-                    if (fgets(target, sizeof(target), f)) {
-                        // Remove newline
-                        target[strcspn(target, "\r\n")] = 0;
-                        syslog(6, "[UAC_TEST] Triggering UAC test call to %s via %s", target, g_server_ip); // 6 = LOG_INFO
-                        if (uac_make_call(target, g_server_ip) == 0) {
-                            syslog(6, "[UAC_TEST] ✓ UAC test call initiated successfully"); // 6 = LOG_INFO
-                        } else {
-                            syslog(3, "[UAC_TEST] ✗ UAC test call failed to initiate"); // 3 = LOG_ERR
+                    char count_str[8] = {0};
+
+                    // Read target and count from file
+                    if (fgets(target, sizeof(target), f_ping)) {
+                        target[strcspn(target, "\r\n")] = 0; // Remove newline
+                        if (fgets(count_str, sizeof(count_str), f_ping)) {
+                            count_str[strcspn(count_str, "\r\n")] = 0; // Remove newline
+                            int count = atoi(count_str);
+                            if (count < 1) count = 5;
+                            if (count > 20) count = 20;
+
+                            syslog(6, "[UAC_PING] Triggering ping/options test to %s (count=%d)", target, count);
+
+                            // Run ICMP ping test
+                            uac_timing_result ping_result = uac_ping_test(target, g_server_ip, count);
+                            if (ping_result.online) {
+                                syslog(6, "[UAC_PING] ✓ Ping test successful: RTT avg=%.2f ms, jitter=%.2f ms, loss=%.1f%%",
+                                       ping_result.avg_rtt_ms, ping_result.jitter_ms, ping_result.packet_loss_pct);
+                            } else {
+                                syslog(4, "[UAC_PING] ✗ Ping test failed: no response");
+                            }
+
+                            // Run SIP OPTIONS test
+                            uac_timing_result options_result = uac_options_test(target, g_server_ip, count);
+                            if (options_result.online) {
+                                syslog(6, "[UAC_PING] ✓ OPTIONS test successful: RTT avg=%.2f ms, jitter=%.2f ms, loss=%.1f%%",
+                                       options_result.avg_rtt_ms, options_result.jitter_ms, options_result.packet_loss_pct);
+                            } else {
+                                syslog(4, "[UAC_PING] ✗ OPTIONS test failed: no response");
+                            }
                         }
                     }
-                    fclose(f);
-                    unlink("/tmp/uac_test_target");
-                } else {
-                    syslog(4, "[UAC_TEST] UAC test requested but no target file found at /tmp/uac_test_target"); // 4 = LOG_WARNING
+                    fclose(f_ping);
+                    unlink("/tmp/uac_ping_request");
+                }
+                // Check for INVITE test request
+                else {
+                    FILE *f = fopen("/tmp/uac_test_target", "r");
+                    if (f) {
+                        char target[32] = {0};
+                        if (fgets(target, sizeof(target), f)) {
+                            // Remove newline
+                            target[strcspn(target, "\r\n")] = 0;
+                            syslog(6, "[UAC_TEST] Triggering UAC test call to %s via %s", target, g_server_ip); // 6 = LOG_INFO
+                            if (uac_make_call(target, g_server_ip) == 0) {
+                                syslog(6, "[UAC_TEST] ✓ UAC test call initiated successfully"); // 6 = LOG_INFO
+                            } else {
+                                syslog(3, "[UAC_TEST] ✗ UAC test call failed to initiate"); // 3 = LOG_ERR
+                            }
+                        }
+                        fclose(f);
+                        unlink("/tmp/uac_test_target");
+                    } else {
+                        syslog(4, "[UAC_TEST] UAC test requested but no target file found"); // 4 = LOG_WARNING
+                    }
                 }
             } else if (uac_test_requested && !have_server_ip) {
                 syslog(4, "[UAC_TEST] UAC test requested but have_server_ip=0, cannot make call"); // 4 = LOG_WARNING
