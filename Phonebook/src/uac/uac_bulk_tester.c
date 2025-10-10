@@ -135,6 +135,35 @@ void *uac_bulk_tester_thread(void *arg) {
                     } else {
                         snprintf(ping_status, sizeof(ping_status), "OFFLINE");
                         LOG_WARN("✗ Phone %s no response to ping", user->user_id);
+
+                        // Skip OPTIONS test if ping failed (no network connectivity)
+                        snprintf(options_status, sizeof(options_status), "OFFLINE");
+                        LOG_INFO("Skipping OPTIONS test for %s (ping failed, no network connectivity)", user->user_id);
+                        phones_offline++;
+
+                        // Write results to database
+                        uac_test_result_t db_result = {0};
+                        strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
+                        strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
+                        db_result.ping_rtt = ping_rtt;
+                        db_result.ping_jitter = ping_jitter;
+                        strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
+                        db_result.options_rtt = options_rtt;
+                        db_result.options_jitter = options_jitter;
+                        uac_test_db_write_result(&db_result);
+
+                        // Write to file
+                        if (results_file) {
+                            fprintf(results_file, "%s|%s|%s|%.2f|%.2f|%s|%.2f|%.2f\n",
+                                    user->user_id, user->display_name,
+                                    ping_status, ping_rtt, ping_jitter,
+                                    options_status, options_rtt, options_jitter);
+                            fflush(results_file);
+                        }
+
+                        // Re-acquire mutex and continue to next user
+                        pthread_mutex_lock(&registered_users_mutex);
+                        continue;
                     }
                 } else {
                     snprintf(ping_status, sizeof(ping_status), "DISABLED");
@@ -143,6 +172,7 @@ void *uac_bulk_tester_thread(void *arg) {
                 // ====================================================
                 // PHASE 2: Options Test (SIP OPTIONS - Application Layer)
                 // ====================================================
+                // Only run if ping succeeded or ping is disabled
                 if (g_uac_options_count > 0) {
                     LOG_INFO("Testing %s (%s) with options (%d requests)...",
                              user->user_id, user->display_name, g_uac_options_count);
