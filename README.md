@@ -16,6 +16,8 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 - 🎯 **Dual-Mode Testing**: ICMP ping + SIP OPTIONS tests with RTT/jitter measurement
 - 📈 **Performance Metrics**: Color-coded latency indicators and progress tracking
 
+> 🌐 **Access AREDNmon**: `http://[your-node].local.mesh/cgi-bin/arednmon`
+
 ## 📦 Installation
 
 ### 🔗 Download
