@@ -174,9 +174,8 @@ int main(int argc, char *argv[]) {
     signal(SIGUSR1, phonebook_reload_signal_handler);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
 
-    // UAC DISABLED
-    // signal(SIGUSR2, uac_test_signal_handler);
-    // LOG_INFO("Registered SIGUSR2 handler for UAC test calls");
+    signal(SIGUSR2, uac_test_signal_handler);
+    LOG_INFO("Registered SIGUSR2 handler for UAC test calls");
 
     LOG_INFO("Attempting to set process priority...");
     if (setpriority(PRIO_PROCESS, 0, SIP_HANDLER_NICE_VALUE) == -1) { // SIP_HANDLER_NICE_VALUE from common.h
