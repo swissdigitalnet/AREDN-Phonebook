@@ -8,16 +8,21 @@ AREDN-Phonebook1 is a SIP proxy server designed for AREDN (Amateur Radio Emergen
 
 ## Build System
 
-This project uses GitHub Actions to create the bin files.
+**OFFICIAL BUILD METHOD: GitHub Actions ONLY**
+
+This project uses GitHub Actions for all official builds. Do NOT build locally unless specifically requested for testing.
 
 **IMPORTANT: NO RELEASES** - The user does NOT want GitHub releases. Tags are only used to trigger builds.
 
-**Deployment Workflow:**
-1. Commit and push to the branch
+**Official Deployment Workflow:**
+1. Commit and push changes to the branch
 2. Create a version tag to trigger the build (e.g., `git tag v1.5.2 && git push origin v1.5.2`)
-3. The build happens automatically via GitHub Actions
-4. Download the built package from the workflow artifacts and install via opkg
-5. **DO NOT create or manage GitHub releases**
+3. GitHub Actions builds automatically for all architectures (x86_64, ath79, etc.)
+4. Download the built .ipk package from the workflow artifacts
+5. Install via opkg on target node
+6. **DO NOT create or manage GitHub releases**
+
+**Local builds** (dev container) are only for quick testing and should NOT be used for deployment.
 
 ### Download and Installation
 
@@ -33,9 +38,40 @@ This project uses GitHub Actions to create the bin files.
    ```
 
 **Installation Process:**
-1. Ask for the node name if not known (e.g., `hb9bla-vm-1.local.mesh`)
-2. Detect architecture: `ssh root@{NODE} -p 2222 "uname -m"`
-3. Transfer package: `scp -P 2222 -O /tmp/AREDN-Phonebook.ipk root@{NODE}:/tmp/`
-4. Install: `ssh root@{NODE} -p 2222 "opkg install /tmp/AREDN-Phonebook.ipk"`
-5. Restart service: `ssh root@{NODE} -p 2222 "/etc/init.d/AREDN-Phonebook restart"`
+1. Detect architecture: `ssh {NODE} "uname -m"`
+2. Transfer package: `scp /tmp/AREDN-Phonebook.ipk {NODE}:/tmp/`
+3. Install: `ssh {NODE} "opkg install /tmp/AREDN-Phonebook.ipk"`
+4. Restart service: `ssh {NODE} "/etc/init.d/AREDN-Phonebook restart"`
+
+**Note:** Replace `{NODE}` with `vm-1`, `hap-2`, or any AREDN node hostname.
+
+## Development Environment
+
+**Setup Required:** Before using these commands, complete the development environment setup described in [SetupDevContainer.md](SetupDevContainer.md).
+
+### Quick Access to Test Nodes
+
+Once setup is complete, use these SSH shortcuts from the container:
+
+```bash
+# Connect to VM-1 gateway
+ssh vm-1
+
+# Connect to HAP-2 router (via VM-1 jump host)
+ssh hap-2
+
+# Connect to any AREDN node (via VM-1 jump host)
+ssh nodename.local.mesh
+```
+
+### Available Test Nodes
+
+- **vm-1**: Gateway node with access to AREDN mesh (192.168.0.198)
+- **hap-2**: MikroTik hAP ac² router on mesh (10.51.55.233)
+
+### Important Notes
+
+- All mesh access goes through VM-1 as a jump host
+- AREDN mesh networks (10.x.x.x) are not directly routable from the container
+- SSH keys provide passwordless access to all nodes
 
