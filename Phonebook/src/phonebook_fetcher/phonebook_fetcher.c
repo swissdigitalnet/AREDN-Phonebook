@@ -137,8 +137,12 @@ void *phonebook_fetcher_thread(void *arg) {
             }
 
             // Ensure the persistent storage directory exists before copying
-            if (file_utils_ensure_directory_exists(PB_CSV_PATH) != 0) {
-                LOG_ERROR("Failed to create directory for persistent CSV storage");
+            char csv_dir_copy[MAX_CONFIG_PATH_LEN];
+            strncpy(csv_dir_copy, PB_CSV_PATH, sizeof(csv_dir_copy) - 1);
+            csv_dir_copy[sizeof(csv_dir_copy) - 1] = '\0';
+            char *csv_dir = dirname(csv_dir_copy);
+            if (file_utils_ensure_directory_exists(csv_dir) != 0) {
+                LOG_ERROR("Failed to create directory '%s' for persistent CSV storage", csv_dir);
                 remove(PB_CSV_TEMP_PATH); // Clean up temp file
                 goto end_fetcher_cycle;
             }
@@ -153,11 +157,14 @@ void *phonebook_fetcher_thread(void *arg) {
             LOG_INFO("CSV successfully copied to persistent storage with minimal flash wear.");
         }
 
+        LOG_ERROR("CRITICAL DEBUG: About to populate users from CSV - THIS LINE MUST APPEAR!");
         LOG_INFO("Populating SIP users from CSV for phonebook update.");
         populate_registered_users_from_csv(PB_CSV_PATH);
+        LOG_ERROR("CRITICAL DEBUG: populate_registered_users_from_csv() returned - num_directory_entries=%d", num_directory_entries);
         LOG_INFO("SIP user database populated from CSV. Total directory entries: %d.", num_directory_entries); // num_directory_entries from common.h
         initial_population_done = true;
 
+        LOG_ERROR("CRITICAL DEBUG: About to initiate XML conversion");
         LOG_INFO("Initiating XML conversion...");
         char fetched_xml_temp_path[MAX_CONFIG_PATH_LEN];
         if (csv_processor_convert_csv_to_xml_and_get_path(fetched_xml_temp_path, sizeof(fetched_xml_temp_path)) == 0) {
