@@ -16,7 +16,6 @@ int g_uac_test_interval_seconds = 60; // Default: 60 seconds
 int g_uac_call_test_enabled = 0;
 int g_uac_ping_count = 5;      // ICMP ping count (default: 5)
 int g_uac_options_count = 5;   // SIP OPTIONS count (default: 5)
-char g_uac_test_prefix[16] = "4415"; // Phone number prefix for INVITE tests only
 ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 int g_num_phonebook_servers = 0; // Will be populated by the loader
 
@@ -117,10 +116,6 @@ int load_configuration(const char *config_filepath) {
             } else {
                 LOG_WARN("Invalid UAC_OPTIONS_COUNT value '%s'. Using default %d.", value, g_uac_options_count);
             }
-        } else if (strcmp(key, "UAC_TEST_PREFIX") == 0) {
-            strncpy(g_uac_test_prefix, value, sizeof(g_uac_test_prefix) - 1);
-            g_uac_test_prefix[sizeof(g_uac_test_prefix) - 1] = '\0';
-            LOG_DEBUG("Config: UAC_TEST_PREFIX = %s", g_uac_test_prefix);
         } else if (strcmp(key, "PHONEBOOK_SERVER") == 0) {
             if (current_server_idx < MAX_PB_SERVERS) {
                 // strtok modifies the string, so it's good if value is a copy or you don't need it later.

@@ -325,13 +325,6 @@ UAC_PING_COUNT=5
 # Set to 0 to disable OPTIONS testing.
 # Range: 0-20, Default: 5
 UAC_OPTIONS_COUNT=5
-
-# UAC Test Phone Number Prefix (INVITE test only)
-# Only perform INVITE tests on phone numbers starting with this prefix.
-# Ping and OPTIONS tests will run for ALL phones regardless of prefix.
-# This allows selective calling tests while monitoring all phones.
-# Default: 4415
-UAC_TEST_PREFIX=4415
 ```
 
 ---
@@ -447,7 +440,6 @@ curl "http://hb9bla-vm-1.local.mesh/cgi-bin/uac_test?target=4415001"
 - **DNS Requirement:** All UAC tests require DNS resolution of `{phone_number}.local.mesh`
 - **Signal Handling:** CGI scripts use SIGUSR2 to trigger daemon operations
 - **Bulk Testing:** Automated bulk tests run every `UAC_TEST_INTERVAL_SECONDS` (default: 60s)
-- **Prefix Filtering:** `UAC_TEST_PREFIX` only affects INVITE tests, not ping/options tests
 
 ---
 

@@ -105,11 +105,6 @@ UAC_OPTIONS_COUNT=5
 # 0 = disabled, 1 = enabled
 # Default: 0 (disabled - recommended to avoid disturbing users)
 UAC_CALL_TEST_ENABLED=0
-
-# UAC Test Prefix - only INVITE phones starting with this prefix
-# Ping and OPTIONS tests run for ALL phones regardless of prefix
-# Default: 4415
-UAC_TEST_PREFIX=4415
 ```
 
 **Monitoring Modes:**

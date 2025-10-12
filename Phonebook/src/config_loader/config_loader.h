@@ -11,7 +11,6 @@ extern int g_uac_test_interval_seconds;
 extern int g_uac_call_test_enabled;
 extern int g_uac_ping_count;      // ICMP ping count
 extern int g_uac_options_count;   // SIP OPTIONS count
-extern char g_uac_test_prefix[16]; // Phone number prefix for INVITE tests only
 extern ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 extern int g_num_phonebook_servers;
 

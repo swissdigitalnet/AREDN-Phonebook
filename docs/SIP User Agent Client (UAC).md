@@ -25,7 +25,7 @@ Calling is initiated through `uac_make_call(target, g_server_ip)` after confirmi
 1. DNS is resolved to `<user>.local.mesh` to avoid hammering offline nodes.
 2. ICMP ping test (`g_uac_ping_count`, default 5) measures network-layer connectivity.
 3. SIP OPTIONS test (`g_uac_options_count`, default 5) measures application-layer connectivity.
-4. If both tests fail and `g_uac_call_test_enabled` is true AND phone matches `g_uac_test_prefix`, an INVITE is attempted. As soon as `RINGING` or `ESTABLISHED` is observed, the tester cancels or hangs up to minimize audible impact.
+4. If both tests fail and `g_uac_call_test_enabled` is true, an INVITE is attempted. As soon as `RINGING` or `ESTABLISHED` is observed, the tester cancels or hangs up to minimize audible impact.
 
 Metrics (online/offline counts, average RTT) are summarized at the end of each cycle, and the passive safety watchdog heartbeat is updated while the loop runs.
 
@@ -40,7 +40,6 @@ All settings live in `Phonebook/files/etc/phonebook.conf` and load via `config_l
 - `UAC_CALL_TEST_ENABLED` – allow INVITE validation when ping and options tests fail.
 - `UAC_PING_COUNT` – number of ICMP ping requests per phone (network layer, default: 5, tests ALL phones).
 - `UAC_OPTIONS_COUNT` – number of SIP OPTIONS requests per phone (application layer, default: 5, tests ALL phones).
-- `UAC_TEST_PREFIX` – restricts INVITE tests to phone numbers starting with this prefix (default `4415`, INVITE only).
 
 Changes require a service restart or config reload.
 
