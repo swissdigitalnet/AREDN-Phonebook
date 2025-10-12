@@ -34,7 +34,16 @@ void *uac_bulk_tester_thread(void *arg) {
     sleep(60);
 
     // Track previous cycle's dns_resolved count for UI display during testing
+    // Persist across restarts for accurate display on first cycle
     static int prev_dns_resolved = 0;
+
+    // Try to load previous dns_resolved count from file
+    FILE *dns_file = fopen("/tmp/uac_last_dns_resolved.txt", "r");
+    if (dns_file) {
+        fscanf(dns_file, "%d", &prev_dns_resolved);
+        fclose(dns_file);
+        LOG_INFO("Loaded previous testable phone count: %d", prev_dns_resolved);
+    }
 
     while (1) {
         // Passive Safety: Update heartbeat
@@ -57,15 +66,31 @@ void *uac_bulk_tester_thread(void *arg) {
         float total_avg_rtt = 0.0;  // Sum of average RTTs for calculating overall average
         int rtt_count = 0;          // Count of phones with valid RTT measurements
 
+        // Lock the user table to count total users first
+        pthread_mutex_lock(&registered_users_mutex);
+
+        // Count total registered users (for estimation if no previous cycle data)
+        for (int i = 0; i < MAX_REGISTERED_USERS; i++) {
+            if (registered_users[i].user_id[0] != '\0') {
+                total_users++;
+            }
+        }
+
+        pthread_mutex_unlock(&registered_users_mutex);
+
         // Initialize header with previous cycle's testable phone count
-        // This ensures UI shows correct count during testing (e.g., "25 of 45 phones tested")
-        // Will be updated again at end of cycle with actual count
+        // Use prev_dns_resolved if available, otherwise clear stale data with 0
         if (prev_dns_resolved > 0) {
             uac_test_db_update_header(0, prev_dns_resolved, g_uac_test_interval_seconds);
             LOG_DEBUG("Initialized header with %d testable phones from previous cycle", prev_dns_resolved);
+        } else {
+            // First cycle - clear any stale data, will be updated when cycle completes
+            uac_test_db_update_header(0, 0, g_uac_test_interval_seconds);
+            LOG_DEBUG("First cycle - cleared header, will be updated when cycle completes");
         }
 
-        // Lock the user table and iterate through all registered users
+        // Reset counters and lock for main testing loop
+        total_users = 0;
         pthread_mutex_lock(&registered_users_mutex);
 
         for (int i = 0; i < MAX_REGISTERED_USERS; i++) {
@@ -383,6 +408,13 @@ void *uac_bulk_tester_thread(void *arg) {
 
         // Save dns_resolved for next cycle's UI display during testing
         prev_dns_resolved = dns_resolved;
+
+        // Persist to file for accuracy across restarts
+        FILE *dns_save = fopen("/tmp/uac_last_dns_resolved.txt", "w");
+        if (dns_save) {
+            fprintf(dns_save, "%d\n", dns_resolved);
+            fclose(dns_save);
+        }
 
         // Wait for next cycle
         LOG_INFO("Next UAC bulk test in %d seconds...", g_uac_test_interval_seconds);
