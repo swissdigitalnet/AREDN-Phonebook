@@ -8,6 +8,17 @@ AGENTS.md
 .gemini/
 .copilot/
 
+# Development environment files (dev container)
+.bash_history
+.bashrc
+.gitconfig
+.npm/
+.ssh/
+.wget-hsts
+.claude.json
+.claude.json.backup
+SetupDevContainer.md
+
 # Microsoft Office documents
 *.docx
 
@@ -22,6 +33,7 @@ todo.*
 *.so
 *.a
 *~
+*.tmp.*
 .DS_Store
 Thumbs.db
 
