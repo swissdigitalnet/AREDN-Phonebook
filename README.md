@@ -22,6 +22,8 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 
 ### 🔗 Download
 
+Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
+
 1. Go to the [📥 Releases page](https://github.com/dhamstack/AREDN-Phonebook/releases)
 2. Download the latest `AREDN-Phonebook-x.x.x-x_[architecture].ipk` file for your device:
    - 🏠 **ath79**: Most common AREDN routers (e.g., Ubiquiti, MikroTik)
