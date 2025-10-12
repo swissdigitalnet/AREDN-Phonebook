@@ -47,33 +47,73 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 
 The phonebook server automatically configures itself. Default settings:
 
-- 📄 **Configuration**: `/etc/sipserver.conf`
+- 📄 **Configuration**: `/etc/phonebook.conf`
 - 🔧 **Service Commands**: `/etc/init.d/AREDN-Phonebook start|stop|restart|status`
 - 🔌 **SIP Port**: 5060
 - 🌐 **Directory URL**: `http://[your-node].local.mesh/arednstack/phonebook_generic_direct.xml`
 
-### 🧪 Phone Monitoring Configuration
+### 🔧 Configuration Options
 
-Edit `/etc/sipserver.conf` to customize phone testing:
+Edit `/etc/phonebook.conf` to customize settings:
 
 ```ini
-# UAC Test Interval - how often to test all phones (seconds)
-UAC_TEST_INTERVAL_SECONDS=60
+# ============================================================================
+# PHONEBOOK SETTINGS
+# ============================================================================
 
-# UAC Call Test - enable INVITE testing (0=OPTIONS only, 1=OPTIONS+INVITE)
-# Default: 0 (non-intrusive OPTIONS ping only)
+# Phonebook Fetcher Interval - how often to download phonebook (seconds)
+# Default: 3600 (1 hour)
+PB_INTERVAL_SECONDS=3600
+
+# Phonebook Servers - download sources for CSV phonebook
+# Format: PHONEBOOK_SERVER=host,port,path
+# Multiple servers can be added (tries in order until successful)
+PHONEBOOK_SERVER=hb9bla-vm-tunnelserver.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.csv
+PHONEBOOK_SERVER=hb9edi-vm-gw.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.csv
+
+# ============================================================================
+# PHONEBOOK SERVICE SETTINGS
+# ============================================================================
+
+# Status Update Interval - how often to check for phonebook changes (seconds)
+# Default: 600 (10 minutes)
+STATUS_UPDATE_INTERVAL_SECONDS=600
+
+# ============================================================================
+# MONITORING SETTINGS (UAC Testing)
+# ============================================================================
+
+# UAC Test Interval - how often to test all phones (seconds)
+# Set to 0 to disable monitoring completely
+# Default: 600 (10 minutes)
+UAC_TEST_INTERVAL_SECONDS=600
+
+# UAC Ping Test - ICMP ping count per phone (network layer)
+# Tests network connectivity and measures RTT/jitter at IP level
+# Range: 0-20, Default: 5, Set to 0 to disable
+UAC_PING_COUNT=5
+
+# UAC Options Test - SIP OPTIONS count per phone (application layer)
+# Tests SIP connectivity and measures RTT/jitter at SIP level
+# Range: 0-20, Default: 5, Set to 0 to disable
+UAC_OPTIONS_COUNT=5
+
+# UAC Call Test - enable INVITE testing (rings phone briefly)
+# Only used as fallback if both ping and options fail
+# 0 = disabled, 1 = enabled
+# Default: 0 (disabled - recommended to avoid disturbing users)
 UAC_CALL_TEST_ENABLED=0
 
-# Number of OPTIONS pings per phone (1-20)
-UAC_OPTIONS_PING_COUNT=5
-
-# Only test phones with this prefix
+# UAC Test Prefix - only INVITE phones starting with this prefix
+# Ping and OPTIONS tests run for ALL phones regardless of prefix
+# Default: 4415
 UAC_TEST_PREFIX=4415
 ```
 
 **Monitoring Modes:**
-- 📊 **OPTIONS Only** (default): Non-intrusive latency/jitter measurement
-- 📞 **OPTIONS + INVITE**: Fallback to ring test if OPTIONS fails
+- 🌐 **ICMP Ping** (network layer): Network connectivity and IP-level RTT/jitter
+- 📊 **SIP OPTIONS** (application layer): SIP connectivity and application-level RTT/jitter
+- 📞 **SIP INVITE** (optional): Fallback ring test if ping and OPTIONS fail
 
 ## 📱 Phone Setup
 
@@ -192,6 +232,7 @@ curl http://localhost/arednstack/phonebook_generic_direct.xml
 
 - 🐛 **Issues**: [GitHub Issues](https://github.com/dhamstack/AREDN-Phonebook/issues)
 - 📚 **Documentation**: [Functional Specification](AREDN-phonebook-fsd.md)
+- 📖 **Setup Guide**: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
 - 🌐 **AREDN Community**: [AREDN Forums](https://www.arednmesh.org/)
 
 ## 📄 License
