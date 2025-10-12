@@ -288,7 +288,8 @@ cat <<EOF
 
         // Update progress indicator
         function updateProgress(numResults, numTestablePhones) {
-            const totalPhones = numTestablePhones || 0;
+            // Ensure denominator is never less than numerator (prevents "46 of 45")
+            const totalPhones = Math.max(numResults, numTestablePhones || 0);
             const progressPct = totalPhones > 0 ? Math.min(100, Math.round((numResults / totalPhones) * 100)) : 0;
 
             document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested';
