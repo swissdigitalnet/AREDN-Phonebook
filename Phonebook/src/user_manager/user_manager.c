@@ -136,6 +136,7 @@ RegisteredUser* add_or_update_registered_user(const char *user_id,
 
 RegisteredUser* add_csv_user_to_registered_users_table(const char *user_id_numeric,
                                    const char *display_name) {
+    LOG_ERROR("DEBUG TRACE: add_csv_user_to_registered_users_table() called with user_id='%s', display_name='%s'", user_id_numeric, display_name);
     pthread_mutex_lock(&registered_users_mutex);
 
     RegisteredUser *existing = NULL;
@@ -183,6 +184,7 @@ RegisteredUser* add_csv_user_to_registered_users_table(const char *user_id_numer
                 u->is_active = true; // Directory users are considered active by default
                 u->is_known_from_directory = true;
                 num_directory_entries++;
+                LOG_ERROR("DEBUG TRACE: Added new CSV/directory user '%s' (%s). Total directory entries now: %d", user_id_numeric, display_name, num_directory_entries);
                 // Changed log level from INFO to DEBUG and removed total count
                 LOG_DEBUG("Added new CSV/directory user '%s' (%s).", user_id_numeric, display_name);
                 pthread_mutex_unlock(&registered_users_mutex);
@@ -212,15 +214,18 @@ void init_registered_users_table() {
 }
 
 void populate_registered_users_from_csv(const char *filepath) {
+    LOG_ERROR("DEBUG TRACE: populate_registered_users_from_csv() ENTERED with filepath='%s'", filepath);
     FILE *fp = fopen(filepath, "r");
     if (!fp) {
-        LOG_ERROR("Failed to open CSV phonebook file '%s' for populating registered users.",
-                    filepath);
+        LOG_ERROR("Failed to open CSV phonebook file '%s' for populating registered users. errno=%d (%s)",
+                    filepath, errno, strerror(errno));
         return;
     }
+    LOG_ERROR("DEBUG TRACE: CSV file '%s' opened successfully. About to call init_registered_users_table()", filepath);
     LOG_INFO("Populating registered users from CSV '%s'...", filepath);
 
     init_registered_users_table(); // Clear all existing entries first
+    LOG_ERROR("DEBUG TRACE: init_registered_users_table() completed. Starting CSV parsing loop.")
 
     char line[2048];
     int ln = 0;
@@ -296,7 +301,10 @@ void populate_registered_users_from_csv(const char *filepath) {
         add_csv_user_to_registered_users_table(sanitized_user_id_numeric, full_name);
     }
     fclose(fp);
+    LOG_ERROR("DEBUG TRACE: CSV parsing loop completed. Total lines processed: %d", ln);
+    LOG_ERROR("DEBUG TRACE: About to report final count. num_directory_entries=%d", num_directory_entries);
     LOG_INFO("Finished populating registered users from CSV. Total directory entries: %d.", num_directory_entries);
+    LOG_ERROR("DEBUG TRACE: populate_registered_users_from_csv() EXITING normally");
 }
 
 void load_directory_from_xml(const char *filepath) {
