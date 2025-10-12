@@ -33,6 +33,9 @@ void *uac_bulk_tester_thread(void *arg) {
     LOG_INFO("Waiting 60 seconds for initial phonebook load...");
     sleep(60);
 
+    // Track previous cycle's dns_resolved count for UI display during testing
+    static int prev_dns_resolved = 0;
+
     while (1) {
         // Passive Safety: Update heartbeat
         g_bulk_tester_last_heartbeat = time(NULL);
@@ -53,6 +56,14 @@ void *uac_bulk_tester_thread(void *arg) {
         int phones_offline = 0;     // DNS resolved but no SIP response
         float total_avg_rtt = 0.0;  // Sum of average RTTs for calculating overall average
         int rtt_count = 0;          // Count of phones with valid RTT measurements
+
+        // Initialize header with previous cycle's testable phone count
+        // This ensures UI shows correct count during testing (e.g., "25 of 45 phones tested")
+        // Will be updated again at end of cycle with actual count
+        if (prev_dns_resolved > 0) {
+            uac_test_db_update_header(0, prev_dns_resolved, g_uac_test_interval_seconds);
+            LOG_DEBUG("Initialized header with %d testable phones from previous cycle", prev_dns_resolved);
+        }
 
         // Lock the user table and iterate through all registered users
         pthread_mutex_lock(&registered_users_mutex);
@@ -365,10 +376,13 @@ void *uac_bulk_tester_thread(void *arg) {
                      rtt_count, overall_avg_rtt);
         }
 
-        // Update database header with testable phone count
+        // Update database header with actual testable phone count (phones with working DNS)
         int total_results = phones_online + phones_offline;
-        uac_test_db_update_header(total_results, total_users, g_uac_test_interval_seconds);
-        LOG_DEBUG("Updated database header: %d results, %d testable phones", total_results, total_users);
+        uac_test_db_update_header(total_results, dns_resolved, g_uac_test_interval_seconds);
+        LOG_DEBUG("Updated database header: %d results, %d testable phones", total_results, dns_resolved);
+
+        // Save dns_resolved for next cycle's UI display during testing
+        prev_dns_resolved = dns_resolved;
 
         // Wait for next cycle
         LOG_INFO("Next UAC bulk test in %d seconds...", g_uac_test_interval_seconds);
