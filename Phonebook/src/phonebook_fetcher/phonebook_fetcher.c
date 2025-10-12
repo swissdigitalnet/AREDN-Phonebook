@@ -136,6 +136,13 @@ void *phonebook_fetcher_thread(void *arg) {
                 LOG_INFO("CSV content changed. Updating persistent storage (flash write).");
             }
 
+            // Ensure the persistent storage directory exists before copying
+            if (file_utils_ensure_directory_exists(PB_CSV_PATH) != 0) {
+                LOG_ERROR("Failed to create directory for persistent CSV storage");
+                remove(PB_CSV_TEMP_PATH); // Clean up temp file
+                goto end_fetcher_cycle;
+            }
+
             // Cross-filesystem move: copy temp file to flash, then remove temp
             if (file_utils_copy_file(PB_CSV_TEMP_PATH, PB_CSV_PATH) != 0) {
                 LOG_ERROR("Failed to copy temp CSV to persistent storage");
