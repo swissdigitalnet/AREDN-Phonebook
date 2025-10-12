@@ -234,21 +234,11 @@ void *uac_bulk_tester_thread(void *arg) {
                 }
 
                 // ====================================================
-                // PHASE 3: SIP INVITE Test (Optional - only if enabled AND prefix matches)
+                // PHASE 3: SIP INVITE Test (Optional - only if enabled)
                 // ====================================================
                 if (g_uac_call_test_enabled) {
-                    // Check if phone number matches the configured prefix for INVITE testing
-                    if (strncmp(user->user_id, g_uac_test_prefix, strlen(g_uac_test_prefix)) != 0) {
-                        // Phone doesn't match prefix - skip INVITE test but mark as offline
-                        LOG_INFO("Phone %s does not match prefix '%s', skipping INVITE test",
-                                 user->user_id, g_uac_test_prefix);
-                        phones_offline++;
-                        pthread_mutex_lock(&registered_users_mutex);
-                        continue;
-                    }
-
-                    LOG_INFO("Ping/OPTIONS failed, trying INVITE test for %s (matches prefix '%s')...",
-                             user->user_id, g_uac_test_prefix);
+                    LOG_INFO("Ping/OPTIONS failed, trying INVITE test for %s...",
+                             user->user_id);
 
                     // Wait for UAC to return to IDLE state before making call
                     // The UAC only supports one call at a time
