@@ -291,7 +291,7 @@ cat <<EOF
             const totalPhones = numTestablePhones || 0;
             const progressPct = totalPhones > 0 ? Math.min(100, Math.round((numResults / totalPhones) * 100)) : 0;
 
-            document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested*';
+            document.getElementById('testProgress').textContent = numResults + ' of ' + totalPhones + ' phones tested';
             document.getElementById('progressText').textContent = progressPct + '%';
             document.getElementById('progressBar').style.width = progressPct + '%';
         }
@@ -343,8 +343,8 @@ cat <<'EOF'
         <span class="rtt-medium">● Orange</span> - Medium (100-200ms)<br>
         <span class="rtt-poor">● Red</span> - Poor (&gt;200ms)<br>
         <br>
-        <strong>Note:</strong> * Only phones with DNS resolution (marked with asterisk in phonebook) are tested.<br>
-        The phonebook is updated every hour. Total count reflects phones currently resolvable on the mesh.
+        <strong>Note:</strong> Only phones with working DNS resolution are tested.<br>
+        The phonebook is updated every hour. Total count reflects all registered phones in the phonebook.
     </div>
 </body>
 </html>
