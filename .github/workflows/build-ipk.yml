@@ -53,6 +53,15 @@ jobs:
           mv openwrt-sdk-* sdk
           echo "SDK ready for build"
 
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Extract version from tag name (strip 'v' prefix if present)
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"  # Remove leading 'v'
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
       - name: Inject AREDN-Phonebook package
         run: |
           # Clean up any existing package directory first
@@ -60,7 +69,8 @@ jobs:
           mkdir -p sdk/package/AREDN-Phonebook
           cp -r Phonebook/* sdk/package/AREDN-Phonebook/
 
-          echo "Package injected, Makefile will use BUILD_SHA from make command"
+          echo "Package injected, Makefile will auto-detect version from git tag"
+          echo "Version override: ${{ steps.version.outputs.version }}"
 
           # Verify Makefile was copied correctly
           echo "Verifying Makefile:"
@@ -103,7 +113,7 @@ jobs:
           make package/AREDN-Phonebook/info V=99 || echo "Package info failed"
 
           echo "Now attempting compilation with full verbosity:"
-          BUILD_SHA="${{ github.run_number }}-${{ github.sha }}" make package/AREDN-Phonebook/compile V=99 -j1 2>&1 | tee build.log
+          PKG_VERSION_OVERRIDE="${{ steps.version.outputs.version }}" make package/AREDN-Phonebook/compile V=99 -j1 2>&1 | tee build.log
 
           echo ""
           echo "=== Checking compilation result ==="

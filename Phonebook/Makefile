@@ -1,7 +1,15 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=AREDN-Phonebook
-PKG_VERSION:=2.0.3
+
+# Auto-detect version from git tag or use override
+ifeq ($(PKG_VERSION_OVERRIDE),)
+  # Try to get version from git tag (strip leading 'v' if present)
+  PKG_VERSION:=$(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "2.0.0")
+else
+  PKG_VERSION:=$(PKG_VERSION_OVERRIDE)
+endif
+
 PKG_RELEASE:=1
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
