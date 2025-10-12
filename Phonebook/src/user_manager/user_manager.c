@@ -230,12 +230,13 @@ void populate_registered_users_from_csv(const char *filepath) {
     char line[2048];
     int ln = 0;
     while (fgets(line, sizeof(line), fp)) {
-        if (ln++ == 0) continue; // Skip header
-
-        char *cols[5] = {NULL};
+        ln++;
+        // CSV has NO header - all rows are data
+        // CSV format: FirstName,LastName,Callsign,PhoneNumber (4 columns)
+        char *cols[4] = {NULL};
         char *p = line;
-        for (int i=0; i<5; i++) {
-            if (i<4) {
+        for (int i=0; i<4; i++) {
+            if (i<3) {
                 char *c = strchr(p, ',');
                 if (c) {
                     *c = '\0';
@@ -248,19 +249,19 @@ void populate_registered_users_from_csv(const char *filepath) {
             } else {
                 cols[i] = p;
             }
-            if (!p && i < 4) { // Only break if missing expected columns before the last one
-                LOG_WARN("Line %d has fewer than 5 columns. Missing column %d and subsequent. Line: '%.*s'", ln, i+1, (int)strcspn(line, "\r\n"), line);
+            if (!p && i < 3) { // Only break if missing expected columns before the last one
+                LOG_WARN("Line %d has fewer than 4 columns. Missing column %d and subsequent. Line: '%.*s'", ln, i+1, (int)strcspn(line, "\r\n"), line);
                 break;
             }
         }
 
-        if (cols[4]) {
-            char *e = strchr(cols[4], ','); // Handle potential extra commas in last field
+        if (cols[3]) {
+            char *e = strchr(cols[3], ','); // Handle potential extra commas in last field
             if (e) *e = '\0';
-            cols[4][strcspn(cols[4], "\r\n")] = '\0'; // Remove newline
+            cols[3][strcspn(cols[3], "\r\n")] = '\0'; // Remove newline
         }
-        if (!cols[4] || !*cols[4]) {
-            LOG_WARN("Skipping CSV row %d due to missing or empty Telephone number (column 5). Line: '%.*s'", ln, (int)strcspn(line, "\r\n"), line);
+        if (!cols[3] || !*cols[3]) {
+            LOG_WARN("Skipping CSV row %d due to missing or empty Telephone number (column 4). Line: '%.*s'", ln, (int)strcspn(line, "\r\n"), line);
             continue;
         }
 
@@ -270,7 +271,7 @@ void populate_registered_users_from_csv(const char *filepath) {
         sanitize_utf8(cols[0] ? cols[0] : "", s0, sizeof(s0));
         sanitize_utf8(cols[1] ? cols[1] : "", s1, sizeof(s1));
         sanitize_utf8(cols[2] ? cols[2] : "", s2, sizeof(s2));
-        sanitize_utf8(cols[4] ? cols[4] : "", sanitized_user_id_numeric, sizeof(sanitized_user_id_numeric)); // Sanitize user ID
+        sanitize_utf8(cols[3] ? cols[3] : "", sanitized_user_id_numeric, sizeof(sanitized_user_id_numeric)); // Sanitize user ID (Phone number is column 4, index 3)
 
         trim_whitespace(s0);
         trim_whitespace(s1);
