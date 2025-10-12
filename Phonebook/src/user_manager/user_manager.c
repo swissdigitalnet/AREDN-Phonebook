@@ -225,7 +225,7 @@ void populate_registered_users_from_csv(const char *filepath) {
     LOG_INFO("Populating registered users from CSV '%s'...", filepath);
 
     init_registered_users_table(); // Clear all existing entries first
-    LOG_ERROR("DEBUG TRACE: init_registered_users_table() completed. Starting CSV parsing loop.")
+    LOG_ERROR("DEBUG TRACE: init_registered_users_table() completed. Starting CSV parsing loop.");
 
     char line[2048];
     int ln = 0;
