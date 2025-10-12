@@ -180,28 +180,30 @@ jobs:
           path: ${{ steps.find_ipk.outputs.ipk_path }}
           retention-days: 30
 
-      # Upload IPK file to release (only for tags)
-      - name: Debug github.ref
-        run: |
-          echo "github.ref: ${{ github.ref }}"
-          echo "github.ref_name: ${{ github.ref_name }}"
-          echo "Starts with refs/tags/: ${{ startsWith(github.ref, 'refs/tags/') }}"
-
-      - name: Upload IPK to Release
-        uses: softprops/action-gh-release@v2
+      # Upload IPK file to release (only for tags) - Using GitHub CLI for reliability
+      - name: Create/Update Release with GitHub CLI
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: ${{ steps.find_ipk.outputs.ipk_path }}
-          name: AREDN Phonebook ${{ github.ref_name }}
-          body: |
-            AREDN Phonebook Release ${{ github.ref_name }}
+        run: |
+          echo "Creating/updating release for ${{ github.ref_name }}"
+          echo "IPK file: ${{ steps.find_ipk.outputs.ipk_path }}"
 
-            ## Architecture Support
+          # Check if release exists
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "Release exists, uploading additional artifact..."
+            gh release upload "${{ github.ref_name }}" "${{ steps.find_ipk.outputs.ipk_path }}" --clobber
+          else
+            echo "Creating new release..."
+            gh release create "${{ github.ref_name }}" \
+              "${{ steps.find_ipk.outputs.ipk_path }}" \
+              --title "AREDN Phonebook ${{ github.ref_name }}" \
+              --notes "## AREDN Phonebook Release ${{ github.ref_name }}
+
+            ### Architecture Support
             - ath79/generic (MikroTik devices)
             - x86/64 (Intel devices, VMs)
             - ipq40xx/generic (AREDN mesh devices)
 
-            ## Features
+            ### Features
             - SIP phonebook server with web interface
             - AREDNmon network monitoring dashboard
             - Automated bulk testing (ping + SIP OPTIONS)
@@ -210,10 +212,13 @@ jobs:
             - Smart phonebook caching
             - Minimal resource footprint
 
-            ## Installation
-            ```bash
+            ### Installation
+            \`\`\`bash
             # Download appropriate IPK for your architecture
             opkg install AREDN-Phonebook-*.ipk
-            ```
+            \`\`\`"
+          fi
+
+          echo "Release updated successfully!"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
