@@ -137,7 +137,10 @@ extern int g_num_phonebook_servers;
 
 // These are defined in main.c
 extern RegisteredUser registered_users[MAX_REGISTERED_USERS];
-extern int num_registered_users; // Count of active dynamic registrations
+// TODO: Future release - merge num_registered_users and num_directory_entries into single counter
+// Current separation tracks "planned" (CSV) vs "unexpected" (dynamic) phones but adds complexity
+// without clear operational benefit for AREDN mesh networks.
+extern int num_registered_users; // Count of active dynamic registrations (NOT in CSV)
 extern int num_directory_entries; // Count of entries populated from CSV directory
 extern char g_server_ip[64]; // Global server IP for UAC (populated at startup)
 extern CallSession call_sessions[MAX_CALL_SESSIONS];

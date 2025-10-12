@@ -71,6 +71,23 @@ define Build/Compile
 		-lrt
 endef
 
+define Package/AREDN-Phonebook/preinst
+#!/bin/sh
+# AREDN-Phonebook pre-installation script
+# Cleans all phonebook data to ensure fresh installation (migration safe)
+
+[ -n "$$$${IPKG_INSTROOT}" ] || {
+	echo "AREDN-Phonebook: Cleaning phonebook data directory..."
+	if [ -d "/www/arednstack" ]; then
+		rm -rf /www/arednstack/*
+		echo "AREDN-Phonebook: Cleaned all files in /www/arednstack/ (directory preserved)"
+	else
+		echo "AREDN-Phonebook: /www/arednstack/ does not exist (first install)"
+	fi
+}
+exit 0
+endef
+
 define Package/AREDN-Phonebook/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/AREDN-Phonebook $(1)/usr/bin/
