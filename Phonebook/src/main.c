@@ -27,6 +27,7 @@
 #include "uac/uac.h"                    // For UAC load testing module
 #include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
 #include "uac/uac_ping.h"               // For UAC ping/options testing
+#include "software_health/software_health.h" // For health monitoring
 
 // Define MODULE_NAME specific to main.c
 #define MODULE_NAME "MAIN"
@@ -170,6 +171,14 @@ int main(int argc, char *argv[]) {
     // --- Passive Safety: Self-correct configuration ---
     validate_and_correct_config(); // Fix common config errors automatically
 
+    // --- Initialize health monitoring system ---
+    LOG_INFO("Initializing health monitoring system...");
+    if (software_health_init() != 0) {
+        LOG_ERROR("Failed to initialize health monitoring system - continuing without it");
+    } else {
+        LOG_INFO("Health monitoring system initialized successfully");
+    }
+
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
@@ -277,6 +286,16 @@ int main(int argc, char *argv[]) {
     }
     LOG_DEBUG("UAC bulk tester thread launched.");
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
+
+    // Phase 5: Health Monitoring Thread Creation
+    LOG_INFO("Creating health reporter thread...");
+    pthread_t health_reporter_tid;
+    if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create health reporter thread - continuing without health reporting");
+    } else {
+        LOG_DEBUG("Health reporter thread launched.");
+        LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
+    }
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
