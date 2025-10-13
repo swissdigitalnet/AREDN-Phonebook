@@ -69,6 +69,9 @@ jobs:
           mkdir -p sdk/package/AREDN-Phonebook
           cp -r Phonebook/* sdk/package/AREDN-Phonebook/
 
+          # Force source files to have current timestamp to defeat SDK caching
+          find sdk/package/AREDN-Phonebook/src -type f -exec touch {} \;
+
           echo "Package injected, Makefile will auto-detect version from git tag"
           echo "Version override: ${{ steps.version.outputs.version }}"
 
