@@ -10,7 +10,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <execinfo.h>  // For backtrace_symbols()
+
+// Declare backtrace functions (provided by backtrace_stub.c or system libc)
+int backtrace(void **buffer, int size);
+char **backtrace_symbols(void *const *buffer, int size);
 
 // ============================================================================
 // HELPER FUNCTIONS

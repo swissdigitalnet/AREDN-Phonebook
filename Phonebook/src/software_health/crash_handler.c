@@ -13,7 +13,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <execinfo.h>  // For backtrace()
+
+// Declare backtrace functions (provided by backtrace_stub.c or system libc)
+int backtrace(void **buffer, int size);
+char **backtrace_symbols(void *const *buffer, int size);
+void backtrace_symbols_fd(void *const *buffer, int size, int fd);
 
 // Forward declare syslog to avoid including syslog.h (which conflicts with log_manager.h)
 extern void syslog(int priority, const char *format, ...);
