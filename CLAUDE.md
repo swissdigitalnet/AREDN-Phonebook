@@ -24,6 +24,13 @@ This project uses GitHub Actions for all official builds. Do NOT build locally u
 
 **Local builds** (dev container) are only for quick testing and should NOT be used for deployment.
 
+**CRITICAL: NEVER use local GCC compilation to verify code correctness for OpenWRT**
+- Local environment uses glibc (Debian), OpenWRT uses musl libc
+- Different headers, different function availability (e.g., backtrace)
+- Different build constraints and static linking behavior
+- Code that compiles locally with GCC may NOT compile in OpenWRT SDK
+- ONLY GitHub Actions builds with OpenWRT SDK are valid for verification
+
 ### Download and Installation
 
 **Download Process (from GitHub Actions artifacts):**
