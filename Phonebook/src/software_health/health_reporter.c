@@ -167,12 +167,33 @@ void* health_reporter_thread(void *arg) {
         return NULL;
     }
 
+    // DEBUG: Marker after thread registration
+    debug_fp = fopen("/tmp/health_loop_registered.flag", "w");
+    if (debug_fp) {
+        fprintf(debug_fp, "Thread registered at %ld, index=%d\n", time(NULL), thread_index);
+        fclose(debug_fp);
+    }
+
     while (1) {
+        // DEBUG: Marker at loop start
+        debug_fp = fopen("/tmp/health_loop_start.flag", "w");
+        if (debug_fp) {
+            fprintf(debug_fp, "Loop iteration at %ld\n", time(NULL));
+            fclose(debug_fp);
+        }
+
         // Update heartbeat
         health_update_heartbeat(thread_index);
 
         // Update all health metrics
         health_update_metrics();
+
+        // DEBUG: Marker after metrics update
+        debug_fp = fopen("/tmp/health_loop_metrics.flag", "w");
+        if (debug_fp) {
+            fprintf(debug_fp, "Metrics updated at %ld\n", time(NULL));
+            fclose(debug_fp);
+        }
 
         // Update service metrics (from global state)
         extern service_metrics_t g_service_metrics;
@@ -197,11 +218,25 @@ void* health_reporter_thread(void *arg) {
 
         pthread_mutex_unlock(&g_health_mutex);
 
+        // DEBUG: Marker before local file write
+        debug_fp = fopen("/tmp/health_loop_before_write.flag", "w");
+        if (debug_fp) {
+            fprintf(debug_fp, "Before write at %ld, local_reporting=%d\n", time(NULL), g_health_local_reporting);
+            fclose(debug_fp);
+        }
+
         // Always write to local file (for AREDNmon dashboard)
         if (g_health_local_reporting) {
             health_report_reason_t local_reason = REASON_SCHEDULED;
             if (health_write_status_file(local_reason) != 0) {
                 LOG_ERROR("Failed to write health status file");
+            }
+
+            // DEBUG: Marker after file write
+            debug_fp = fopen("/tmp/health_loop_after_write.flag", "w");
+            if (debug_fp) {
+                fprintf(debug_fp, "After write at %ld\n", time(NULL));
+                fclose(debug_fp);
             }
         }
 
