@@ -112,6 +112,9 @@ jobs:
           echo "First, let's see if the package is recognized:"
           make package/AREDN-Phonebook/info V=99 || echo "Package info failed"
 
+          echo "Cleaning previous build artifacts..."
+          make package/AREDN-Phonebook/clean V=s || echo "Clean failed (expected on first build)"
+
           echo "Now attempting compilation with full verbosity:"
           PKG_VERSION_OVERRIDE="${{ steps.version.outputs.version }}" make package/AREDN-Phonebook/compile V=99 -j1 2>&1 | tee build.log
 
