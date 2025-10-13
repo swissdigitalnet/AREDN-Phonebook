@@ -6,7 +6,7 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 
 ## ✨ Features
 
-- 🔄 **Automatic Directory Updates**: Downloads phonebook from mesh servers every 30 minutes
+- 🔄 **Automatic Directory Updates**: Downloads phonebook from mesh servers hourly (configurable)
 - 🛡️ **Emergency Resilience**: Survives power outages with persistent storage
 - 💾 **Flash-Friendly**: Minimizes writes to preserve router memory
 - 🔌 **Plug-and-Play**: Works immediately after installation
@@ -210,7 +210,7 @@ curl http://localhost/arednstack/phonebook_generic_direct.xml
 
 ### ⚠️ Common Issues
 
-- 📅 **No directory showing**: Wait up to 30 minutes for first download
+- 📅 **No directory showing**: Wait up to 1 hour for first download, or trigger immediate download via webhook
 - 🚫 **Service not starting**: Check logs with `logread | tail -50`
 - 🔒 **Permission errors**: Ensure `/www/arednstack/` directory exists
 
@@ -228,7 +228,7 @@ curl http://localhost/arednstack/phonebook_generic_direct.xml
 ## 🆘 Support
 
 - 🐛 **Issues**: [GitHub Issues](https://github.com/dhamstack/AREDN-Phonebook/issues)
-- 📚 **Documentation**: [Functional Specification](AREDN-phonebook-fsd.md)
+- 📚 **Documentation**: [Functional Specification](docs/AREDN-phonebook-fsd.md)
 - 📖 **Setup Guide**: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
 - 🌐 **AREDN Community**: [AREDN Forums](https://www.arednmesh.org/)
 
