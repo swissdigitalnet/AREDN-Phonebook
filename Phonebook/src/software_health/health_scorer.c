@@ -16,6 +16,7 @@
 /**
  * Update all health checks
  * Sets boolean flags for each health aspect
+ * NOTE: Caller (health_update_metrics) already holds g_health_mutex
  */
 void health_update_checks(void) {
     extern process_health_t g_process_health;
@@ -24,9 +25,7 @@ void health_update_checks(void) {
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
     extern health_checks_t g_health_checks;
-    extern pthread_mutex_t g_health_mutex;
-
-    pthread_mutex_lock(&g_health_mutex);
+    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
 
     // Check 1: Memory stable (no leak detected)
     g_health_checks.memory_stable = !g_memory_health.leak_suspected;
@@ -56,7 +55,7 @@ void health_update_checks(void) {
     // Check 6: CPU normal (< 50%)
     g_health_checks.cpu_normal = (g_cpu_metrics.current_cpu_pct < 50.0f);
 
-    pthread_mutex_unlock(&g_health_mutex);
+    // NOTE: Caller unlocks the mutex
 }
 
 // ============================================================================
