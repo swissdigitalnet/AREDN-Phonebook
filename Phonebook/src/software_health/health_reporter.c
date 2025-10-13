@@ -148,6 +148,13 @@ void* health_reporter_thread(void *arg) {
 
     LOG_INFO("Health reporter thread started");
 
+    // DEBUG: Create marker file to verify thread started
+    FILE *debug_fp = fopen("/tmp/health_reporter_started.flag", "w");
+    if (debug_fp) {
+        fprintf(debug_fp, "Reporter thread started at %ld\n", time(NULL));
+        fclose(debug_fp);
+    }
+
     // Initialize state
     memset(&g_reporter_state, 0, sizeof(g_reporter_state));
     g_reporter_state.is_first_report = true;

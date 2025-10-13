@@ -38,6 +38,13 @@ int software_health_init(void) {
 
     LOG_INFO("Initializing software health monitoring system");
 
+    // DEBUG: Create marker file to verify initialization
+    FILE *debug_fp = fopen("/tmp/health_init_started.flag", "w");
+    if (debug_fp) {
+        fprintf(debug_fp, "Health init started at %ld\n", time(NULL));
+        fclose(debug_fp);
+    }
+
     pthread_mutex_lock(&g_health_mutex);
 
     // Initialize process health
@@ -84,6 +91,13 @@ int software_health_init(void) {
     g_health_initialized = true;
 
     pthread_mutex_unlock(&g_health_mutex);
+
+    // DEBUG: Create marker file to verify initialization completed
+    debug_fp = fopen("/tmp/health_init_completed.flag", "w");
+    if (debug_fp) {
+        fprintf(debug_fp, "Health init completed at %ld for node %s\n", time(NULL), g_node_name);
+        fclose(debug_fp);
+    }
 
     LOG_INFO("Software health monitoring initialized (node: %s)", g_node_name);
 
