@@ -91,10 +91,12 @@ void *uac_bulk_tester_thread(void *arg) {
 
         pthread_mutex_unlock(&registered_users_mutex);
 
-        // Initialize header with current total_users count (upper bound estimate)
-        // This prevents "46 of 45" mismatch when phone count changes between cycles
-        uac_test_db_update_header(0, total_users, g_uac_test_interval_seconds);
-        LOG_DEBUG("Initialized header with %d total users (upper bound estimate)", total_users);
+        // Initialize header with previous cycle's DNS resolved count for accurate progress display
+        // Fallback to total_users only on first cycle when prev_dns_resolved is 0
+        int initial_testable = (prev_dns_resolved > 0) ? prev_dns_resolved : total_users;
+        uac_test_db_update_header(0, initial_testable, g_uac_test_interval_seconds);
+        LOG_DEBUG("Initialized header with %d testable phones (from %s)",
+                  initial_testable, (prev_dns_resolved > 0) ? "previous cycle" : "total users estimate");
 
         // Reset counters and lock for main testing loop
         total_users = 0;
