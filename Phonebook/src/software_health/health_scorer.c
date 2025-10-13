@@ -75,6 +75,7 @@ void health_update_checks(void) {
  * - Phonebook fetch failed: -10 points
  * - Memory leak suspected: -15 points
  *
+ * NOTE: Caller must hold g_health_mutex before calling
  * @return Health score 0.0-100.0
  */
 float health_compute_score(void) {
@@ -83,9 +84,7 @@ float health_compute_score(void) {
     extern memory_health_t g_memory_health;
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
-    extern pthread_mutex_t g_health_mutex;
-
-    pthread_mutex_lock(&g_health_mutex);
+    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
 
     float score = 100.0f;
 
@@ -140,7 +139,7 @@ float health_compute_score(void) {
         LOG_DEBUG("Health score: -15 for suspected memory leak");
     }
 
-    pthread_mutex_unlock(&g_health_mutex);
+    // NOTE: Caller unlocks the mutex
 
     // Clamp to valid range
     if (score < 0.0f) score = 0.0f;

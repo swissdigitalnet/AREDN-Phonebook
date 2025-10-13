@@ -210,7 +210,11 @@ float health_calculate_score(void) {
         return 0.0f;
     }
 
-    return health_compute_score();
+    pthread_mutex_lock(&g_health_mutex);
+    float score = health_compute_score();
+    pthread_mutex_unlock(&g_health_mutex);
+
+    return score;
 }
 
 // ============================================================================
