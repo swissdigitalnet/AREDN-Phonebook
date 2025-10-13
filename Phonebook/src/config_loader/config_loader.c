@@ -19,6 +19,18 @@ int g_uac_options_count = 5;   // SIP OPTIONS count (default: 5)
 ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 int g_num_phonebook_servers = 0; // Will be populated by the loader
 
+// Health reporting configuration (Chapter 5: Health Reporting)
+int g_health_local_reporting = 1;              // Default: enabled
+int g_health_local_update_seconds = 60;        // Default: 60 seconds
+int g_collector_enabled = 0;                   // Default: disabled
+char g_collector_url[256] = "http://pi-collector.local.mesh:5000/ingest"; // Default collector URL
+int g_collector_timeout_seconds = 10;          // Default: 10 seconds
+int g_health_report_baseline_hours = 4;        // Default: 4 hours
+float g_health_cpu_threshold_pct = 20.0f;      // Default: 20% CPU change
+float g_health_memory_threshold_mb = 10.0f;    // Default: 10 MB memory increase
+float g_health_score_threshold = 15.0f;        // Default: 15 point score drop
+int g_crash_reporting_enabled = 1;             // Default: enabled
+
 // Helper function to trim leading/trailing whitespace (static to this file)
 static char* trim_whitespace(char *str) {
     char *end;
@@ -142,6 +154,74 @@ int load_configuration(const char *config_filepath) {
             } else {
                 LOG_WARN("Max phonebook servers (%d) reached. Ignoring additional PHONEBOOK_SERVER entries.", MAX_PB_SERVERS);
             }
+        } else if (strcmp(key, "HEALTH_LOCAL_REPORTING") == 0) {
+            int parsed_value = atoi(value);
+            g_health_local_reporting = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: HEALTH_LOCAL_REPORTING = %d", g_health_local_reporting);
+        } else if (strcmp(key, "HEALTH_LOCAL_UPDATE_SECONDS") == 0) {
+            int parsed_value = atoi(value);
+            if (parsed_value >= 1 && parsed_value <= 3600) {
+                g_health_local_update_seconds = parsed_value;
+                LOG_DEBUG("Config: HEALTH_LOCAL_UPDATE_SECONDS = %d", g_health_local_update_seconds);
+            } else {
+                LOG_WARN("Invalid HEALTH_LOCAL_UPDATE_SECONDS value '%s'. Using default %d.", value, g_health_local_update_seconds);
+            }
+        } else if (strcmp(key, "COLLECTOR_ENABLED") == 0) {
+            int parsed_value = atoi(value);
+            g_collector_enabled = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: COLLECTOR_ENABLED = %d", g_collector_enabled);
+        } else if (strcmp(key, "COLLECTOR_URL") == 0) {
+            if (strlen(value) > 0 && strlen(value) < sizeof(g_collector_url)) {
+                strncpy(g_collector_url, value, sizeof(g_collector_url) - 1);
+                g_collector_url[sizeof(g_collector_url) - 1] = '\0';
+                LOG_DEBUG("Config: COLLECTOR_URL = %s", g_collector_url);
+            } else {
+                LOG_WARN("Invalid COLLECTOR_URL value '%s'. Using default.", value);
+            }
+        } else if (strcmp(key, "COLLECTOR_TIMEOUT_SECONDS") == 0) {
+            int parsed_value = atoi(value);
+            if (parsed_value >= 1 && parsed_value <= 60) {
+                g_collector_timeout_seconds = parsed_value;
+                LOG_DEBUG("Config: COLLECTOR_TIMEOUT_SECONDS = %d", g_collector_timeout_seconds);
+            } else {
+                LOG_WARN("Invalid COLLECTOR_TIMEOUT_SECONDS value '%s'. Using default %d.", value, g_collector_timeout_seconds);
+            }
+        } else if (strcmp(key, "HEALTH_REPORT_BASELINE_HOURS") == 0) {
+            int parsed_value = atoi(value);
+            if (parsed_value >= 1 && parsed_value <= 24) {
+                g_health_report_baseline_hours = parsed_value;
+                LOG_DEBUG("Config: HEALTH_REPORT_BASELINE_HOURS = %d", g_health_report_baseline_hours);
+            } else {
+                LOG_WARN("Invalid HEALTH_REPORT_BASELINE_HOURS value '%s'. Using default %d.", value, g_health_report_baseline_hours);
+            }
+        } else if (strcmp(key, "HEALTH_CPU_THRESHOLD_PCT") == 0) {
+            float parsed_value = atof(value);
+            if (parsed_value >= 1.0f && parsed_value <= 100.0f) {
+                g_health_cpu_threshold_pct = parsed_value;
+                LOG_DEBUG("Config: HEALTH_CPU_THRESHOLD_PCT = %.1f", g_health_cpu_threshold_pct);
+            } else {
+                LOG_WARN("Invalid HEALTH_CPU_THRESHOLD_PCT value '%s'. Using default %.1f.", value, g_health_cpu_threshold_pct);
+            }
+        } else if (strcmp(key, "HEALTH_MEMORY_THRESHOLD_MB") == 0) {
+            float parsed_value = atof(value);
+            if (parsed_value >= 1.0f && parsed_value <= 100.0f) {
+                g_health_memory_threshold_mb = parsed_value;
+                LOG_DEBUG("Config: HEALTH_MEMORY_THRESHOLD_MB = %.1f", g_health_memory_threshold_mb);
+            } else {
+                LOG_WARN("Invalid HEALTH_MEMORY_THRESHOLD_MB value '%s'. Using default %.1f.", value, g_health_memory_threshold_mb);
+            }
+        } else if (strcmp(key, "HEALTH_SCORE_THRESHOLD") == 0) {
+            float parsed_value = atof(value);
+            if (parsed_value >= 1.0f && parsed_value <= 100.0f) {
+                g_health_score_threshold = parsed_value;
+                LOG_DEBUG("Config: HEALTH_SCORE_THRESHOLD = %.1f", g_health_score_threshold);
+            } else {
+                LOG_WARN("Invalid HEALTH_SCORE_THRESHOLD value '%s'. Using default %.1f.", value, g_health_score_threshold);
+            }
+        } else if (strcmp(key, "CRASH_REPORTING_ENABLED") == 0) {
+            int parsed_value = atoi(value);
+            g_crash_reporting_enabled = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: CRASH_REPORTING_ENABLED = %d", g_crash_reporting_enabled);
         } else {
             LOG_WARN("Unknown configuration key: '%s'. Skipping.", key);
         }

@@ -7,6 +7,7 @@
 #include "../file_utils/file_utils.h"
 #include "../csv_processor/csv_processor.h"
 #include "../passive_safety/passive_safety.h" // For heartbeat tracking
+#include "../software_health/software_health.h" // For health monitoring
 
 // Note: Global extern declarations moved to common.h
 // extern int g_pb_interval_seconds; // Declared in common.h
@@ -69,6 +70,13 @@ void *phonebook_fetcher_thread(void *arg) {
     (void)arg;
     LOG_INFO("Phonebook fetcher started. Checking for existing phonebook data.");
 
+    // Register this thread for health monitoring
+    int thread_index = health_register_thread(pthread_self(), "phonebook_fetcher");
+    if (thread_index < 0) {
+        LOG_WARN("Failed to register phonebook fetcher thread for health monitoring");
+        // Continue anyway - health monitoring is not critical for operation
+    }
+
     // Emergency boot sequence: Load existing phonebook immediately if available
     if (access(PB_CSV_PATH, F_OK) == 0) {
         LOG_INFO("Found existing phonebook CSV at '%s'. Loading immediately for service availability.", PB_CSV_PATH);
@@ -90,6 +98,11 @@ void *phonebook_fetcher_thread(void *arg) {
     while (1) { // Changed from while (keep_running) to while (1)
         // Passive Safety: Update heartbeat for thread recovery monitoring
         g_fetcher_last_heartbeat = time(NULL);
+
+        // Health Monitoring: Update heartbeat
+        if (thread_index >= 0) {
+            health_update_heartbeat(thread_index);
+        }
 
         LOG_INFO("Starting new fetcher cycle.");
         char new_csv_hash[HASH_LENGTH + 1]; // HASH_LENGTH from common.h

@@ -6,6 +6,7 @@
 #include "../phonebook_fetcher/phonebook_fetcher.h"
 #include "../file_utils/file_utils.h"
 #include "../passive_safety/passive_safety.h" // For heartbeat tracking
+#include "../software_health/software_health.h" // For health monitoring
 
 
 typedef struct {
@@ -56,11 +57,23 @@ void *status_updater_thread(void *arg) {
     (void)arg;
     LOG_INFO("Status updater started. Entering main loop.");
 
+    // Register this thread for health monitoring
+    int thread_index = health_register_thread(pthread_self(), "status_updater");
+    if (thread_index < 0) {
+        LOG_WARN("Failed to register status updater thread for health monitoring");
+        // Continue anyway - health monitoring is not critical for operation
+    }
+
     struct timespec ts;
 
     while (1) { // Changed from while (keep_running) to while (1)
         // Passive Safety: Update heartbeat for thread recovery monitoring
         g_updater_last_heartbeat = time(NULL);
+
+        // Health Monitoring: Update heartbeat
+        if (thread_index >= 0) {
+            health_update_heartbeat(thread_index);
+        }
 
         pthread_mutex_lock(&updater_trigger_mutex);
         clock_gettime(CLOCK_REALTIME, &ts);

@@ -841,9 +841,581 @@ curl "http://localnode.local.mesh/cgi-bin/uac_test?target=441530"
 - Passive safety monitors for hung UAC thread (30-minute timeout)
 - Automatic thread restart if heartbeat stops
 
-## 5. Configuration
+## 5. Health Reporting
 
-### 5.1 Configuration Loader
+The Health Reporting subsystem monitors the operational health of the AREDN-Phonebook service itself, tracking CPU, memory, thread responsiveness, and crash diagnostics. This provides visibility into software stability and enables proactive maintenance.
+
+### 5.1 Health Monitoring Scope
+
+**Software health monitoring** (not mesh/routing):
+- CPU usage of AREDN-Phonebook process
+- Memory consumption
+- Thread responsiveness (phonebook fetcher, status updater, UAC tester)
+- Uptime and restart counts
+- Crash detection and reporting
+- Service health score (0-100)
+
+**Thread health tracked via heartbeats:**
+```c
+g_fetcher_last_heartbeat    // Updated every phonebook fetch cycle
+g_updater_last_heartbeat    // Updated every status update cycle
+g_uac_tester_last_heartbeat // Updated every test cycle
+```
+
+**Passive safety monitoring:**
+- Checks heartbeat freshness every 30 minutes
+- Detects hung threads (no heartbeat for >30 min)
+- Automatic thread restart on failure
+
+### 5.2 Health Metrics Collected
+
+**Process metrics:**
+- `cpu_pct`: CPU usage percentage (0-100)
+- `mem_mb`: Memory usage in megabytes
+- `uptime_seconds`: Time since process start
+- `restart_count`: Number of restarts in last 24h
+
+**Thread health:**
+- `threads_responsive`: Boolean (all threads heartbeating)
+- `fetcher_responsive`: Phonebook fetcher thread status
+- `updater_responsive`: Status updater thread status
+- `tester_responsive`: UAC bulk tester thread status
+
+**Service metrics:**
+- `registered_users_count`: Active SIP registrations (dynamic)
+- `directory_entries_count`: Phonebook entries (from CSV)
+- `active_calls_count`: Current SIP calls in progress
+- `phonebook_last_updated`: Timestamp of last phonebook fetch
+- `phonebook_fetch_status`: SUCCESS, FAILED, STALE
+
+**Health score computation:**
+```
+health_score = 100
+- (cpu_pct > 20% ? 10 : 0)
+- (mem_mb > 12 ? 10 : 0)
+- (!threads_responsive ? 30 : 0)
+- (restart_count > 0 ? 20 : 0)
+- (phonebook_fetch_status == FAILED ? 10 : 0)
+```
+
+### 5.3 Crash Detection
+
+**Signal handlers installed for:**
+- SIGSEGV (segmentation fault)
+- SIGBUS (bus error)
+- SIGFPE (floating point exception)
+- SIGABRT (abort)
+- SIGILL (illegal instruction)
+
+**Crash state captured:**
+- Signal number and name
+- Thread ID where crash occurred
+- Last operation breadcrumb (thread-local tracking)
+- Memory and CPU at crash time
+- Stack backtrace (instruction pointers, 5-10 frames)
+- Context: active calls, pending operations, system state
+
+**Crash state persistence:**
+- Written to `/tmp/meshmon_crash.bin` (RAM, survives crash but not reboot)
+- Loaded on next startup, converted to crash report
+- Sent to collector immediately after restart
+- No flash writes (preserves router lifespan)
+
+### 5.4 Reporting Frequency
+
+**Event-driven health reporting:**
+
+```
+Scheduled baseline:   Every 4 hours (heartbeat)
+Event-driven:         Immediately on:
+                      - CPU change > 20%
+                      - Memory change > 10 MB
+                      - Thread becomes unresponsive
+                      - Restart occurred
+                      - Health score drops > 15 points
+                      - Crash detected (on restart)
+```
+
+**Rationale:**
+- Normal conditions: 6 reports per day (4-hour baseline)
+- Problem conditions: Immediate notification
+- **97% bandwidth reduction** vs fixed 10-minute intervals
+- Maintains responsiveness while minimizing overhead
+
+### 5.5 Dual-Output Architecture
+
+Health reporting implements a **dual-output strategy** to support both local node visibility and mesh-wide monitoring:
+
+**Output 1: Local File** - For AREDNmon dashboard integration
+- Path: `/tmp/software_health.json`
+- Update frequency: Every 60 seconds
+- Storage: RAM (tmpfs) - no flash writes
+- Consumer: Local CGI endpoint `/cgi-bin/health_status`
+- Purpose: Immediate local visibility for field diagnostics
+
+**Output 2: HTTP POST** - For collector aggregation
+- Endpoint: Configurable `COLLECTOR_URL` (e.g., `http://pi-collector.local.mesh:5000/ingest`)
+- Update frequency: Event-driven (4h baseline + events)
+- Retry: Simple retry on failure, no buffering
+- Purpose: Mesh-wide monitoring and issue detection
+
+**Data flow:**
+```
+Health Monitoring Thread
+        │
+        ├──> Write /tmp/software_health.json (every 60s)
+        │    └──> CGI /cgi-bin/health_status
+        │         └──> AREDNmon Dashboard
+        │
+        └──> HTTP POST to Collector (4h + events)
+             └──> Raspberry Pi Collector
+                  └──> OpenWISP Dashboard
+```
+
+**Graceful degradation:**
+- If collector is unreachable: Local monitoring continues unaffected
+- If local file write fails: Remote reporting continues
+- Both outputs use identical JSON format (no duplication of logic)
+
+### 5.6 Local Dashboard Integration
+
+#### 5.6.1 Health Status File
+
+**Path**: `/tmp/software_health.json`
+
+**Format** (agent_health message schema):
+```json
+{
+  "schema": "meshmon.v2",
+  "type": "agent_health",
+  "node": "node-A",
+  "timestamp": 1697234567,
+  "reporting_reason": "scheduled",
+  "cpu_pct": 3.2,
+  "mem_mb": 5.8,
+  "uptime_seconds": 86400,
+  "restart_count": 0,
+  "health_score": 98,
+  "threads": {
+    "all_responsive": true,
+    "phonebook_fetcher": {
+      "responsive": true,
+      "last_heartbeat": "2025-10-13T11:55:00Z",
+      "heartbeat_age_seconds": 45
+    },
+    "status_updater": {
+      "responsive": true,
+      "last_heartbeat": "2025-10-13T11:58:00Z",
+      "heartbeat_age_seconds": 120
+    },
+    "uac_bulk_tester": {
+      "responsive": true,
+      "last_heartbeat": "2025-10-13T11:59:45Z",
+      "heartbeat_age_seconds": 15
+    }
+  },
+  "sip_service": {
+    "registered_users": 3,
+    "directory_entries": 224,
+    "active_calls": 0
+  },
+  "phonebook": {
+    "last_updated": "2025-10-13T11:00:00Z",
+    "fetch_status": "SUCCESS",
+    "csv_hash": "11A8204BF5C4180A",
+    "entries_loaded": 224
+  },
+  "checks": {
+    "memory_stable": true,
+    "no_recent_crashes": true,
+    "sip_service_ok": true,
+    "phonebook_current": true,
+    "all_threads_responsive": true
+  }
+}
+```
+
+**Update frequency**: Every 60 seconds (configurable via `HEALTH_LOCAL_UPDATE_SECONDS`)
+
+**Storage rationale**:
+- RAM-only (no flash writes) preserves router lifespan
+- Survives process restarts (updated immediately on startup)
+- Single file simplifies CGI endpoint implementation
+
+#### 5.6.2 CGI Endpoint
+
+**Endpoint**: `GET /cgi-bin/health_status`
+
+**Implementation**: Shell script
+```bash
+#!/bin/sh
+echo "Content-Type: application/json"
+echo ""
+cat /tmp/software_health.json 2>/dev/null || echo '{"error": "No health data"}'
+```
+
+**Response**:
+- Success: Returns contents of `/tmp/software_health.json`
+- Error: Returns `{"error": "No health data"}` if file missing
+
+**Installation**: Deployed as part of AREDN-Phonebook package to `/www/cgi-bin/`
+
+#### 5.6.3 AREDNmon Dashboard Enhancement
+
+The existing AREDNmon dashboard (`/cgi-bin/arednmon`) is enhanced with a **Software Health Panel** displayed above the phone monitoring table:
+
+**Visual Layout:**
+```
+┌──────────────────────────────────────────────────────┐
+│ AREDNmon - Network Monitor                           │
+├──────────────────────────────────────────────────────┤
+│                                                       │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ Software Health                    Score: 98/100│ │ ← NEW
+│ │ ─────────────────────────────────────────────── │ │
+│ │ CPU: 3.2% │ Memory: 5.8 MB │ Uptime: 1d 0h    │ │
+│ │ ✓ Fetcher  ✓ Updater  ✓ Tester                │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                       │
+│ Phone Monitoring (existing table)                    │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ Phone Number │ Name │ Status │ RTT │ Jitter   │ │
+│ │ 441530       │ ...  │ ONLINE │ 52  │ 8.3     │ │
+│ └─────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
+**HTML Structure:**
+```html
+<!-- Added before phone monitoring table -->
+<div class="health-panel">
+    <h2>Software Health <span id="healthScore" class="score">--</span></h2>
+    <div class="health-metrics">
+        <div class="metric">
+            <span class="label">CPU:</span>
+            <span id="cpuUsage">--</span>
+        </div>
+        <div class="metric">
+            <span class="label">Memory:</span>
+            <span id="memUsage">--</span>
+        </div>
+        <div class="metric">
+            <span class="label">Uptime:</span>
+            <span id="uptime">--</span>
+        </div>
+    </div>
+    <div id="threadStatus" class="thread-indicators"></div>
+    <div id="healthAlerts"></div>
+</div>
+```
+
+**JavaScript Integration:**
+```javascript
+// Load health status from CGI endpoint
+async function loadHealthStatus() {
+    try {
+        const response = await fetch('/cgi-bin/health_status');
+        const data = await response.json();
+
+        if (data.error) {
+            // Health monitoring not available yet
+            return;
+        }
+
+        // Update health score with color coding
+        const scoreElement = document.getElementById('healthScore');
+        scoreElement.textContent = data.health_score + '/100';
+        scoreElement.className = getHealthScoreClass(data.health_score);
+
+        // Update metrics
+        document.getElementById('cpuUsage').textContent = data.cpu_pct.toFixed(1) + '%';
+        document.getElementById('memUsage').textContent = data.mem_mb.toFixed(1) + ' MB';
+        document.getElementById('uptime').textContent = formatUptime(data.uptime_seconds);
+
+        // Update thread status indicators
+        updateThreadStatus(data.threads);
+
+        // Show alerts if health degraded
+        if (data.health_score < 80) {
+            showHealthAlerts(data.checks);
+        }
+    } catch (error) {
+        console.error('Failed to load health status:', error);
+    }
+}
+
+// Health score color coding
+function getHealthScoreClass(score) {
+    if (score >= 90) return 'health-excellent';  // Green
+    if (score >= 70) return 'health-good';       // Yellow
+    if (score >= 50) return 'health-degraded';   // Orange
+    return 'health-critical';                     // Red
+}
+
+// Thread status indicators
+function updateThreadStatus(threads) {
+    const container = document.getElementById('threadStatus');
+    container.innerHTML = '';
+
+    for (const [name, status] of Object.entries(threads)) {
+        if (name === 'all_responsive') continue;
+
+        const indicator = document.createElement('span');
+        indicator.className = 'thread-indicator';
+        indicator.textContent = status.responsive ? '✓' : '✗';
+        indicator.className += status.responsive ? ' responsive' : ' unresponsive';
+        indicator.title = `${name}: ${status.responsive ? 'OK' : 'HUNG'}`;
+        container.appendChild(indicator);
+    }
+}
+```
+
+**CSS Styling:**
+```css
+.health-panel {
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.health-metrics {
+    display: flex;
+    gap: 20px;
+    margin: 10px 0;
+}
+
+.metric {
+    display: flex;
+    gap: 5px;
+}
+
+.health-excellent { color: #4CAF50; font-weight: bold; }
+.health-good { color: #8BC34A; font-weight: bold; }
+.health-degraded { color: #FF9800; font-weight: bold; }
+.health-critical { color: #f44336; font-weight: bold; }
+
+.thread-indicator {
+    display: inline-block;
+    margin: 0 5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.thread-indicator.responsive {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.thread-indicator.unresponsive {
+    background-color: #f44336;
+    color: white;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+```
+
+**Update frequency**: JavaScript fetches health status every 30 seconds (matches existing AREDNmon refresh)
+
+#### 5.6.4 Crash Reporting Integration
+
+When a crash occurs and the process restarts, crash information is also made available locally:
+
+**Crash state file**: `/tmp/last_crash.json`
+
+**Format** (crash_report message schema):
+```json
+{
+  "schema": "meshmon.v2",
+  "type": "crash_report",
+  "node": "node-A",
+  "sent_at": "2025-10-13T12:05:00Z",
+  "crash_time": "2025-10-13T12:02:13Z",
+  "signal": 11,
+  "signal_name": "SIGSEGV",
+  "description": "Segmentation fault",
+  "thread_id": "fetcher",
+  "uptime_at_crash": 3600,
+  "memory_at_crash_mb": 8.2,
+  "crash_count_24h": 2
+}
+```
+
+**Dashboard display**: If crash file exists and is recent (<24h), AREDNmon shows warning banner:
+```html
+<div class="crash-alert">
+  ⚠ Service crashed 2 times in last 24h (last: 3 minutes ago)
+  <a href="#" onclick="showCrashDetails()">Details</a>
+</div>
+```
+
+### 5.7 Remote Collector Integration
+
+#### 5.7.1 HTTP Client Implementation
+
+Health data is transmitted to the remote collector via HTTP POST:
+
+**Endpoint**: Configured via `COLLECTOR_URL` parameter
+
+**Request format**:
+```http
+POST /ingest HTTP/1.1
+Host: pi-collector.local.mesh:5000
+Content-Type: application/json
+Content-Length: 1234
+
+{JSON health message}
+```
+
+**Message types posted**:
+1. `agent_health` - Regular health reports (4h baseline + events)
+2. `crash_report` - Crash diagnostics (immediate on restart)
+
+**HTTP client features**:
+- Timeout: Configurable (default: 10 seconds)
+- Retry: Single retry on network failure
+- Error handling: Continues on failure (local monitoring unaffected)
+- No buffering: Failed POSTs are dropped (next cycle retries)
+
+**Implementation module**: `software_health/http_client.c`
+
+```c
+int http_post_json(const char *url, const char *json_data, int timeout_seconds) {
+    // Parse URL for host, port, path
+    // Create TCP socket
+    // Set timeout using setsockopt(SO_SNDTIMEO, SO_RCVTIMEO)
+    // Send HTTP POST with JSON payload
+    // Read HTTP response status
+    // Return 0 on success (200 OK), -1 on failure
+}
+```
+
+#### 5.7.2 Event-Driven Transmission
+
+**Baseline heartbeat**: Every 4 hours (configurable)
+```c
+if (now - last_report_time >= HEALTH_REPORT_BASELINE_SECONDS) {
+    report_health_status(REASON_SCHEDULED);
+}
+```
+
+**Event triggers** (immediate transmission):
+```c
+// CPU spike detected
+if (abs(cpu_pct - last_cpu_pct) > HEALTH_CPU_THRESHOLD_PCT) {
+    report_health_status(REASON_CPU_SPIKE);
+}
+
+// Memory increase detected
+if ((mem_mb - last_mem_mb) > HEALTH_MEMORY_THRESHOLD_MB) {
+    report_health_status(REASON_MEMORY_INCREASE);
+}
+
+// Thread became unresponsive
+if (!thread_responsive && was_responsive) {
+    report_health_status(REASON_THREAD_HUNG);
+}
+
+// Health score dropped significantly
+if ((health_score - last_health_score) > HEALTH_SCORE_THRESHOLD) {
+    report_health_status(REASON_HEALTH_DEGRADED);
+}
+
+// Process restarted (detected on startup)
+if (is_first_report) {
+    report_health_status(REASON_RESTART);
+}
+```
+
+**Reporting reasons** (included in JSON):
+- `scheduled`: 4-hour baseline heartbeat
+- `cpu_spike`: CPU change > 20%
+- `memory_increase`: Memory increase > 10 MB
+- `thread_hung`: Thread stopped responding
+- `restart`: Process restarted
+- `health_degraded`: Health score dropped > 15 points
+- `crash`: Crash detected (from crash_report message)
+
+#### 5.7.3 Network Efficiency
+
+**Bandwidth usage**:
+- Normal operation: 6 reports/day × 5 KB = 30 KB/day
+- Problem conditions: +1-5 event reports = 35-55 KB/day
+- Crash reports: +2 KB per crash (rare)
+
+**Comparison with fixed intervals**:
+- Fixed 10-min intervals: 144 reports/day × 5 KB = 720 KB/day
+- Event-driven: 30-55 KB/day
+- **Bandwidth savings: 92-96%**
+
+**Mesh impact**: 30 KB/day = 0.003 kbps average (negligible)
+
+### 5.8 Configuration
+
+Health reporting configuration parameters in `/etc/phonebook.conf`:
+
+```ini
+# ============================================================================
+# HEALTH REPORTING SETTINGS
+# ============================================================================
+
+# Local Dashboard - Write health data for AREDNmon display
+# Enabled by default for immediate local visibility
+HEALTH_LOCAL_REPORTING=1
+HEALTH_LOCAL_UPDATE_SECONDS=60
+
+# Remote Collector - POST health data to mesh-wide monitoring
+# Enable when Raspberry Pi collector is deployed
+COLLECTOR_ENABLED=0
+COLLECTOR_URL=http://pi-collector.local.mesh:5000/ingest
+COLLECTOR_TIMEOUT_SECONDS=10
+
+# Event-Driven Reporting - Baseline heartbeat interval
+HEALTH_REPORT_BASELINE_HOURS=4
+
+# Event Thresholds - Trigger immediate reports
+HEALTH_CPU_THRESHOLD_PCT=20
+HEALTH_MEMORY_THRESHOLD_MB=10
+HEALTH_SCORE_THRESHOLD=15
+
+# Crash Reporting
+CRASH_REPORTING_ENABLED=1
+CRASH_BACKTRACE_DEPTH=5
+```
+
+**Configuration validation**:
+- `HEALTH_LOCAL_REPORTING=1`: Always recommended (no overhead)
+- `COLLECTOR_ENABLED=0`: Disable if collector not deployed (prevents failed POSTs)
+- `COLLECTOR_URL`: Must be reachable mesh address
+- Thresholds: Validated at runtime, warnings logged if invalid
+
+### 5.9 File Paths Summary
+
+**Health monitoring files**:
+
+| Path | Storage | Purpose | Update Frequency |
+|------|---------|---------|------------------|
+| `/tmp/software_health.json` | RAM | Current health status for AREDNmon | 60 seconds |
+| `/tmp/last_crash.json` | RAM | Last crash report (if any) | On restart after crash |
+| `/tmp/meshmon_crash.bin` | RAM | Crash state persistence (binary) | On crash |
+
+**CGI endpoints**:
+
+| Endpoint | Purpose | Consumer |
+|----------|---------|----------|
+| `/cgi-bin/health_status` | Serve health JSON | AREDNmon dashboard |
+| `/cgi-bin/arednmon` | Network monitoring dashboard | Browser (enhanced with health panel) |
+
+**No flash writes**: All health files stored in `/tmp/` (RAM) to preserve router lifespan
+
+## 6. Configuration
+
+### 6.1 Configuration Loader
 
 **Purpose**: Loads runtime configuration from `/etc/sipserver.conf`.
 
@@ -859,32 +1431,32 @@ curl "http://localnode.local.mesh/cgi-bin/uac_test?target=441530"
 - Supports multiple phonebook servers (up to `MAX_PB_SERVERS`)
 - Validates numeric parameters and provides warnings
 
-### 5.2 File Paths
+### 6.2 File Paths
 
 - **Config File**: `/etc/sipserver.conf`
 - **CSV Storage**: `PB_CSV_PATH` (persistent flash)
 - **XML Publication**: `PB_XML_PUBLIC_PATH` (web accessible)
 - **Hash Storage**: `PB_LAST_GOOD_CSV_HASH_PATH`
 
-### 5.3 Limits and Constants
+### 6.3 Limits and Constants
 
 - **Max Users**: `MAX_REGISTERED_USERS`
 - **Max Call Sessions**: `MAX_CALL_SESSIONS`
 - **Max Phonebook Servers**: `MAX_PB_SERVERS`
 - **String Lengths**: Various `MAX_*_LEN` constants
 
-### 5.4 Threading
+### 6.4 Threading
 
 - **Main Thread**: SIP message processing
 - **Fetcher Thread**: Phonebook management
 - **Updater Thread**: Status synchronization
 - **Synchronization**: Mutexes and condition variables
 
-## 6. Network Communication
+## 7. Network Communication
 
 This chapter describes the network protocols used across the system. These protocols are referenced by multiple components.
 
-### 6.1 SIP Protocol
+### 7.1 SIP Protocol
 
 **Referenced by**: [SIP Server](#2-sip-server)
 
@@ -893,7 +1465,7 @@ This chapter describes the network protocols used across the system. These proto
 - **Encoding**: UTF-8 with sanitization
 - **Authentication**: None (mesh network trust model)
 
-### 6.2 HTTP Downloads
+### 7.2 HTTP Downloads
 
 **Referenced by**: [Phonebook](#3-phonebook)
 
@@ -902,7 +1474,7 @@ This chapter describes the network protocols used across the system. These proto
 - **Format**: CSV with specific column structure
 - **Timeout**: Configurable per server
 
-### 6.3 DNS Resolution
+### 7.3 DNS Resolution
 
 **Referenced by**: [SIP Server](#2-sip-server), [Monitoring](#4-monitoring)
 
@@ -911,11 +1483,11 @@ This chapter describes the network protocols used across the system. These proto
 - **Protocol**: Standard DNS A record lookups
 - **Fallback**: Error response if resolution fails
 
-## 7. System Components
+## 8. System Components
 
 This chapter describes system utilities used across multiple components.
 
-### 7.1 File Utils
+### 8.1 File Utils
 
 **Referenced by**: [Phonebook](#3-phonebook)
 
@@ -927,7 +1499,7 @@ This chapter describes system utilities used across multiple components.
 - File existence checking and validation
 - Cross-platform file operations
 
-### 7.2 Log Manager
+### 8.2 Log Manager
 
 **Referenced by**: All components
 
@@ -945,24 +1517,24 @@ This chapter describes system utilities used across multiple components.
 - Configurable log levels
 - Timestamp and process/thread identification
 
-### 7.3 Security
+### 8.3 Security
 
 **Referenced by**: All components
 
-#### 7.3.1 Trust Model
+#### 8.3.1 Trust Model
 
 - **No Authentication**: Relies on mesh network physical security
 - **DNS Trust**: Assumes DNS infrastructure integrity
 - **Local Network**: Designed for closed AREDN mesh networks
 
-#### 7.3.2 Input Validation
+#### 8.3.2 Input Validation
 
 - **UTF-8 Sanitization**: Cleans incoming CSV data
 - **Buffer Protection**: Fixed-size buffers with bounds checking
 - **SIP Parsing**: Robust parsing with malformed message handling
 - **XML Escaping**: Prevents XML injection in generated output
 
-#### 7.3.3 Resource Protection
+#### 8.3.3 Resource Protection
 
 - **Maximum Limits**: Enforced limits on users and sessions
 - **File Access**: Controlled file system access patterns

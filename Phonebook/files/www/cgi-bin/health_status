@@ -1,0 +1,16 @@
+#!/bin/sh
+# Health Status CGI Endpoint
+# Returns software health status as JSON for AREDNmon dashboard
+# Usage: curl "http://node/cgi-bin/health_status"
+
+echo "Content-Type: application/json"
+echo ""
+
+# Read health status file
+HEALTH_FILE="/tmp/software_health.json"
+
+if [ -f "$HEALTH_FILE" ]; then
+    cat "$HEALTH_FILE"
+else
+    echo '{"error": "No health data available"}'
+fi

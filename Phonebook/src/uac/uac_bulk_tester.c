@@ -5,6 +5,7 @@
 #include "../common.h"
 #include "../config_loader/config_loader.h"
 #include "../passive_safety/passive_safety.h"
+#include "../software_health/software_health.h"
 #include "uac.h"
 #include "uac_ping.h"
 #include <netdb.h>
@@ -16,6 +17,13 @@ void *uac_bulk_tester_thread(void *arg) {
     (void)arg;
 
     LOG_INFO("UAC Bulk Tester thread started. Interval: %d seconds", g_uac_test_interval_seconds);
+
+    // Register this thread for health monitoring
+    int thread_index = health_register_thread(pthread_self(), "uac_bulk_tester");
+    if (thread_index < 0) {
+        LOG_WARN("Failed to register UAC bulk tester thread for health monitoring");
+        // Continue anyway - health monitoring is not critical for operation
+    }
 
     // If interval is 0, bulk testing is disabled
     if (g_uac_test_interval_seconds <= 0) {
@@ -48,6 +56,11 @@ void *uac_bulk_tester_thread(void *arg) {
     while (1) {
         // Passive Safety: Update heartbeat
         g_bulk_tester_last_heartbeat = time(NULL);
+
+        // Health Monitoring: Update heartbeat
+        if (thread_index >= 0) {
+            health_update_heartbeat(thread_index);
+        }
 
         LOG_INFO("=== Starting UAC bulk test cycle ===");
 
