@@ -116,10 +116,131 @@ cat <<'EOF'
             color: #333;
             z-index: 1;
         }
+        /* Health Panel Styles */
+        .health-panel {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .health-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .health-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+        }
+        .health-score {
+            font-size: 2em;
+            font-weight: bold;
+            padding: 10px 20px;
+            border-radius: 8px;
+        }
+        .health-score.excellent { background-color: #4CAF50; color: white; }
+        .health-score.good { background-color: #8BC34A; color: white; }
+        .health-score.degraded { background-color: #FF9800; color: white; }
+        .health-score.critical { background-color: #f44336; color: white; }
+        .health-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .health-metric {
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+        .health-metric-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .health-metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        .health-checks {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .health-check {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .health-check.pass {
+            background-color: #C8E6C9;
+            color: #2E7D32;
+        }
+        .health-check.fail {
+            background-color: #FFCDD2;
+            color: #C62828;
+        }
+        .health-threads {
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+        .thread-status {
+            display: inline-block;
+            margin-right: 15px;
+            padding: 3px 8px;
+            border-radius: 3px;
+        }
+        .thread-status.responsive {
+            background-color: #C8E6C9;
+            color: #2E7D32;
+        }
+        .thread-status.unresponsive {
+            background-color: #FFCDD2;
+            color: #C62828;
+        }
     </style>
 </head>
 <body>
     <h1>AREDNmon - Network Monitor</h1>
+EOF
+
+cat <<'EOF'
+    <!-- Software Health Panel -->
+    <div class="health-panel" id="healthPanel">
+        <div class="health-header">
+            <div class="health-title">Software Health Status</div>
+            <div class="health-score" id="healthScore">Loading...</div>
+        </div>
+        <div class="health-metrics">
+            <div class="health-metric">
+                <div class="health-metric-label">CPU Usage</div>
+                <div class="health-metric-value" id="healthCpu">-</div>
+            </div>
+            <div class="health-metric">
+                <div class="health-metric-label">Memory Usage</div>
+                <div class="health-metric-value" id="healthMemory">-</div>
+            </div>
+            <div class="health-metric">
+                <div class="health-metric-label">Uptime</div>
+                <div class="health-metric-value" id="healthUptime">-</div>
+            </div>
+            <div class="health-metric">
+                <div class="health-metric-label">SIP Service</div>
+                <div class="health-metric-value" id="healthSipUsers">-</div>
+            </div>
+        </div>
+        <div class="health-checks" id="healthChecks">
+            <!-- Health checks will be populated by JavaScript -->
+        </div>
+        <div class="health-threads" id="healthThreads">
+            <strong>Thread Status:</strong> <span id="threadStatus">Loading...</span>
+        </div>
+    </div>
 EOF
 
 cat <<EOF
@@ -155,6 +276,101 @@ cat <<EOF
     </table>
 
     <script>
+        // Health data update interval (60 seconds to match local file updates)
+        const HEALTH_UPDATE_INTERVAL = 60000;
+
+        // Load and display software health
+        async function loadHealthStatus() {
+            try {
+                const response = await fetch('/cgi-bin/health_status');
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('healthScore').textContent = 'N/A';
+                    document.getElementById('healthScore').className = 'health-score';
+                    return;
+                }
+
+                // Update health score
+                const score = data.health_score || 0;
+                const scoreElement = document.getElementById('healthScore');
+                scoreElement.textContent = Math.round(score) + '/100';
+
+                // Set score color based on thresholds
+                if (score >= 85) {
+                    scoreElement.className = 'health-score excellent';
+                } else if (score >= 70) {
+                    scoreElement.className = 'health-score good';
+                } else if (score >= 50) {
+                    scoreElement.className = 'health-score degraded';
+                } else {
+                    scoreElement.className = 'health-score critical';
+                }
+
+                // Update metrics
+                document.getElementById('healthCpu').textContent =
+                    (data.cpu_pct || 0).toFixed(1) + '%';
+                document.getElementById('healthMemory').textContent =
+                    (data.mem_mb || 0).toFixed(1) + ' MB';
+
+                // Format uptime
+                const uptimeSeconds = data.uptime_seconds || 0;
+                const hours = Math.floor(uptimeSeconds / 3600);
+                const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+                document.getElementById('healthUptime').textContent =
+                    hours + 'h ' + minutes + 'm';
+
+                // SIP service metrics
+                const users = data.sip_service?.registered_users || 0;
+                const entries = data.sip_service?.directory_entries || 0;
+                const calls = data.sip_service?.active_calls || 0;
+                document.getElementById('healthSipUsers').textContent =
+                    users + ' users, ' + calls + ' calls';
+
+                // Update health checks
+                const checks = data.checks || {};
+                const checksHtml = [
+                    { label: 'Memory', pass: checks.memory_stable },
+                    { label: 'No Crashes', pass: checks.no_recent_crashes },
+                    { label: 'SIP Service', pass: checks.sip_service_ok },
+                    { label: 'Phonebook', pass: checks.phonebook_current },
+                    { label: 'CPU', pass: checks.cpu_normal }
+                ].map(check =>
+                    '<span class="health-check ' + (check.pass ? 'pass' : 'fail') + '">' +
+                    check.label + ': ' + (check.pass ? '✓' : '✗') + '</span>'
+                ).join('');
+                document.getElementById('healthChecks').innerHTML = checksHtml;
+
+                // Update thread status
+                const threads = data.threads || {};
+                const allResponsive = threads.all_responsive;
+                let threadHtml = '';
+
+                if (allResponsive) {
+                    threadHtml = '<span class="thread-status responsive">All threads responsive ✓</span>';
+                } else {
+                    // Show individual thread status
+                    const threadNames = ['phonebook_fetcher', 'status_updater', 'passive_safety',
+                                       'uac_bulk_tester', 'health_reporter'];
+                    threadHtml = threadNames
+                        .filter(name => threads[name])
+                        .map(name => {
+                            const thread = threads[name];
+                            const responsive = thread.responsive;
+                            return '<span class="thread-status ' +
+                                   (responsive ? 'responsive' : 'unresponsive') + '">' +
+                                   name + ': ' + (responsive ? '✓' : '✗') + '</span>';
+                        }).join('');
+                }
+                document.getElementById('threadStatus').innerHTML = threadHtml;
+
+            } catch (error) {
+                console.error('Failed to load health status:', error);
+                document.getElementById('healthScore').textContent = 'Error';
+                document.getElementById('healthScore').className = 'health-score';
+            }
+        }
+
         // Phonebook data (loaded from server)
         let phonebook = {};
 
@@ -299,6 +515,12 @@ cat <<EOF
 
         // Initialize page
         async function init() {
+            // Load health status first (independent of test data)
+            loadHealthStatus();
+
+            // Set up periodic health updates (every 60 seconds)
+            setInterval(loadHealthStatus, HEALTH_UPDATE_INTERVAL);
+
             // Fetch test results data first (don't render yet)
             const response = await fetch('/cgi-bin/uac_test_db_json');
             const data = await response.json();

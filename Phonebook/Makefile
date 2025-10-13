@@ -60,6 +60,14 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/uac/uac_test_db.c \
 		$(PKG_BUILD_DIR)/uac/uac_sip_builder.c \
 		$(PKG_BUILD_DIR)/uac/uac_sip_parser.c \
+		$(PKG_BUILD_DIR)/software_health/software_health.c \
+		$(PKG_BUILD_DIR)/software_health/health_metrics.c \
+		$(PKG_BUILD_DIR)/software_health/crash_handler.c \
+		$(PKG_BUILD_DIR)/software_health/health_scorer.c \
+		$(PKG_BUILD_DIR)/software_health/json_formatter.c \
+		$(PKG_BUILD_DIR)/software_health/http_client.c \
+		$(PKG_BUILD_DIR)/software_health/health_reporter.c \
+		$(PKG_BUILD_DIR)/software_health/backtrace_stub.c \
 		-lpthread -lm -lrt
 
 	# Build UAC test database JSON reader CGI
@@ -102,6 +110,7 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_BIN) ./files/www/cgi-bin/arednmon $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/uac_ping $(1)/www/cgi-bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/uac_test_db_json $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/health_status $(1)/www/cgi-bin/
 endef
 
 $(eval $(call BuildPackage,AREDN-Phonebook))

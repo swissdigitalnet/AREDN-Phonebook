@@ -14,6 +14,18 @@ extern int g_uac_options_count;   // SIP OPTIONS count
 extern ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 extern int g_num_phonebook_servers;
 
+// Health reporting configuration
+extern int g_health_local_reporting;        // Enable local file updates
+extern int g_health_local_update_seconds;   // Local update interval
+extern int g_collector_enabled;             // Enable remote collector POST
+extern char g_collector_url[256];           // Collector URL
+extern int g_collector_timeout_seconds;     // HTTP POST timeout
+extern int g_health_report_baseline_hours;  // Baseline heartbeat interval
+extern float g_health_cpu_threshold_pct;    // CPU spike threshold
+extern float g_health_memory_threshold_mb;  // Memory increase threshold
+extern float g_health_score_threshold;      // Health score drop threshold
+extern int g_crash_reporting_enabled;       // Enable crash detection
+
 /**
  * @brief Loads configuration parameters from a specified file.
  *
