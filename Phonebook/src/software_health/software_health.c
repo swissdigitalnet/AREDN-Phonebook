@@ -14,31 +14,19 @@
 // GLOBAL STATE DEFINITIONS (direct structures like main.c globals)
 // ============================================================================
 
-// MIPS DEBUG v2.7.3: Test structures individually by making arrays size 1 vs real size
-// Strategy: On MIPS, make thread_health array size 1 instead of 5
-// This tests if the thread_health array causes BSS corruption
-// If crash stops: thread_health is the culprit
-// If crash continues: other structures are responsible
+// MIPS WORKAROUND v2.7.4: Complete disable - structures kept but never initialized/used
+// Cannot test individually due to extern declaration size mismatches
+// Analysis shows all health structures total ~1KB in BSS - should NOT cause corruption
+// But empirically proven: disabling health monitoring (HEALTH_LOCAL_REPORTING=0) stops crashes
 
-#ifdef __mips__
-    // TEST: Minimize thread_health array (1 element instead of 5)
-    process_health_t g_process_health;
-    thread_health_t g_thread_health[1];  // REDUCED from [5] - testing this
-    memory_health_t g_memory_health;
-    cpu_metrics_t g_cpu_metrics;
-    service_metrics_t g_service_metrics;
-    health_checks_t g_health_checks;
-    pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
-#else
-    // x86: All structures at full size
-    process_health_t g_process_health;
-    thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-    memory_health_t g_memory_health;
-    cpu_metrics_t g_cpu_metrics;
-    service_metrics_t g_service_metrics;
-    health_checks_t g_health_checks;
-    pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
-#endif
+// All architectures: Full structures (extern refs require correct types)
+process_health_t g_process_health;
+thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+memory_health_t g_memory_health;
+cpu_metrics_t g_cpu_metrics;
+service_metrics_t g_service_metrics;
+health_checks_t g_health_checks;
+pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
 static bool g_health_initialized = false;
@@ -50,9 +38,17 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 
 int software_health_init(void) {
 #ifdef __mips__
-    // MIPS DEBUG: Testing reduced thread_health array size [1] vs [5]
-    // Init disabled to test if array size causes BSS corruption
-    LOG_WARN("Health monitoring disabled on MIPS (testing thread_health[1] vs [5])");
+    // MIPS: Health monitoring permanently disabled due to BSS corruption
+    // Structures exist in BSS but are never initialized or accessed
+    LOG_WARN("Health monitoring disabled on MIPS architecture (BSS corruption issue)");
+    LOG_INFO("Structure sizes: process=%zu thread=%zu mem=%zu cpu=%zu service=%zu checks=%zu",
+             sizeof(process_health_t), sizeof(thread_health_t) * HEALTH_MAX_THREADS,
+             sizeof(memory_health_t), sizeof(cpu_metrics_t),
+             sizeof(service_metrics_t), sizeof(health_checks_t));
+    LOG_INFO("Total health BSS size: ~%zu bytes",
+             sizeof(process_health_t) + sizeof(thread_health_t) * HEALTH_MAX_THREADS +
+             sizeof(memory_health_t) + sizeof(cpu_metrics_t) +
+             sizeof(service_metrics_t) + sizeof(health_checks_t) + sizeof(pthread_mutex_t));
     return 0;
 #endif
 
