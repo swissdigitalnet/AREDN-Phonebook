@@ -103,7 +103,7 @@ typedef struct __attribute__((aligned(8))) {
 /**
  * Health Score Components - For calculation
  */
-typedef struct __attribute__((aligned(4))) {
+typedef struct __attribute__((aligned(8))) {
     bool memory_stable;              // No leak detected
     bool no_recent_crashes;          // No crashes in 24h
     bool sip_service_ok;             // SIP working properly
