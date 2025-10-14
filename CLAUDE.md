@@ -33,21 +33,47 @@ This project uses GitHub Actions for all official builds. Do NOT build locally u
 
 ### Download and Installation
 
-**Download Process (from GitHub Actions artifacts):**
-1. Get the workflow run for the tag:
-   ```bash
-   curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/runs?event=push | grep -A 5 "v{VERSION}"
-   ```
-2. Download artifacts from the workflow run (requires GitHub token or manual download)
-3. Alternatively, if releases exist (created by workflow), download from:
-   ```bash
-   curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/releases/tags/v{VERSION} | grep browser_download_url
-   ```
+**GitHub Token:**
+- A GitHub Personal Access Token is configured in `~/.bashrc` as `GITHUB_TOKEN`
+- This token enables automatic download of GitHub Actions artifacts
+- Export it before downloading: `export GITHUB_TOKEN=<token_from_bashrc>`
+
+**Automatic Download Process (from GitHub Actions artifacts):**
+
+```bash
+# Set required variables
+export GITHUB_TOKEN=$(grep "^export GITHUB_TOKEN=" ~/.bashrc | cut -d= -f2)
+VERSION="2.3.5"  # Replace with target version
+ARCH="x86"       # x86, ath79, or ipq40xx
+
+# Get the workflow run ID for the version
+RUN_ID=$(curl -sL "https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/runs?event=push&per_page=50" | \
+  grep -B 10 "\"head_branch\": \"v${VERSION}\"" | grep '"id":' | head -1 | grep -o '[0-9]*')
+
+echo "Workflow run ID: $RUN_ID"
+
+# Get artifact ID
+ARTIFACT_ID=$(curl -sL -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/runs/${RUN_ID}/artifacts" | \
+  grep -B 3 "\"name\": \"AREDN-Phonebook-${ARCH}-v${VERSION}\"" | grep '"id":' | grep -o '[0-9]*')
+
+echo "Artifact ID: $ARTIFACT_ID"
+
+# Download artifact
+curl -sL -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/artifacts/${ARTIFACT_ID}/zip" \
+  -o "/tmp/AREDN-Phonebook-${ARCH}-v${VERSION}.zip"
+
+# Extract IPK
+cd /tmp
+unzip -o "AREDN-Phonebook-${ARCH}-v${VERSION}.zip"
+echo "Downloaded: $(ls -lh AREDN-Phonebook*.ipk)"
+```
 
 **Installation Process:**
 1. Detect architecture: `ssh {NODE} "uname -m"`
-2. Transfer package: `scp /tmp/AREDN-Phonebook.ipk {NODE}:/tmp/`
-3. Install: `ssh {NODE} "opkg install /tmp/AREDN-Phonebook.ipk"`
+2. Transfer package: `scp /tmp/AREDN-Phonebook*.ipk {NODE}:/tmp/`
+3. Install: `ssh {NODE} "opkg install /tmp/AREDN-Phonebook*.ipk"`
 4. Restart service: `ssh {NODE} "/etc/init.d/AREDN-Phonebook restart"`
 
 **Note:** Replace `{NODE}` with `vm-1`, `hap-2`, or any AREDN node hostname.
