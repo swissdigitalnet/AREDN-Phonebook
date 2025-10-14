@@ -11,18 +11,18 @@
 #include <sys/time.h>
 
 // ============================================================================
-// GLOBAL STATE DEFINITIONS (heap-allocated for guaranteed alignment on all architectures)
+// GLOBAL STATE DEFINITIONS (direct structures like main.c globals)
 // ============================================================================
 
-// IMPORTANT: The pointer variables themselves must be aligned on MIPS
-// Otherwise accessing the pointer causes SIGSEGV even if the pointed-to memory is aligned
-process_health_t *g_process_health __attribute__((aligned(8))) = NULL;
-thread_health_t *g_thread_health __attribute__((aligned(8))) = NULL;
-memory_health_t *g_memory_health __attribute__((aligned(8))) = NULL;
-cpu_metrics_t *g_cpu_metrics __attribute__((aligned(8))) = NULL;
-service_metrics_t *g_service_metrics __attribute__((aligned(8))) = NULL;
-health_checks_t *g_health_checks __attribute__((aligned(8))) = NULL;
-pthread_mutex_t *g_health_mutex __attribute__((aligned(8))) = NULL;
+// MIPS FIX: Use direct structures instead of pointers (like registered_users[] in main.c)
+// Pointer indirection causes alignment issues on MIPS, but direct globals work fine
+process_health_t g_process_health;
+thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+memory_health_t g_memory_health;
+cpu_metrics_t g_cpu_metrics;
+service_metrics_t g_service_metrics;
+health_checks_t g_health_checks;
+pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
 static bool g_health_initialized = false;
@@ -38,58 +38,14 @@ int software_health_init(void) {
         return 0;
     }
 
-    LOG_INFO("Initializing software health monitoring system with heap allocation");
+    LOG_INFO("Initializing software health monitoring system with direct globals (MIPS-compatible)");
 
-    // Allocate all health structures on the heap with proper alignment
-    // Using posix_memalign() guarantees alignment on all architectures (including MIPS)
-
-    if (posix_memalign((void**)&g_process_health, 8, sizeof(process_health_t)) != 0) {
-        LOG_ERROR("Failed to allocate process_health");
-        goto cleanup_failure;
-    }
-
-    if (posix_memalign((void**)&g_thread_health, 8, sizeof(thread_health_t) * HEALTH_MAX_THREADS) != 0) {
-        LOG_ERROR("Failed to allocate thread_health");
-        goto cleanup_failure;
-    }
-
-    if (posix_memalign((void**)&g_memory_health, 8, sizeof(memory_health_t)) != 0) {
-        LOG_ERROR("Failed to allocate memory_health");
-        goto cleanup_failure;
-    }
-
-    if (posix_memalign((void**)&g_cpu_metrics, 8, sizeof(cpu_metrics_t)) != 0) {
-        LOG_ERROR("Failed to allocate cpu_metrics");
-        goto cleanup_failure;
-    }
-
-    if (posix_memalign((void**)&g_service_metrics, 8, sizeof(service_metrics_t)) != 0) {
-        LOG_ERROR("Failed to allocate service_metrics");
-        goto cleanup_failure;
-    }
-
-    if (posix_memalign((void**)&g_health_checks, 8, sizeof(health_checks_t)) != 0) {
-        LOG_ERROR("Failed to allocate health_checks");
-        goto cleanup_failure;
-    }
-
-    if (posix_memalign((void**)&g_health_mutex, 8, sizeof(pthread_mutex_t)) != 0) {
-        LOG_ERROR("Failed to allocate health_mutex");
-        goto cleanup_failure;
-    }
-
-    // Initialize mutex
-    if (pthread_mutex_init(g_health_mutex, NULL) != 0) {
-        LOG_ERROR("Failed to initialize health mutex");
-        goto cleanup_failure;
-    }
-
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
     // Initialize process health
-    memset(g_process_health, 0, sizeof(process_health_t));
-    g_process_health->process_start_time = time(NULL);
-    g_process_health->last_restart_time = time(NULL);
+    memset(&g_process_health, 0, sizeof(process_health_t));
+    g_process_health.process_start_time = time(NULL);
+    g_process_health.last_restart_time = time(NULL);
 
     // Initialize thread health slots
     memset(g_thread_health, 0, sizeof(thread_health_t) * HEALTH_MAX_THREADS);
@@ -98,27 +54,27 @@ int software_health_init(void) {
     }
 
     // Initialize memory health
-    memset(g_memory_health, 0, sizeof(memory_health_t));
-    g_memory_health->initial_rss_bytes = 0;  // Will be set on first update
-    g_memory_health->current_rss_bytes = 0;
-    g_memory_health->peak_rss_bytes = 0;
-    g_memory_health->last_check_time = time(NULL);
+    memset(&g_memory_health, 0, sizeof(memory_health_t));
+    g_memory_health.initial_rss_bytes = 0;  // Will be set on first update
+    g_memory_health.current_rss_bytes = 0;
+    g_memory_health.peak_rss_bytes = 0;
+    g_memory_health.last_check_time = time(NULL);
 
     // Initialize CPU metrics
-    memset(g_cpu_metrics, 0, sizeof(cpu_metrics_t));
-    g_cpu_metrics->last_check_time = time(NULL);
-    g_cpu_metrics->current_cpu_pct = 0.0f;
+    memset(&g_cpu_metrics, 0, sizeof(cpu_metrics_t));
+    g_cpu_metrics.last_check_time = time(NULL);
+    g_cpu_metrics.current_cpu_pct = 0.0f;
 
     // Initialize service metrics
-    memset(g_service_metrics, 0, sizeof(service_metrics_t));
-    strncpy(g_service_metrics->phonebook_fetch_status, "UNKNOWN",
-            sizeof(g_service_metrics->phonebook_fetch_status) - 1);
+    memset(&g_service_metrics, 0, sizeof(service_metrics_t));
+    strncpy(g_service_metrics.phonebook_fetch_status, "UNKNOWN",
+            sizeof(g_service_metrics.phonebook_fetch_status) - 1);
 
     // Initialize health checks
-    memset(g_health_checks, 0, sizeof(health_checks_t));
-    g_health_checks->memory_stable = true;
-    g_health_checks->no_recent_crashes = true;
-    g_health_checks->all_threads_responsive = true;
+    memset(&g_health_checks, 0, sizeof(health_checks_t));
+    g_health_checks.memory_stable = true;
+    g_health_checks.no_recent_crashes = true;
+    g_health_checks.all_threads_responsive = true;
 
     // Get node name from hostname
     char hostname[HEALTH_MAX_NODE_NAME_LEN];
@@ -129,37 +85,17 @@ int software_health_init(void) {
 
     g_health_initialized = true;
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     LOG_INFO("Software health monitoring initialized (node: %s)", g_node_name);
 
     // Check for previous crash
     if (health_load_crash_state()) {
         LOG_WARN("Previous crash detected - crash report will be sent");
-        g_process_health->restart_count_24h++;
+        g_process_health.restart_count_24h++;
     }
 
     return 0;
-
-cleanup_failure:
-    // Free any already-allocated structures
-    free(g_process_health);
-    free(g_thread_health);
-    free(g_memory_health);
-    free(g_cpu_metrics);
-    free(g_service_metrics);
-    free(g_health_checks);
-    free(g_health_mutex);
-
-    g_process_health = NULL;
-    g_thread_health = NULL;
-    g_memory_health = NULL;
-    g_cpu_metrics = NULL;
-    g_service_metrics = NULL;
-    g_health_checks = NULL;
-    g_health_mutex = NULL;
-
-    return -1;
 }
 
 void software_health_shutdown(void) {
@@ -169,28 +105,14 @@ void software_health_shutdown(void) {
 
     LOG_INFO("Shutting down software health monitoring");
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
     g_health_initialized = false;
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
-    pthread_mutex_destroy(g_health_mutex);
+    pthread_mutex_destroy(&g_health_mutex);
 
-    // Free all heap-allocated structures
-    free(g_process_health);
-    free(g_thread_health);
-    free(g_memory_health);
-    free(g_cpu_metrics);
-    free(g_service_metrics);
-    free(g_health_checks);
-    free(g_health_mutex);
-
-    g_process_health = NULL;
-    g_thread_health = NULL;
-    g_memory_health = NULL;
-    g_cpu_metrics = NULL;
-    g_service_metrics = NULL;
-    g_health_checks = NULL;
-    g_health_mutex = NULL;
+    // Structures are static globals - no need to free
+    LOG_DEBUG("Health monitoring shutdown complete");
 }
 
 // ============================================================================
@@ -203,7 +125,7 @@ int health_register_thread(pthread_t tid, const char *name) {
         return -1;
     }
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
     // Find free slot
     int slot = -1;
@@ -215,7 +137,7 @@ int health_register_thread(pthread_t tid, const char *name) {
     }
 
     if (slot == -1) {
-        pthread_mutex_unlock(g_health_mutex);
+        pthread_mutex_unlock(&g_health_mutex);
         LOG_ERROR("No free thread health slots available");
         return -1;
     }
@@ -231,7 +153,7 @@ int health_register_thread(pthread_t tid, const char *name) {
     th->is_responsive = true;
     th->is_active = true;
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     LOG_INFO("Registered thread '%s' for health monitoring (slot %d)", name, slot);
     return slot;
@@ -242,14 +164,14 @@ void health_update_heartbeat(int thread_index) {
         return;
     }
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
     if (g_thread_health[thread_index].is_active) {
         g_thread_health[thread_index].last_heartbeat = time(NULL);
         g_thread_health[thread_index].is_responsive = true;
     }
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 }
 
 // ============================================================================
@@ -261,15 +183,15 @@ bool health_is_system_healthy(void) {
         return false;
     }
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
-    bool healthy = g_health_checks->memory_stable &&
-                   g_health_checks->no_recent_crashes &&
-                   g_health_checks->sip_service_ok &&
-                   g_health_checks->all_threads_responsive &&
-                   g_health_checks->cpu_normal;
+    bool healthy = g_health_checks.memory_stable &&
+                   g_health_checks.no_recent_crashes &&
+                   g_health_checks.sip_service_ok &&
+                   g_health_checks.all_threads_responsive &&
+                   g_health_checks.cpu_normal;
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     return healthy;
 }
@@ -279,9 +201,9 @@ float health_calculate_score(void) {
         return 0.0f;
     }
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
     float score = health_compute_score();
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     return score;
 }
@@ -291,7 +213,7 @@ bool health_is_in_grace_period(void) {
         return true; // Not yet initialized - still starting
     }
 
-    time_t uptime = time(NULL) - g_process_health->process_start_time;
+    time_t uptime = time(NULL) - g_process_health.process_start_time;
     return (uptime < HEALTH_STARTUP_GRACE_PERIOD_SECONDS);
 }
 
@@ -305,15 +227,15 @@ void health_update_metrics(void) {
         return;
     }
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
     time_t now = time(NULL);
 
     // Update CPU metrics
     float cpu_pct = health_get_cpu_usage();
-    g_cpu_metrics->last_cpu_pct = g_cpu_metrics->current_cpu_pct;
-    g_cpu_metrics->current_cpu_pct = cpu_pct;
-    g_cpu_metrics->last_check_time = now;
+    g_cpu_metrics.last_cpu_pct = g_cpu_metrics.current_cpu_pct;
+    g_cpu_metrics.current_cpu_pct = cpu_pct;
+    g_cpu_metrics.last_check_time = now;
 
     // Update memory metrics
     health_update_memory_stats();
@@ -328,7 +250,7 @@ void health_update_metrics(void) {
 
     bool in_grace_period = health_is_in_grace_period();
 
-    g_health_checks->all_threads_responsive = true;
+    g_health_checks.all_threads_responsive = true;
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
         if (g_thread_health[i].is_active) {
             time_t silence = now - g_thread_health[i].last_heartbeat;
@@ -357,7 +279,7 @@ void health_update_metrics(void) {
             // Thread is unresponsive if silence exceeds timeout
             if (silence > timeout_seconds) {
                 g_thread_health[i].is_responsive = false;
-                g_health_checks->all_threads_responsive = false;
+                g_health_checks.all_threads_responsive = false;
                 LOG_WARN("Thread '%s' unresponsive for %ld seconds (timeout: %d s)",
                          g_thread_health[i].name, silence, timeout_seconds);
             }
@@ -367,7 +289,7 @@ void health_update_metrics(void) {
     // Update health checks
     health_update_checks();
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 }
 
 // ============================================================================
@@ -447,14 +369,14 @@ void health_record_crash(int signal, const char *reason) {
         return;
     }
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
-    g_process_health->last_crash_time = time(NULL);
-    g_process_health->crash_count_24h++;
-    strncpy(g_process_health->last_crash_reason, reason,
-            sizeof(g_process_health->last_crash_reason) - 1);
+    g_process_health.last_crash_time = time(NULL);
+    g_process_health.crash_count_24h++;
+    strncpy(g_process_health.last_crash_reason, reason,
+            sizeof(g_process_health.last_crash_reason) - 1);
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     LOG_ERROR("CRASH RECORDED: Signal %d - %s", signal, reason);
 }
@@ -512,5 +434,5 @@ time_t health_get_uptime_seconds(void) {
     if (!g_health_initialized) {
         return 0;
     }
-    return time(NULL) - g_process_health->process_start_time;
+    return time(NULL) - g_process_health.process_start_time;
 }

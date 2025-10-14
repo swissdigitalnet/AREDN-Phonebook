@@ -49,15 +49,15 @@ bool health_should_report_now(health_report_reason_t *reason_out) {
     extern health_checks_t *g_health_checks;
     extern pthread_mutex_t *g_health_mutex;
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
     time_t now = time(NULL);
-    float current_cpu = g_cpu_metrics->current_cpu_pct;
-    float current_mem_mb = (float)g_memory_health->current_rss_bytes / (1024.0f * 1024.0f);
+    float current_cpu = g_cpu_metrics.current_cpu_pct;
+    float current_mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
     float current_score = health_compute_score();
-    bool all_threads_responsive = g_health_checks->all_threads_responsive;
+    bool all_threads_responsive = g_health_checks.all_threads_responsive;
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     // Check 1: First report after startup
     if (g_reporter_state.is_first_report) {
@@ -121,16 +121,16 @@ static void update_reporter_state(void) {
     extern memory_health_t *g_memory_health;
     extern pthread_mutex_t *g_health_mutex;
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
-    g_reporter_state.last_cpu_pct = g_cpu_metrics->current_cpu_pct;
-    g_reporter_state.last_mem_mb = (float)g_memory_health->current_rss_bytes /
+    g_reporter_state.last_cpu_pct = g_cpu_metrics.current_cpu_pct;
+    g_reporter_state.last_mem_mb = (float)g_memory_health.current_rss_bytes /
                                     (1024.0f * 1024.0f);
     g_reporter_state.last_health_score = health_compute_score();
     g_reporter_state.last_remote_report = time(NULL);
     g_reporter_state.is_first_report = false;
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 }
 
 // ============================================================================
@@ -202,10 +202,10 @@ void* health_reporter_thread(void *arg) {
         extern CallSession call_sessions[MAX_CALL_SESSIONS];
         extern pthread_mutex_t *g_health_mutex;
 
-        pthread_mutex_lock(g_health_mutex);
+        pthread_mutex_lock(&g_health_mutex);
 
-        g_service_metrics->registered_users_count = num_registered_users;
-        g_service_metrics->directory_entries_count = num_directory_entries;
+        g_service_metrics.registered_users_count = num_registered_users;
+        g_service_metrics.directory_entries_count = num_directory_entries;
 
         // Count active calls
         int active_calls = 0;
@@ -214,9 +214,9 @@ void* health_reporter_thread(void *arg) {
                 active_calls++;
             }
         }
-        g_service_metrics->active_calls_count = active_calls;
+        g_service_metrics.active_calls_count = active_calls;
 
-        pthread_mutex_unlock(g_health_mutex);
+        pthread_mutex_unlock(&g_health_mutex);
 
         // DEBUG: Marker before local file write
         debug_fp = fopen("/tmp/health_loop_before_write.flag", "w");

@@ -70,7 +70,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     extern health_checks_t *g_health_checks;
     extern pthread_mutex_t *g_health_mutex;
 
-    pthread_mutex_lock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
 
     // Get node name
     extern const char* health_get_node_name(void);
@@ -78,15 +78,15 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     // Calculate metrics
     float health_score = health_compute_score();
-    float mem_mb = (float)g_memory_health->current_rss_bytes / (1024.0f * 1024.0f);
-    time_t uptime = time(NULL) - g_process_health->process_start_time;
+    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
+    time_t uptime = time(NULL) - g_process_health.process_start_time;
     time_t now = time(NULL);
 
     // Format timestamps
     char timestamp_str[32];
     char phonebook_updated_str[32];
     format_iso8601(now, timestamp_str);
-    format_iso8601(g_service_metrics->phonebook_last_updated, phonebook_updated_str);
+    format_iso8601(g_service_metrics.phonebook_last_updated, phonebook_updated_str);
 
     // Start building JSON
     size_t offset = 0;
@@ -118,17 +118,17 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "  \"uptime_seconds\": %ld,\n"
         "  \"restart_count\": %d,\n"
         "  \"health_score\": %.0f,\n",
-        g_cpu_metrics->current_cpu_pct,
+        g_cpu_metrics.current_cpu_pct,
         mem_mb,
         uptime,
-        g_process_health->restart_count_24h,
+        g_process_health.restart_count_24h,
         health_score);
 
     // Threads section
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"threads\": {\n"
         "    \"all_responsive\": %s",
-        g_health_checks->all_threads_responsive ? "true" : "false");
+        g_health_checks.all_threads_responsive ? "true" : "false");
 
     // Individual threads
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
@@ -160,13 +160,13 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"directory_entries\": %d,\n"
         "    \"active_calls\": %d\n"
         "  },\n",
-        g_service_metrics->registered_users_count,
-        g_service_metrics->directory_entries_count,
-        g_service_metrics->active_calls_count);
+        g_service_metrics.registered_users_count,
+        g_service_metrics.directory_entries_count,
+        g_service_metrics.active_calls_count);
 
     // Phonebook status
     char csv_hash_escaped[64];
-    json_escape(g_service_metrics->phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
+    json_escape(g_service_metrics.phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
 
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
@@ -176,9 +176,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"entries_loaded\": %d\n"
         "  },\n",
         phonebook_updated_str,
-        g_service_metrics->phonebook_fetch_status,
+        g_service_metrics.phonebook_fetch_status,
         csv_hash_escaped,
-        g_service_metrics->phonebook_entries_loaded);
+        g_service_metrics.phonebook_entries_loaded);
 
     // Health checks
     offset += snprintf(buffer + offset, buffer_size - offset,
@@ -190,17 +190,17 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"all_threads_responsive\": %s,\n"
         "    \"cpu_normal\": %s\n"
         "  }\n",
-        g_health_checks->memory_stable ? "true" : "false",
-        g_health_checks->no_recent_crashes ? "true" : "false",
-        g_health_checks->sip_service_ok ? "true" : "false",
-        g_health_checks->phonebook_current ? "true" : "false",
-        g_health_checks->all_threads_responsive ? "true" : "false",
-        g_health_checks->cpu_normal ? "true" : "false");
+        g_health_checks.memory_stable ? "true" : "false",
+        g_health_checks.no_recent_crashes ? "true" : "false",
+        g_health_checks.sip_service_ok ? "true" : "false",
+        g_health_checks.phonebook_current ? "true" : "false",
+        g_health_checks.all_threads_responsive ? "true" : "false",
+        g_health_checks.cpu_normal ? "true" : "false");
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
 
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_unlock(&g_health_mutex);
 
     if (offset >= buffer_size - 1) {
         LOG_ERROR("Health JSON buffer overflow (needed %zu, have %zu)", offset, buffer_size);

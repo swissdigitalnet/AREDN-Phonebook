@@ -288,7 +288,6 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     // Phase 5: Health Monitoring Thread Creation
-#ifndef __mips__
     LOG_INFO("Creating health reporter thread...");
     pthread_t health_reporter_tid;
     if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
@@ -297,10 +296,6 @@ int main(int argc, char *argv[]) {
         LOG_DEBUG("Health reporter thread launched.");
         LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
     }
-#else
-    LOG_WARN("Health reporter thread disabled on MIPS architecture (alignment issues)");
-    LOG_WARN("Health monitoring functionality is not available on this platform");
-#endif
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();

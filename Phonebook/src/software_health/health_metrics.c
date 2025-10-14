@@ -60,12 +60,12 @@ float health_get_cpu_usage(void) {
     // NOTE: Caller (health_update_metrics) already holds g_health_mutex
     extern cpu_metrics_t *g_cpu_metrics;
 
-    unsigned long long last_process_time = g_cpu_metrics->last_process_time;
-    unsigned long long last_total_time = g_cpu_metrics->last_total_time;
+    unsigned long long last_process_time = g_cpu_metrics.last_process_time;
+    unsigned long long last_total_time = g_cpu_metrics.last_total_time;
 
     // Store current values for next calculation
-    g_cpu_metrics->last_process_time = process_time_ms;
-    g_cpu_metrics->last_total_time = current_time_ms;
+    g_cpu_metrics.last_process_time = process_time_ms;
+    g_cpu_metrics.last_total_time = current_time_ms;
 
     // First call - no previous data
     if (last_total_time == 0) {
@@ -143,33 +143,33 @@ void health_update_memory_stats(void) {
     }
 
     time_t now = time(NULL);
-    time_t elapsed = now - g_memory_health->last_check_time;
+    time_t elapsed = now - g_memory_health.last_check_time;
 
     if (elapsed < 1) {
         return; // Too soon
     }
 
     // Update current and peak
-    g_memory_health->current_rss_bytes = current_rss;
-    if (current_rss > g_memory_health->peak_rss_bytes) {
-        g_memory_health->peak_rss_bytes = current_rss;
+    g_memory_health.current_rss_bytes = current_rss;
+    if (current_rss > g_memory_health.peak_rss_bytes) {
+        g_memory_health.peak_rss_bytes = current_rss;
     }
 
     // Calculate growth rate (MB per hour)
-    if (g_memory_health->initial_rss_bytes > 0) {
-        size_t growth_bytes = current_rss - g_memory_health->initial_rss_bytes;
+    if (g_memory_health.initial_rss_bytes > 0) {
+        size_t growth_bytes = current_rss - g_memory_health.initial_rss_bytes;
         float growth_mb = (float)growth_bytes / (1024.0f * 1024.0f);
         float elapsed_hours = (float)elapsed / 3600.0f;
 
         if (elapsed_hours > 0) {
-            g_memory_health->growth_rate_mb_per_hour = growth_mb / elapsed_hours;
+            g_memory_health.growth_rate_mb_per_hour = growth_mb / elapsed_hours;
         }
     }
 
     // Memory leak detection removed - redundant with absolute memory threshold (12 MB)
     // The overall memory usage check (-10 points if >12 MB) is sufficient
 
-    g_memory_health->last_check_time = now;
+    g_memory_health.last_check_time = now;
 }
 
 /**
@@ -180,9 +180,9 @@ float health_get_memory_mb(void) {
     extern memory_health_t *g_memory_health;
     extern pthread_mutex_t *g_health_mutex;
 
-    pthread_mutex_lock(g_health_mutex);
-    size_t rss = g_memory_health->current_rss_bytes;
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
+    size_t rss = g_memory_health.current_rss_bytes;
+    pthread_mutex_unlock(&g_health_mutex);
 
     return (float)rss / (1024.0f * 1024.0f);
 }
@@ -195,9 +195,9 @@ float health_get_peak_memory_mb(void) {
     extern memory_health_t *g_memory_health;
     extern pthread_mutex_t *g_health_mutex;
 
-    pthread_mutex_lock(g_health_mutex);
-    size_t peak = g_memory_health->peak_rss_bytes;
-    pthread_mutex_unlock(g_health_mutex);
+    pthread_mutex_lock(&g_health_mutex);
+    size_t peak = g_memory_health.peak_rss_bytes;
+    pthread_mutex_unlock(&g_health_mutex);
 
     return (float)peak / (1024.0f * 1024.0f);
 }
