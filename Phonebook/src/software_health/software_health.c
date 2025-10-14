@@ -14,37 +14,38 @@
 // GLOBAL STATE DEFINITIONS (direct structures like main.c globals)
 // ============================================================================
 
-// MIPS WORKAROUND: Disable health monitoring entirely on MIPS due to BSS corruption
-// The health structures cause memory corruption that crashes other code (CSV loading, etc.)
-// Root cause: Unknown - possibly structure size/alignment/padding issue in musl libc
-#ifndef __mips__
-// Full health monitoring for x86 and other architectures
-process_health_t g_process_health;
-thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-memory_health_t g_memory_health;
-cpu_metrics_t g_cpu_metrics;
-service_metrics_t g_service_metrics;
-health_checks_t g_health_checks;
-pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
-#else
-// MIPS: Provide stub globals to satisfy extern references, but all functions return early
-// These stubs are never initialized or used
-static process_health_t g_process_health_stub;
-static thread_health_t g_thread_health_stub[HEALTH_MAX_THREADS];
-static memory_health_t g_memory_health_stub;
-static cpu_metrics_t g_cpu_metrics_stub;
-static service_metrics_t g_service_metrics_stub;
-static health_checks_t g_health_checks_stub;
-static pthread_mutex_t g_health_mutex_stub = PTHREAD_MUTEX_INITIALIZER;
+// MIPS DEBUG: Test structures individually to find which causes BSS corruption
+// Strategy: Replace all but ONE structure with minimal stubs, test if crash occurs
+// This build tests: g_process_health ONLY
+// All other structures are single-byte stubs to satisfy extern references
 
-// Alias the stubs to the expected names
-#define g_process_health g_process_health_stub
-#define g_thread_health g_thread_health_stub
-#define g_memory_health g_memory_health_stub
-#define g_cpu_metrics g_cpu_metrics_stub
-#define g_service_metrics g_service_metrics_stub
-#define g_health_checks g_health_checks_stub
-#define g_health_mutex g_health_mutex_stub
+#ifdef __mips__
+    // TEST 1: Only g_process_health is real, all others are stubs
+    process_health_t g_process_health;  // REAL structure - testing this one
+
+    // Stub structures (minimal to satisfy linker)
+    char g_thread_health_stub;  // Replaces thread_health_t array
+    char g_memory_health_stub;  // Replaces memory_health_t
+    char g_cpu_metrics_stub;    // Replaces cpu_metrics_t
+    char g_service_metrics_stub; // Replaces service_metrics_t
+    char g_health_checks_stub;  // Replaces health_checks_t
+    pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+    // Cast stubs to correct types for extern references
+    #define g_thread_health ((thread_health_t*)&g_thread_health_stub)
+    #define g_memory_health (*(memory_health_t*)&g_memory_health_stub)
+    #define g_cpu_metrics (*(cpu_metrics_t*)&g_cpu_metrics_stub)
+    #define g_service_metrics (*(service_metrics_t*)&g_service_metrics_stub)
+    #define g_health_checks (*(health_checks_t*)&g_health_checks_stub)
+#else
+    // x86: All structures are real
+    process_health_t g_process_health;
+    thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    memory_health_t g_memory_health;
+    cpu_metrics_t g_cpu_metrics;
+    service_metrics_t g_service_metrics;
+    health_checks_t g_health_checks;
+    pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 // Internal state
@@ -57,8 +58,9 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 
 int software_health_init(void) {
 #ifdef __mips__
-    // MIPS: Health monitoring disabled due to BSS corruption issue
-    LOG_WARN("Health monitoring disabled on MIPS architecture (known memory corruption issue)");
+    // MIPS DEBUG: Testing individual structure (g_process_health only)
+    // Init disabled to test if mere presence of structure in BSS causes corruption
+    LOG_WARN("Health monitoring disabled on MIPS (testing g_process_health structure only)");
     return 0;
 #endif
 
