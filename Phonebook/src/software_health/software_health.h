@@ -88,8 +88,9 @@ typedef struct __attribute__((aligned(8))) {
 
 /**
  * Service Metrics - SIP service statistics
+ * MIPS FIX: Removed aligned(8) attribute - causes BSS corruption on MIPS
  */
-typedef struct __attribute__((aligned(8))) {
+typedef struct {
     int registered_users_count;      // Dynamic registrations
     int directory_entries_count;     // Phonebook entries
     int active_calls_count;          // Active SIP calls

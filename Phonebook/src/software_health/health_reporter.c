@@ -195,29 +195,28 @@ void* health_reporter_thread(void *arg) {
             fclose(debug_fp);
         }
 
-        // MIPS WORKAROUND: Disable g_service_metrics updates to isolate crash
-        // TODO: Re-enable after finding BSS corruption root cause
-        // extern service_metrics_t g_service_metrics;
-        // extern int num_registered_users;
-        // extern int num_directory_entries;
-        // extern CallSession call_sessions[MAX_CALL_SESSIONS];
-        // extern pthread_mutex_t g_health_mutex;
+        // Update service metrics (from global state)
+        extern service_metrics_t g_service_metrics;
+        extern int num_registered_users;
+        extern int num_directory_entries;
+        extern CallSession call_sessions[MAX_CALL_SESSIONS];
+        extern pthread_mutex_t g_health_mutex;
 
-        // pthread_mutex_lock(&g_health_mutex);
+        pthread_mutex_lock(&g_health_mutex);
 
-        // g_service_metrics.registered_users_count = num_registered_users;
-        // g_service_metrics.directory_entries_count = num_directory_entries;
+        g_service_metrics.registered_users_count = num_registered_users;
+        g_service_metrics.directory_entries_count = num_directory_entries;
 
-        // // Count active calls
-        // int active_calls = 0;
-        // for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
-        //     if (call_sessions[i].in_use) {
-        //         active_calls++;
-        //     }
-        // }
-        // g_service_metrics.active_calls_count = active_calls;
+        // Count active calls
+        int active_calls = 0;
+        for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
+            if (call_sessions[i].in_use) {
+                active_calls++;
+            }
+        }
+        g_service_metrics.active_calls_count = active_calls;
 
-        // pthread_mutex_unlock(&g_health_mutex);
+        pthread_mutex_unlock(&g_health_mutex);
 
         // DEBUG: Marker before local file write
         debug_fp = fopen("/tmp/health_loop_before_write.flag", "w");
@@ -226,22 +225,20 @@ void* health_reporter_thread(void *arg) {
             fclose(debug_fp);
         }
 
-        // MIPS WORKAROUND: Disable health_write_status_file() to isolate crash
-        // Likely the JSON formatter accesses g_service_metrics causing BSS corruption
-        // TODO: Re-enable after finding root cause
-        // if (g_health_local_reporting) {
-        //     health_report_reason_t local_reason = REASON_SCHEDULED;
-        //     if (health_write_status_file(local_reason) != 0) {
-        //         LOG_ERROR("Failed to write health status file");
-        //     }
+        // Always write to local file (for AREDNmon dashboard)
+        if (g_health_local_reporting) {
+            health_report_reason_t local_reason = REASON_SCHEDULED;
+            if (health_write_status_file(local_reason) != 0) {
+                LOG_ERROR("Failed to write health status file");
+            }
 
-        //     // DEBUG: Marker after file write
-        //     debug_fp = fopen("/tmp/health_loop_after_write.flag", "w");
-        //     if (debug_fp) {
-        //         fprintf(debug_fp, "After write at %ld\n", time(NULL));
-        //         fclose(debug_fp);
-        //     }
-        // }
+            // DEBUG: Marker after file write
+            debug_fp = fopen("/tmp/health_loop_after_write.flag", "w");
+            if (debug_fp) {
+                fprintf(debug_fp, "After write at %ld\n", time(NULL));
+                fclose(debug_fp);
+            }
+        }
 
         // Check if remote reporting is needed (event-driven)
         if (g_collector_enabled) {
