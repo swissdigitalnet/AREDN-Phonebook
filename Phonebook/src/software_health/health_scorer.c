@@ -85,9 +85,16 @@ float health_compute_score(void) {
     extern service_metrics_t g_service_metrics;
     // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
 
+    // DEBUG: Log addresses to find misalignment
+    LOG_DEBUG("DEBUG: g_cpu_metrics address: %p", (void*)&g_cpu_metrics);
+    LOG_DEBUG("DEBUG: g_memory_health address: %p", (void*)&g_memory_health);
+    LOG_DEBUG("DEBUG: g_process_health address: %p", (void*)&g_process_health);
+    LOG_DEBUG("DEBUG: About to access g_cpu_metrics.current_cpu_pct");
+
     float score = 100.0f;
 
     // Deduct for high CPU usage (>20%)
+    LOG_DEBUG("DEBUG: Accessing CPU pct field");
     if (g_cpu_metrics.current_cpu_pct > 20.0f) {
         score -= 10.0f;
         LOG_DEBUG("Health score: -10 for high CPU (%.1f%%)", g_cpu_metrics.current_cpu_pct);
