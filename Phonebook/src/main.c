@@ -172,13 +172,12 @@ int main(int argc, char *argv[]) {
     validate_and_correct_config(); // Fix common config errors automatically
 
     // --- Initialize health monitoring system ---
-    // DISABLED: Health monitoring causes BSS corruption on MIPS
-    // LOG_INFO("Initializing health monitoring system...");
-    // if (software_health_init() != 0) {
-    //     LOG_ERROR("Failed to initialize health monitoring system - continuing without it");
-    // } else {
-    //     LOG_INFO("Health monitoring system initialized successfully");
-    // }
+    LOG_INFO("Initializing health monitoring system...");
+    if (software_health_init() != 0) {
+        LOG_ERROR("Failed to initialize health monitoring system - continuing without it");
+    } else {
+        LOG_INFO("Health monitoring system initialized successfully");
+    }
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
