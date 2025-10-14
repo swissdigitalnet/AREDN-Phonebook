@@ -72,6 +72,20 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     pthread_mutex_lock(&g_health_mutex);
 
+    // MIPS FIX: Copy g_service_metrics to local variables immediately
+    // to avoid multiple scattered reads from the global structure
+    int local_registered_users = g_service_metrics.registered_users_count;
+    int local_directory_entries = g_service_metrics.directory_entries_count;
+    int local_active_calls = g_service_metrics.active_calls_count;
+    time_t local_phonebook_last_updated = g_service_metrics.phonebook_last_updated;
+    char local_fetch_status[32];
+    char local_csv_hash[64];
+    int local_entries_loaded = g_service_metrics.phonebook_entries_loaded;
+    strncpy(local_fetch_status, g_service_metrics.phonebook_fetch_status, sizeof(local_fetch_status) - 1);
+    local_fetch_status[sizeof(local_fetch_status) - 1] = '\0';
+    strncpy(local_csv_hash, g_service_metrics.phonebook_csv_hash, sizeof(local_csv_hash) - 1);
+    local_csv_hash[sizeof(local_csv_hash) - 1] = '\0';
+
     // Get node name
     extern const char* health_get_node_name(void);
     const char *node_name = health_get_node_name();
@@ -86,7 +100,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     char timestamp_str[32];
     char phonebook_updated_str[32];
     format_iso8601(now, timestamp_str);
-    format_iso8601(g_service_metrics.phonebook_last_updated, phonebook_updated_str);
+    format_iso8601(local_phonebook_last_updated, phonebook_updated_str);
 
     // Start building JSON
     size_t offset = 0;
@@ -153,20 +167,20 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
 
-    // SIP service metrics
+    // SIP service metrics (using local copies)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"sip_service\": {\n"
         "    \"registered_users\": %d,\n"
         "    \"directory_entries\": %d,\n"
         "    \"active_calls\": %d\n"
         "  },\n",
-        g_service_metrics.registered_users_count,
-        g_service_metrics.directory_entries_count,
-        g_service_metrics.active_calls_count);
+        local_registered_users,
+        local_directory_entries,
+        local_active_calls);
 
-    // Phonebook status
+    // Phonebook status (using local copies)
     char csv_hash_escaped[64];
-    json_escape(g_service_metrics.phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
+    json_escape(local_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
 
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
@@ -176,9 +190,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"entries_loaded\": %d\n"
         "  },\n",
         phonebook_updated_str,
-        g_service_metrics.phonebook_fetch_status,
+        local_fetch_status,
         csv_hash_escaped,
-        g_service_metrics.phonebook_entries_loaded);
+        local_entries_loaded);
 
     // Health checks
     offset += snprintf(buffer + offset, buffer_size - offset,
