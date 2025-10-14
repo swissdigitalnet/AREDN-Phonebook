@@ -37,21 +37,6 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 // ============================================================================
 
 int software_health_init(void) {
-#ifdef __mips__
-    // MIPS: Health monitoring permanently disabled due to BSS corruption
-    // Structures exist in BSS but are never initialized or accessed
-    LOG_WARN("Health monitoring disabled on MIPS architecture (BSS corruption issue)");
-    LOG_INFO("Structure sizes: process=%zu thread=%zu mem=%zu cpu=%zu service=%zu checks=%zu",
-             sizeof(process_health_t), sizeof(thread_health_t) * HEALTH_MAX_THREADS,
-             sizeof(memory_health_t), sizeof(cpu_metrics_t),
-             sizeof(service_metrics_t), sizeof(health_checks_t));
-    LOG_INFO("Total health BSS size: ~%zu bytes",
-             sizeof(process_health_t) + sizeof(thread_health_t) * HEALTH_MAX_THREADS +
-             sizeof(memory_health_t) + sizeof(cpu_metrics_t) +
-             sizeof(service_metrics_t) + sizeof(health_checks_t) + sizeof(pthread_mutex_t));
-    return 0;
-#endif
-
     if (g_health_initialized) {
         LOG_WARN("Health monitoring already initialized");
         return 0;
