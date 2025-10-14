@@ -36,6 +36,13 @@ int software_health_init(void) {
         return 0;
     }
 
+#ifdef __mips__
+    // TEMPORARY MIPS WORKAROUND: Disable health monitoring on MIPS due to alignment issues
+    LOG_WARN("Health monitoring disabled on MIPS architecture (alignment issues being investigated)");
+    g_health_initialized = true;  // Mark as "initialized" to avoid repeated attempts
+    return 0;
+#endif
+
     LOG_INFO("Initializing software health monitoring system");
 
     // DEBUG: Create marker file to verify initialization
