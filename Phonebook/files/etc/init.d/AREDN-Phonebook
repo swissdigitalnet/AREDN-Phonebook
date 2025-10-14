@@ -8,6 +8,11 @@ USE_PROCD=1 # Use procd for better service management
 
 # Function to start the service
 start_service() {
+    # Kill any existing AREDN-Phonebook processes (prevents duplicate processes)
+    # This handles cases where the process was started manually or by old instances
+    pkill -9 AREDN-Phonebook 2>/dev/null
+    sleep 1
+
     # Create the directory for the phonebook if it doesn't exist
     mkdir -p /www/arednstack
 

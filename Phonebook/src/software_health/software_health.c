@@ -217,6 +217,15 @@ float health_calculate_score(void) {
     return score;
 }
 
+bool health_is_in_grace_period(void) {
+    if (!g_health_initialized) {
+        return true; // Not yet initialized - still starting
+    }
+
+    time_t uptime = time(NULL) - g_process_health.process_start_time;
+    return (uptime < HEALTH_STARTUP_GRACE_PERIOD_SECONDS);
+}
+
 // ============================================================================
 // METRICS UPDATE
 // ============================================================================
@@ -239,17 +248,48 @@ void health_update_metrics(void) {
     // Update memory metrics
     health_update_memory_stats();
 
-    // Check thread responsiveness
+    // Check thread responsiveness with dynamic timeouts
+    // Timeout = 2× thread's sleep interval (prevents false positives)
+    // SKIP during grace period to allow threads to initialize
+    extern int g_pb_interval_seconds;
+    extern int g_status_update_interval_seconds;
+    extern int g_uac_test_interval_seconds;
+    extern int g_health_local_update_seconds;
+
+    bool in_grace_period = health_is_in_grace_period();
+
     g_health_checks.all_threads_responsive = true;
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
         if (g_thread_health[i].is_active) {
             time_t silence = now - g_thread_health[i].last_heartbeat;
-            // Thread is unresponsive if no heartbeat for 30 minutes
-            if (silence > 1800) {
+
+            // Calculate timeout based on thread name and its sleep interval
+            int timeout_seconds = 1800; // Default: 30 minutes
+
+            if (strcmp(g_thread_health[i].name, "phonebook_fetcher") == 0) {
+                timeout_seconds = g_pb_interval_seconds * 2;
+            } else if (strcmp(g_thread_health[i].name, "status_updater") == 0) {
+                timeout_seconds = g_status_update_interval_seconds * 2;
+            } else if (strcmp(g_thread_health[i].name, "uac_bulk_tester") == 0) {
+                timeout_seconds = g_uac_test_interval_seconds * 2;
+            } else if (strcmp(g_thread_health[i].name, "health_reporter") == 0) {
+                timeout_seconds = g_health_local_update_seconds * 2;
+            } else if (strcmp(g_thread_health[i].name, "passive_safety") == 0) {
+                timeout_seconds = 300 * 2; // 5 minutes * 2 = 10 minutes
+            }
+
+            // During grace period: skip unresponsive checks (assume all responsive)
+            if (in_grace_period) {
+                g_thread_health[i].is_responsive = true;
+                continue;
+            }
+
+            // Thread is unresponsive if silence exceeds timeout
+            if (silence > timeout_seconds) {
                 g_thread_health[i].is_responsive = false;
                 g_health_checks.all_threads_responsive = false;
-                LOG_WARN("Thread '%s' unresponsive for %ld seconds",
-                         g_thread_health[i].name, silence);
+                LOG_WARN("Thread '%s' unresponsive for %ld seconds (timeout: %d s)",
+                         g_thread_health[i].name, silence, timeout_seconds);
             }
         }
     }

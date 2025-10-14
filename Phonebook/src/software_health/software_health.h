@@ -29,6 +29,9 @@
 #define CRASH_REPORT_JSON_PATH "/tmp/last_crash.json"
 #define CRASH_STATE_BIN_PATH "/tmp/meshmon_crash.bin"
 
+// Grace period - delay strict health checks during startup
+#define HEALTH_STARTUP_GRACE_PERIOD_SECONDS 300  // 5 minutes
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -201,6 +204,13 @@ float health_calculate_score(void);
  * Reads CPU, memory, thread status
  */
 void health_update_metrics(void);
+
+/**
+ * Check if system is in startup grace period
+ * During grace period, health checks are lenient
+ * @return true if in grace period, false if fully operational
+ */
+bool health_is_in_grace_period(void);
 
 /**
  * Write health status to JSON file

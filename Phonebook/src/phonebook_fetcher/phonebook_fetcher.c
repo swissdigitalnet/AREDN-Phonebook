@@ -110,6 +110,15 @@ void *phonebook_fetcher_thread(void *arg) {
 
         if (csv_processor_download_csv() != 0) {
             LOG_ERROR("CSV download failed. Skipping this cycle.");
+
+            // Update health monitoring: mark fetch as failed
+            extern service_metrics_t g_service_metrics;
+            extern pthread_mutex_t g_health_mutex;
+            pthread_mutex_lock(&g_health_mutex);
+            strncpy(g_service_metrics.phonebook_fetch_status, "FAILED",
+                    sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            pthread_mutex_unlock(&g_health_mutex);
+
             goto end_fetcher_cycle;
         }
 
@@ -141,6 +150,16 @@ void *phonebook_fetcher_thread(void *arg) {
         if (strcmp(new_csv_hash, last_good_csv_hash) == 0 && initial_population_done) {
             LOG_INFO("Downloaded CSV is identical to flash copy. No flash write needed - preserving flash lifespan.");
             remove(PB_CSV_TEMP_PATH); // Clean up unchanged temp file
+
+            // Update health monitoring: fetch successful (no changes)
+            extern service_metrics_t g_service_metrics;
+            extern pthread_mutex_t g_health_mutex;
+            pthread_mutex_lock(&g_health_mutex);
+            strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
+                    sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            g_service_metrics.phonebook_last_updated = time(NULL);
+            pthread_mutex_unlock(&g_health_mutex);
+
             goto end_fetcher_cycle;
         } else {
             if (!initial_population_done) {
@@ -197,6 +216,21 @@ void *phonebook_fetcher_thread(void *arg) {
                 } else {
                     LOG_DEBUG("Hash unchanged, skipping flash write for hash file.");
                 }
+
+                // Update health monitoring: mark fetch as successful
+                extern service_metrics_t g_service_metrics;
+                extern pthread_mutex_t g_health_mutex;
+                pthread_mutex_lock(&g_health_mutex);
+                strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
+                        sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+                g_service_metrics.phonebook_last_updated = time(NULL);
+                strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
+                        sizeof(g_service_metrics.phonebook_csv_hash) - 1);
+                g_service_metrics.phonebook_entries_loaded = num_directory_entries;
+                pthread_mutex_unlock(&g_health_mutex);
+                LOG_INFO("Health monitoring: Phonebook fetch SUCCESS (%d entries, hash: %s)",
+                         num_directory_entries, new_csv_hash);
+
             } else {
                 LOG_WARN("XML publish failed, not updating hash file.");
             }

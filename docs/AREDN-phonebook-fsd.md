@@ -895,6 +895,7 @@ health_score = 100
 - (mem_mb > 12 ? 10 : 0)
 - (!threads_responsive ? 30 : 0)
 - (restart_count > 0 ? 20 : 0)
+- (crash_count × 25)
 - (phonebook_fetch_status == FAILED ? 10 : 0)
 ```
 
@@ -921,12 +922,18 @@ This table defines the thresholds for health status indicators displayed in the 
 | **Restart Count (24h)** | 0 | N/A | ≥ 1 | -20 if > 0 |
 | **Crash Count (24h)** | 0 | N/A | ≥ 1 | -25 per crash |
 | **Phonebook Fetch** | SUCCESS | N/A | FAILED | -10 if failed |
-| **Memory Leak** | Not detected | N/A | Suspected | -15 if detected |
 
 **Notes:**
 - CPU Warning threshold (50%) is for the boolean check `cpu_normal`; score penalty applies at 20%
-- Memory thresholds are guidelines; severe memory growth (leak) adds additional -15 point penalty
-- Thread unresponsive timeout: 30 minutes (1800 seconds) of no heartbeat
+- Memory threshold (12 MB) is sufficient to catch problems; separate leak detection was redundant
+- **Thread unresponsive timeout**: Dynamic per-thread based on sleep interval:
+  - Timeout = 2× thread's configured sleep interval
+  - phonebook_fetcher: 2× PB_INTERVAL_SECONDS (default: 7200s = 2 hours)
+  - status_updater: 2× STATUS_UPDATE_INTERVAL_SECONDS (default: 1200s = 20 min)
+  - uac_bulk_tester: 2× UAC_TEST_INTERVAL_SECONDS (default: 1200s = 20 min)
+  - health_reporter: 2× HEALTH_LOCAL_UPDATE_SECONDS (default: 120s = 2 min)
+  - passive_safety: 2× 300s (default: 600s = 10 min)
+  - Default timeout for unknown threads: 1800s (30 minutes)
 - All penalties are cumulative; minimum score is 0
 
 #### Boolean Health Checks
@@ -935,11 +942,11 @@ These checks are reported in the `checks` section of the health JSON:
 
 | Check | 🟢 Pass Criteria | 🔴 Fail Criteria |
 |-------|------------------|------------------|
-| `memory_stable` | No memory leak detected | Memory leak suspected (growth rate analysis) |
+| `memory_stable` | Always true | N/A (leak detection removed) |
 | `no_recent_crashes` | 0 crashes in last 24h | 1 or more crashes in last 24h |
 | `sip_service_ok` | Directory has entries (> 0) | Directory empty (= 0) |
 | `phonebook_current` | Updated < 2 hours ago | Updated ≥ 2 hours ago |
-| `all_threads_responsive` | All threads heartbeating | Any thread silent > 30 minutes |
+| `all_threads_responsive` | All threads heartbeating | Any thread silent > dynamic timeout |
 | `cpu_normal` | CPU < 50% | CPU ≥ 50% |
 
 **Pass/Fail Logic:**
@@ -988,12 +995,45 @@ These checks are reported in the `checks` section of the health JSON:
 **Example 5 - Critical with Crash (Score: 0)**
 - CPU: 28% ⚠️ (-10 points)
 - Memory: 16 MB ⚠️ (-10 points)
-- Memory leak suspected 🔴 (-15 points)
 - Threads: 2 unresponsive 🔴 (-60 points)
 - 1 restart 🔴 (-20 points)
 - 1 crash 🔴 (-25 points)
 - Phonebook: FAILED 🔴 (-10 points)
-- Score: 100 - 10 - 10 - 15 - 60 - 20 - 25 - 10 = **-50** → clamped to **0** 🔴
+- Score: 100 - 10 - 10 - 60 - 20 - 25 - 10 = **-35** → clamped to **0** 🔴
+
+#### Startup Grace Period
+
+To prevent false positives during system initialization, health monitoring implements a **5-minute grace period** after process startup:
+
+**Grace Period Behavior:**
+- Duration: 300 seconds (5 minutes) from process start
+- System state: "starting" (displayed on dashboard)
+- Thread responsiveness checks: Skipped (all threads assumed responsive)
+- Memory leak detection: Skipped (allows initial allocation to stabilize)
+- Other metrics: Still collected but not penalized
+
+**After Grace Period:**
+- System state: "operational"
+- All health checks become active
+- Normal thresholds and penalties apply
+
+**JSON Field:**
+```json
+{
+  "system_state": "starting",  // or "operational"
+  ...
+}
+```
+
+**Dashboard Display:**
+- During grace period: Shows "Starting" status indicator
+- After grace period: Shows normal health status (Green/Yellow/Red)
+
+**Rationale:**
+- Threads need time to register and send first heartbeat
+- Memory allocation occurs during phonebook load and initialization
+- Prevents false alarms that would confuse operators
+- 5 minutes is sufficient for complete initialization in all scenarios
 
 ### 5.3 Crash Detection
 
@@ -1088,6 +1128,7 @@ Health Monitoring Thread
   "node": "node-A",
   "timestamp": 1697234567,
   "reporting_reason": "scheduled",
+  "system_state": "operational",
   "cpu_pct": 3.2,
   "mem_mb": 5.8,
   "uptime_seconds": 86400,

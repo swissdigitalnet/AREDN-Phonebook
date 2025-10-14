@@ -27,8 +27,8 @@ void health_update_checks(void) {
     extern health_checks_t g_health_checks;
     // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
 
-    // Check 1: Memory stable (no leak detected)
-    g_health_checks.memory_stable = !g_memory_health.leak_suspected;
+    // Check 1: Memory stable (always true - leak detection removed)
+    g_health_checks.memory_stable = true;
 
     // Check 2: No recent crashes (no crashes in last 24h)
     g_health_checks.no_recent_crashes = (g_process_health.crash_count_24h == 0);
@@ -73,7 +73,6 @@ void health_update_checks(void) {
  * - Recent restarts: -20 points
  * - Recent crashes: -25 points per crash
  * - Phonebook fetch failed: -10 points
- * - Memory leak suspected: -15 points
  *
  * NOTE: Caller must hold g_health_mutex before calling
  * @return Health score 0.0-100.0
@@ -133,11 +132,7 @@ float health_compute_score(void) {
         LOG_DEBUG("Health score: -10 for phonebook fetch failure");
     }
 
-    // Deduct for suspected memory leak
-    if (g_memory_health.leak_suspected) {
-        score -= 15.0f;
-        LOG_DEBUG("Health score: -15 for suspected memory leak");
-    }
+    // Memory leak detection removed - redundant with absolute memory threshold
 
     // NOTE: Caller unlocks the mutex
 

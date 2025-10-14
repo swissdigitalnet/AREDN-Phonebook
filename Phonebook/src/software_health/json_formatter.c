@@ -91,6 +91,10 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     // Start building JSON
     size_t offset = 0;
 
+    // Check if in grace period
+    bool in_grace_period = health_is_in_grace_period();
+    const char *system_state = in_grace_period ? "starting" : "operational";
+
     // Header
     offset += snprintf(buffer + offset, buffer_size - offset,
         "{\n"
@@ -99,11 +103,13 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "  \"node\": \"%s\",\n"
         "  \"timestamp\": %ld,\n"
         "  \"sent_at\": \"%s\",\n"
-        "  \"reporting_reason\": \"%s\",\n",
+        "  \"reporting_reason\": \"%s\",\n"
+        "  \"system_state\": \"%s\",\n",
         node_name,
         now,
         timestamp_str,
-        health_reason_to_string(reason));
+        health_reason_to_string(reason),
+        system_state);
 
     // Process metrics
     offset += snprintf(buffer + offset, buffer_size - offset,

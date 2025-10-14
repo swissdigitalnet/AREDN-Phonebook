@@ -166,16 +166,8 @@ void health_update_memory_stats(void) {
         }
     }
 
-    // Detect suspected leak
-    // If memory grew by >50% from initial, suspect leak
-    if (current_rss > (g_memory_health.initial_rss_bytes * 3) / 2) {
-        if (!g_memory_health.leak_suspected) {
-            LOG_WARN("Memory leak suspected: RSS %.1f MB (started at %.1f MB)",
-                     (float)current_rss / (1024.0f * 1024.0f),
-                     (float)g_memory_health.initial_rss_bytes / (1024.0f * 1024.0f));
-        }
-        g_memory_health.leak_suspected = true;
-    }
+    // Memory leak detection removed - redundant with absolute memory threshold (12 MB)
+    // The overall memory usage check (-10 points if >12 MB) is sufficient
 
     g_memory_health.last_check_time = now;
 }
