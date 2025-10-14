@@ -19,41 +19,41 @@
  * NOTE: Caller (health_update_metrics) already holds g_health_mutex
  */
 void health_update_checks(void) {
-    extern process_health_t g_process_health;
+    extern process_health_t *g_process_health;
     extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
-    extern service_metrics_t g_service_metrics;
-    extern health_checks_t g_health_checks;
-    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
+    extern memory_health_t *g_memory_health;
+    extern cpu_metrics_t *g_cpu_metrics;
+    extern service_metrics_t *g_service_metrics;
+    extern health_checks_t *g_health_checks;
+    // extern pthread_mutex_t *g_health_mutex; // Not needed - caller already holds lock
 
     // Check 1: Memory stable (always true - leak detection removed)
-    g_health_checks.memory_stable = true;
+    g_health_checks->memory_stable = true;
 
     // Check 2: No recent crashes (no crashes in last 24h)
-    g_health_checks.no_recent_crashes = (g_process_health.crash_count_24h == 0);
+    g_health_checks->no_recent_crashes = (g_process_health->crash_count_24h == 0);
 
     // Check 3: SIP service OK
     // Service is OK if we have phonebook entries and no excessive errors
-    g_health_checks.sip_service_ok = (g_service_metrics.directory_entries_count > 0);
+    g_health_checks->sip_service_ok = (g_service_metrics->directory_entries_count > 0);
 
     // Check 4: Phonebook current
     // Phonebook is current if last update was < 2 hours ago
     time_t now = time(NULL);
-    time_t phonebook_age = now - g_service_metrics.phonebook_last_updated;
-    g_health_checks.phonebook_current = (phonebook_age < 7200);  // 2 hours
+    time_t phonebook_age = now - g_service_metrics->phonebook_last_updated;
+    g_health_checks->phonebook_current = (phonebook_age < 7200);  // 2 hours
 
     // Check 5: All threads responsive
-    g_health_checks.all_threads_responsive = true;
+    g_health_checks->all_threads_responsive = true;
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
         if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
-            g_health_checks.all_threads_responsive = false;
+            g_health_checks->all_threads_responsive = false;
             break;
         }
     }
 
     // Check 6: CPU normal (< 50%)
-    g_health_checks.cpu_normal = (g_cpu_metrics.current_cpu_pct < 50.0f);
+    g_health_checks->cpu_normal = (g_cpu_metrics->current_cpu_pct < 50.0f);
 
     // NOTE: Caller unlocks the mutex
 }
@@ -78,23 +78,23 @@ void health_update_checks(void) {
  * @return Health score 0.0-100.0
  */
 float health_compute_score(void) {
-    extern process_health_t g_process_health;
+    extern process_health_t *g_process_health;
     extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
-    extern service_metrics_t g_service_metrics;
-    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
+    extern memory_health_t *g_memory_health;
+    extern cpu_metrics_t *g_cpu_metrics;
+    extern service_metrics_t *g_service_metrics;
+    // extern pthread_mutex_t *g_health_mutex; // Not needed - caller already holds lock
 
     float score = 100.0f;
 
     // Deduct for high CPU usage (>20%)
-    if (g_cpu_metrics.current_cpu_pct > 20.0f) {
+    if (g_cpu_metrics->current_cpu_pct > 20.0f) {
         score -= 10.0f;
-        LOG_DEBUG("Health score: -10 for high CPU (%.1f%%)", g_cpu_metrics.current_cpu_pct);
+        LOG_DEBUG("Health score: -10 for high CPU (%.1f%%)", g_cpu_metrics->current_cpu_pct);
     }
 
     // Deduct for high memory usage (>12MB)
-    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
+    float mem_mb = (float)g_memory_health->current_rss_bytes / (1024.0f * 1024.0f);
     if (mem_mb > 12.0f) {
         score -= 10.0f;
         LOG_DEBUG("Health score: -10 for high memory (%.1f MB)", mem_mb);
@@ -112,22 +112,22 @@ float health_compute_score(void) {
     }
 
     // Deduct for recent restarts (20 points)
-    if (g_process_health.restart_count_24h > 0) {
+    if (g_process_health->restart_count_24h > 0) {
         score -= 20.0f;
         LOG_DEBUG("Health score: -20 for recent restarts (%d in 24h)",
-                  g_process_health.restart_count_24h);
+                  g_process_health->restart_count_24h);
     }
 
     // Deduct for recent crashes (25 points per crash)
-    if (g_process_health.crash_count_24h > 0) {
-        float crash_penalty = g_process_health.crash_count_24h * 25.0f;
+    if (g_process_health->crash_count_24h > 0) {
+        float crash_penalty = g_process_health->crash_count_24h * 25.0f;
         score -= crash_penalty;
         LOG_DEBUG("Health score: -%.0f for crashes (%d in 24h)",
-                  crash_penalty, g_process_health.crash_count_24h);
+                  crash_penalty, g_process_health->crash_count_24h);
     }
 
     // Deduct for phonebook fetch failures
-    if (strcmp(g_service_metrics.phonebook_fetch_status, "FAILED") == 0) {
+    if (strcmp(g_service_metrics->phonebook_fetch_status, "FAILED") == 0) {
         score -= 10.0f;
         LOG_DEBUG("Health score: -10 for phonebook fetch failure");
     }
@@ -180,34 +180,34 @@ const char* health_get_color(float score) {
  * Useful for debugging
  */
 void health_log_summary(void) {
-    extern process_health_t g_process_health;
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
-    extern service_metrics_t g_service_metrics;
-    extern health_checks_t g_health_checks;
-    extern pthread_mutex_t g_health_mutex;
+    extern process_health_t *g_process_health;
+    extern memory_health_t *g_memory_health;
+    extern cpu_metrics_t *g_cpu_metrics;
+    extern service_metrics_t *g_service_metrics;
+    extern health_checks_t *g_health_checks;
+    extern pthread_mutex_t *g_health_mutex;
 
-    pthread_mutex_lock(&g_health_mutex);
+    pthread_mutex_lock(g_health_mutex);
 
     float score = health_compute_score();
-    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
-    time_t uptime = time(NULL) - g_process_health.process_start_time;
+    float mem_mb = (float)g_memory_health->current_rss_bytes / (1024.0f * 1024.0f);
+    time_t uptime = time(NULL) - g_process_health->process_start_time;
 
     LOG_INFO("=== Health Summary ===");
     LOG_INFO("Score: %.1f/100 (%s)", score, health_get_severity(score));
     LOG_INFO("CPU: %.1f%% | Memory: %.1f MB | Uptime: %ld seconds",
-             g_cpu_metrics.current_cpu_pct, mem_mb, uptime);
+             g_cpu_metrics->current_cpu_pct, mem_mb, uptime);
     LOG_INFO("Checks: memory=%s crashes=%s sip=%s phonebook=%s threads=%s cpu=%s",
-             g_health_checks.memory_stable ? "OK" : "FAIL",
-             g_health_checks.no_recent_crashes ? "OK" : "FAIL",
-             g_health_checks.sip_service_ok ? "OK" : "FAIL",
-             g_health_checks.phonebook_current ? "OK" : "FAIL",
-             g_health_checks.all_threads_responsive ? "OK" : "FAIL",
-             g_health_checks.cpu_normal ? "OK" : "FAIL");
+             g_health_checks->memory_stable ? "OK" : "FAIL",
+             g_health_checks->no_recent_crashes ? "OK" : "FAIL",
+             g_health_checks->sip_service_ok ? "OK" : "FAIL",
+             g_health_checks->phonebook_current ? "OK" : "FAIL",
+             g_health_checks->all_threads_responsive ? "OK" : "FAIL",
+             g_health_checks->cpu_normal ? "OK" : "FAIL");
     LOG_INFO("Service: users=%d directory=%d calls=%d",
-             g_service_metrics.registered_users_count,
-             g_service_metrics.directory_entries_count,
-             g_service_metrics.active_calls_count);
+             g_service_metrics->registered_users_count,
+             g_service_metrics->directory_entries_count,
+             g_service_metrics->active_calls_count);
 
-    pthread_mutex_unlock(&g_health_mutex);
+    pthread_mutex_unlock(g_health_mutex);
 }
