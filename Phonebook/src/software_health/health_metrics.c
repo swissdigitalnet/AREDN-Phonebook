@@ -58,7 +58,7 @@ float health_get_cpu_usage(void) {
     // Calculate CPU percentage
     // Need previous values for delta calculation
     // NOTE: Caller (health_update_metrics) already holds g_health_mutex
-    extern cpu_metrics_t *g_cpu_metrics;
+    extern cpu_metrics_t g_cpu_metrics;
 
     unsigned long long last_process_time = g_cpu_metrics.last_process_time;
     unsigned long long last_total_time = g_cpu_metrics.last_total_time;
@@ -135,7 +135,7 @@ size_t health_get_memory_usage(void) {
  * NOTE: Caller (health_update_metrics) already holds g_health_mutex
  */
 void health_update_memory_stats(void) {
-    extern memory_health_t *g_memory_health;
+    extern memory_health_t g_memory_health;
 
     size_t current_rss = health_get_memory_usage();
     if (current_rss == 0) {
@@ -177,8 +177,8 @@ void health_update_memory_stats(void) {
  * @return Memory usage in MB
  */
 float health_get_memory_mb(void) {
-    extern memory_health_t *g_memory_health;
-    extern pthread_mutex_t *g_health_mutex;
+    extern memory_health_t g_memory_health;
+    extern pthread_mutex_t g_health_mutex;
 
     pthread_mutex_lock(&g_health_mutex);
     size_t rss = g_memory_health.current_rss_bytes;
@@ -192,8 +192,8 @@ float health_get_memory_mb(void) {
  * @return Peak memory usage in MB
  */
 float health_get_peak_memory_mb(void) {
-    extern memory_health_t *g_memory_health;
-    extern pthread_mutex_t *g_health_mutex;
+    extern memory_health_t g_memory_health;
+    extern pthread_mutex_t g_health_mutex;
 
     pthread_mutex_lock(&g_health_mutex);
     size_t peak = g_memory_health.peak_rss_bytes;

@@ -19,13 +19,13 @@
  * NOTE: Caller (health_update_metrics) already holds g_health_mutex
  */
 void health_update_checks(void) {
-    extern process_health_t *g_process_health;
-    extern thread_health_t *g_thread_health;
-    extern memory_health_t *g_memory_health;
-    extern cpu_metrics_t *g_cpu_metrics;
-    extern service_metrics_t *g_service_metrics;
-    extern health_checks_t *g_health_checks;
-    // extern pthread_mutex_t *g_health_mutex; // Not needed - caller already holds lock
+    extern process_health_t g_process_health;
+    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    extern memory_health_t g_memory_health;
+    extern cpu_metrics_t g_cpu_metrics;
+    extern service_metrics_t g_service_metrics;
+    extern health_checks_t g_health_checks;
+    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
 
     // Check 1: Memory stable (always true - leak detection removed)
     g_health_checks.memory_stable = true;
@@ -78,12 +78,12 @@ void health_update_checks(void) {
  * @return Health score 0.0-100.0
  */
 float health_compute_score(void) {
-    extern process_health_t *g_process_health;
-    extern thread_health_t *g_thread_health;
-    extern memory_health_t *g_memory_health;
-    extern cpu_metrics_t *g_cpu_metrics;
-    extern service_metrics_t *g_service_metrics;
-    // extern pthread_mutex_t *g_health_mutex; // Not needed - caller already holds lock
+    extern process_health_t g_process_health;
+    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    extern memory_health_t g_memory_health;
+    extern cpu_metrics_t g_cpu_metrics;
+    extern service_metrics_t g_service_metrics;
+    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
 
     float score = 100.0f;
 
@@ -180,12 +180,12 @@ const char* health_get_color(float score) {
  * Useful for debugging
  */
 void health_log_summary(void) {
-    extern process_health_t *g_process_health;
-    extern memory_health_t *g_memory_health;
-    extern cpu_metrics_t *g_cpu_metrics;
-    extern service_metrics_t *g_service_metrics;
-    extern health_checks_t *g_health_checks;
-    extern pthread_mutex_t *g_health_mutex;
+    extern process_health_t g_process_health;
+    extern memory_health_t g_memory_health;
+    extern cpu_metrics_t g_cpu_metrics;
+    extern service_metrics_t g_service_metrics;
+    extern health_checks_t g_health_checks;
+    extern pthread_mutex_t g_health_mutex;
 
     pthread_mutex_lock(&g_health_mutex);
 

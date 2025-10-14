@@ -44,10 +44,10 @@ extern float g_health_score_threshold;
  * @return true if report needed, false otherwise
  */
 bool health_should_report_now(health_report_reason_t *reason_out) {
-    extern cpu_metrics_t *g_cpu_metrics;
-    extern memory_health_t *g_memory_health;
-    extern health_checks_t *g_health_checks;
-    extern pthread_mutex_t *g_health_mutex;
+    extern cpu_metrics_t g_cpu_metrics;
+    extern memory_health_t g_memory_health;
+    extern health_checks_t g_health_checks;
+    extern pthread_mutex_t g_health_mutex;
 
     pthread_mutex_lock(&g_health_mutex);
 
@@ -117,9 +117,9 @@ bool health_should_report_now(health_report_reason_t *reason_out) {
  * Update reporter state after reporting
  */
 static void update_reporter_state(void) {
-    extern cpu_metrics_t *g_cpu_metrics;
-    extern memory_health_t *g_memory_health;
-    extern pthread_mutex_t *g_health_mutex;
+    extern cpu_metrics_t g_cpu_metrics;
+    extern memory_health_t g_memory_health;
+    extern pthread_mutex_t g_health_mutex;
 
     pthread_mutex_lock(&g_health_mutex);
 
@@ -196,11 +196,11 @@ void* health_reporter_thread(void *arg) {
         }
 
         // Update service metrics (from global state)
-        extern service_metrics_t *g_service_metrics;
+        extern service_metrics_t g_service_metrics;
         extern int num_registered_users;
         extern int num_directory_entries;
         extern CallSession call_sessions[MAX_CALL_SESSIONS];
-        extern pthread_mutex_t *g_health_mutex;
+        extern pthread_mutex_t g_health_mutex;
 
         pthread_mutex_lock(&g_health_mutex);
 
