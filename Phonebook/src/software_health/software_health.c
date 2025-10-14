@@ -14,15 +14,18 @@
 // GLOBAL STATE DEFINITIONS (direct structures like main.c globals)
 // ============================================================================
 
-// MIPS FIX: Use direct structures instead of pointers (like registered_users[] in main.c)
-// Pointer indirection causes alignment issues on MIPS, but direct globals work fine
+// MIPS INVESTIGATION: Testing each structure individually to find which causes corruption
+// Comment out all, then uncomment one by one
+//process_health_t g_process_health;
+//thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+//memory_health_t g_memory_health;
+//cpu_metrics_t g_cpu_metrics;
+//service_metrics_t g_service_metrics;
+//health_checks_t g_health_checks;
+//pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// TEST 1: Start with just process_health (smallest structure)
 process_health_t g_process_health;
-thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-memory_health_t g_memory_health;
-cpu_metrics_t g_cpu_metrics;
-service_metrics_t g_service_metrics;
-health_checks_t g_health_checks;
-pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
 static bool g_health_initialized = false;
@@ -33,6 +36,10 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 // ============================================================================
 
 int software_health_init(void) {
+    // MIPS INVESTIGATION: Disable init to test if process_health alone causes crashes
+    LOG_INFO("MIPS TEST: Health init disabled - testing g_process_health only");
+    return 0;
+
     if (g_health_initialized) {
         LOG_WARN("Health monitoring already initialized");
         return 0;
