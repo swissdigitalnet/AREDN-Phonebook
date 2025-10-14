@@ -226,20 +226,22 @@ void* health_reporter_thread(void *arg) {
             fclose(debug_fp);
         }
 
-        // Always write to local file (for AREDNmon dashboard)
-        if (g_health_local_reporting) {
-            health_report_reason_t local_reason = REASON_SCHEDULED;
-            if (health_write_status_file(local_reason) != 0) {
-                LOG_ERROR("Failed to write health status file");
-            }
+        // MIPS WORKAROUND: Disable health_write_status_file() to isolate crash
+        // Likely the JSON formatter accesses g_service_metrics causing BSS corruption
+        // TODO: Re-enable after finding root cause
+        // if (g_health_local_reporting) {
+        //     health_report_reason_t local_reason = REASON_SCHEDULED;
+        //     if (health_write_status_file(local_reason) != 0) {
+        //         LOG_ERROR("Failed to write health status file");
+        //     }
 
-            // DEBUG: Marker after file write
-            debug_fp = fopen("/tmp/health_loop_after_write.flag", "w");
-            if (debug_fp) {
-                fprintf(debug_fp, "After write at %ld\n", time(NULL));
-                fclose(debug_fp);
-            }
-        }
+        //     // DEBUG: Marker after file write
+        //     debug_fp = fopen("/tmp/health_loop_after_write.flag", "w");
+        //     if (debug_fp) {
+        //         fprintf(debug_fp, "After write at %ld\n", time(NULL));
+        //         fclose(debug_fp);
+        //     }
+        // }
 
         // Check if remote reporting is needed (event-driven)
         if (g_collector_enabled) {
