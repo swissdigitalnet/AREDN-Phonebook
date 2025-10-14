@@ -20,7 +20,7 @@
  */
 void health_update_checks(void) {
     extern process_health_t *g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    extern thread_health_t *g_thread_health;
     extern memory_health_t *g_memory_health;
     extern cpu_metrics_t *g_cpu_metrics;
     extern service_metrics_t *g_service_metrics;
@@ -79,7 +79,7 @@ void health_update_checks(void) {
  */
 float health_compute_score(void) {
     extern process_health_t *g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    extern thread_health_t *g_thread_health;
     extern memory_health_t *g_memory_health;
     extern cpu_metrics_t *g_cpu_metrics;
     extern service_metrics_t *g_service_metrics;
