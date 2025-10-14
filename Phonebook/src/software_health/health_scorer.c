@@ -88,86 +88,10 @@ void health_update_checks(void) {
  * @return Health score 0.0-100.0
  */
 float health_compute_score(void) {
-    extern process_health_t g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
-    extern service_metrics_t g_service_metrics;
-    // extern pthread_mutex_t g_health_mutex; // Not needed - caller already holds lock
-
-    // DEBUG: Log addresses to find misalignment
-    LOG_DEBUG("DEBUG: g_cpu_metrics address: %p", (void*)&g_cpu_metrics);
-    LOG_DEBUG("DEBUG: g_memory_health address: %p", (void*)&g_memory_health);
-    LOG_DEBUG("DEBUG: g_process_health address: %p", (void*)&g_process_health);
-    LOG_DEBUG("DEBUG: About to access g_cpu_metrics.current_cpu_pct");
-
-    float score = 100.0f;
-
-    // Deduct for high CPU usage (>20%)
-    LOG_DEBUG("DEBUG: Accessing CPU pct field");
-    if (g_cpu_metrics.current_cpu_pct > 20.0f) {
-        score -= 10.0f;
-        LOG_DEBUG("Health score: -10 for high CPU (%.1f%%)", g_cpu_metrics.current_cpu_pct);
-    }
-    LOG_DEBUG("DEBUG: CPU access completed OK");
-
-    // Deduct for high memory usage (>12MB)
-    LOG_DEBUG("DEBUG: About to access g_memory_health.current_rss_bytes");
-    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
-    LOG_DEBUG("DEBUG: Memory access OK, mem_mb=%.1f", mem_mb);
-    if (mem_mb > 12.0f) {
-        score -= 10.0f;
-        LOG_DEBUG("Health score: -10 for high memory (%.1f MB)", mem_mb);
-    }
-
-    // Deduct for unresponsive threads (30 points each)
-    LOG_DEBUG("DEBUG: About to loop through %d threads", HEALTH_MAX_THREADS);
-    int unresponsive_threads = 0;
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        LOG_DEBUG("DEBUG: Checking thread[%d] at address %p", i, (void*)&g_thread_health[i]);
-        if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
-            score -= 30.0f;
-            unresponsive_threads++;
-            LOG_DEBUG("Health score: -30 for unresponsive thread '%s'",
-                      g_thread_health[i].name);
-        }
-    }
-
-    // Deduct for recent restarts (20 points)
-    LOG_DEBUG("DEBUG: About to check g_process_health.restart_count_24h");
-    if (g_process_health.restart_count_24h > 0) {
-        score -= 20.0f;
-        LOG_DEBUG("Health score: -20 for recent restarts (%d in 24h)",
-                  g_process_health.restart_count_24h);
-    }
-
-    // Deduct for recent crashes (25 points per crash)
-    LOG_DEBUG("DEBUG: About to check g_process_health.crash_count_24h");
-    if (g_process_health.crash_count_24h > 0) {
-        float crash_penalty = g_process_health.crash_count_24h * 25.0f;
-        score -= crash_penalty;
-        LOG_DEBUG("Health score: -%.0f for crashes (%d in 24h)",
-                  crash_penalty, g_process_health.crash_count_24h);
-    }
-
-    // Deduct for phonebook fetch failures
-    LOG_DEBUG("DEBUG: About to check g_service_metrics.phonebook_fetch_status");
-    // MIPS FIX: Avoid string comparison functions entirely - just check first character
-    // "FAILED" starts with 'F', "SUCCESS" with 'S', "UNKNOWN" with 'U'
-    if (g_service_metrics.phonebook_fetch_status[0] == 'F') {
-        score -= 10.0f;
-        LOG_DEBUG("Health score: -10 for phonebook fetch failure");
-    }
-
-    // Memory leak detection removed - redundant with absolute memory threshold
-
-    // NOTE: Caller unlocks the mutex
-
-    // Clamp to valid range
-    if (score < 0.0f) score = 0.0f;
-    if (score > 100.0f) score = 100.0f;
-
-    return score;
+    // MIPS WORKAROUND: Disable score computation to isolate crash
+    // TODO: Re-enable incrementally to find which structure access causes BSS corruption
+    LOG_DEBUG("DEBUG: health_compute_score() disabled - returning default 100.0");
+    return 100.0f;
 }
 
 // ============================================================================
