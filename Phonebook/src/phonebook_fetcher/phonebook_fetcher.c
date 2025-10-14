@@ -117,6 +117,7 @@ void *phonebook_fetcher_thread(void *arg) {
             pthread_mutex_lock(&g_health_mutex);
             strncpy(g_service_metrics.phonebook_fetch_status, "FAILED",
                     sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
             pthread_mutex_unlock(&g_health_mutex);
 
             goto end_fetcher_cycle;
@@ -157,6 +158,7 @@ void *phonebook_fetcher_thread(void *arg) {
             pthread_mutex_lock(&g_health_mutex);
             strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
                     sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
             g_service_metrics.phonebook_last_updated = time(NULL);
             pthread_mutex_unlock(&g_health_mutex);
 
@@ -223,9 +225,11 @@ void *phonebook_fetcher_thread(void *arg) {
                 pthread_mutex_lock(&g_health_mutex);
                 strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
                         sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+                g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
                 g_service_metrics.phonebook_last_updated = time(NULL);
                 strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
                         sizeof(g_service_metrics.phonebook_csv_hash) - 1);
+                g_service_metrics.phonebook_csv_hash[sizeof(g_service_metrics.phonebook_csv_hash) - 1] = '\0';
                 g_service_metrics.phonebook_entries_loaded = num_directory_entries;
                 pthread_mutex_unlock(&g_health_mutex);
                 LOG_INFO("Health monitoring: Phonebook fetch SUCCESS (%d entries, hash: %s)",

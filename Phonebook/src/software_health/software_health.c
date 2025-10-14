@@ -69,6 +69,7 @@ int software_health_init(void) {
     memset(&g_service_metrics, 0, sizeof(service_metrics_t));
     strncpy(g_service_metrics.phonebook_fetch_status, "UNKNOWN",
             sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+    g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
 
     // Initialize health checks
     memset(&g_health_checks, 0, sizeof(health_checks_t));
