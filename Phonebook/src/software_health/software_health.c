@@ -14,18 +14,38 @@
 // GLOBAL STATE DEFINITIONS (direct structures like main.c globals)
 // ============================================================================
 
-// MIPS INVESTIGATION: Testing each structure individually to find which causes corruption
-// Comment out all, then uncomment one by one
-//process_health_t g_process_health;
-//thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-//memory_health_t g_memory_health;
-//cpu_metrics_t g_cpu_metrics;
-//service_metrics_t g_service_metrics;
-//health_checks_t g_health_checks;
-//pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-// TEST 1: Start with just process_health (smallest structure)
+// MIPS WORKAROUND: Disable health monitoring entirely on MIPS due to BSS corruption
+// The health structures cause memory corruption that crashes other code (CSV loading, etc.)
+// Root cause: Unknown - possibly structure size/alignment/padding issue in musl libc
+#ifndef __mips__
+// Full health monitoring for x86 and other architectures
 process_health_t g_process_health;
+thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+memory_health_t g_memory_health;
+cpu_metrics_t g_cpu_metrics;
+service_metrics_t g_service_metrics;
+health_checks_t g_health_checks;
+pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
+#else
+// MIPS: Provide stub globals to satisfy extern references, but all functions return early
+// These stubs are never initialized or used
+static process_health_t g_process_health_stub;
+static thread_health_t g_thread_health_stub[HEALTH_MAX_THREADS];
+static memory_health_t g_memory_health_stub;
+static cpu_metrics_t g_cpu_metrics_stub;
+static service_metrics_t g_service_metrics_stub;
+static health_checks_t g_health_checks_stub;
+static pthread_mutex_t g_health_mutex_stub = PTHREAD_MUTEX_INITIALIZER;
+
+// Alias the stubs to the expected names
+#define g_process_health g_process_health_stub
+#define g_thread_health g_thread_health_stub
+#define g_memory_health g_memory_health_stub
+#define g_cpu_metrics g_cpu_metrics_stub
+#define g_service_metrics g_service_metrics_stub
+#define g_health_checks g_health_checks_stub
+#define g_health_mutex g_health_mutex_stub
+#endif
 
 // Internal state
 static bool g_health_initialized = false;
@@ -36,9 +56,11 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 // ============================================================================
 
 int software_health_init(void) {
-    // MIPS INVESTIGATION: Disable init to test if process_health alone causes crashes
-    LOG_INFO("MIPS TEST: Health init disabled - testing g_process_health only");
+#ifdef __mips__
+    // MIPS: Health monitoring disabled due to BSS corruption issue
+    LOG_WARN("Health monitoring disabled on MIPS architecture (known memory corruption issue)");
     return 0;
+#endif
 
     if (g_health_initialized) {
         LOG_WARN("Health monitoring already initialized");
