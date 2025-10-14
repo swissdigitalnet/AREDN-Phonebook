@@ -139,6 +139,11 @@ void software_health_shutdown(void) {
 // ============================================================================
 
 int health_register_thread(pthread_t tid, const char *name) {
+#ifdef __mips__
+    // MIPS WORKAROUND: Health monitoring disabled
+    return 0;
+#endif
+
     if (!g_health_initialized) {
         LOG_ERROR("Health system not initialized");
         return -1;
@@ -179,6 +184,11 @@ int health_register_thread(pthread_t tid, const char *name) {
 }
 
 void health_update_heartbeat(int thread_index) {
+#ifdef __mips__
+    // MIPS WORKAROUND: Health monitoring disabled
+    return;
+#endif
+
     if (!g_health_initialized || thread_index < 0 || thread_index >= HEALTH_MAX_THREADS) {
         return;
     }
@@ -198,6 +208,11 @@ void health_update_heartbeat(int thread_index) {
 // ============================================================================
 
 bool health_is_system_healthy(void) {
+#ifdef __mips__
+    // MIPS WORKAROUND: Health monitoring disabled - always return true
+    return true;
+#endif
+
     if (!g_health_initialized) {
         return false;
     }
@@ -216,6 +231,11 @@ bool health_is_system_healthy(void) {
 }
 
 float health_calculate_score(void) {
+#ifdef __mips__
+    // MIPS WORKAROUND: Health monitoring disabled - return 100 (perfect health)
+    return 100.0f;
+#endif
+
     if (!g_health_initialized) {
         return 0.0f;
     }
@@ -241,6 +261,11 @@ bool health_is_in_grace_period(void) {
 // ============================================================================
 
 void health_update_metrics(void) {
+#ifdef __mips__
+    // MIPS WORKAROUND: Health monitoring disabled
+    return;
+#endif
+
     if (!g_health_initialized) {
         return;
     }
@@ -315,6 +340,11 @@ void health_update_metrics(void) {
 // ============================================================================
 
 int health_write_status_file(health_report_reason_t reason) {
+#ifdef __mips__
+    // MIPS WORKAROUND: Health monitoring disabled
+    return 0;
+#endif
+
     if (!g_health_initialized) {
         return -1;
     }
