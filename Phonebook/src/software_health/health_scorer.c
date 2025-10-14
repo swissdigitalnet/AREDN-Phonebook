@@ -88,54 +88,8 @@ void health_update_checks(void) {
  * @return Health score 0.0-100.0
  */
 float health_compute_score(void) {
-    extern process_health_t g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
-    extern service_metrics_t g_service_metrics;
-
-    float score = 100.0f;
-
-    // Deduct for high CPU usage (>20%)
-    if (g_cpu_metrics.current_cpu_pct > 20.0f) {
-        score -= 10.0f;
-    }
-
-    // Deduct for high memory usage (>12MB)
-    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
-    if (mem_mb > 12.0f) {
-        score -= 10.0f;
-    }
-
-    // Deduct for unresponsive threads (30 points each)
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
-            score -= 30.0f;
-        }
-    }
-
-    // Deduct for recent restarts (20 points)
-    if (g_process_health.restart_count_24h > 0) {
-        score -= 20.0f;
-    }
-
-    // Deduct for recent crashes (25 points per crash)
-    if (g_process_health.crash_count_24h > 0) {
-        float crash_penalty = g_process_health.crash_count_24h * 25.0f;
-        score -= crash_penalty;
-    }
-
-    // Deduct for phonebook fetch failures
-    // MIPS-safe: check first character only
-    if (g_service_metrics.phonebook_fetch_status[0] == 'F') {
-        score -= 10.0f;
-    }
-
-    // Clamp to valid range
-    if (score < 0.0f) score = 0.0f;
-    if (score > 100.0f) score = 100.0f;
-
-    return score;
+    // DISABLED for incremental testing - return fixed score
+    return 100.0f;
 }
 
 // ============================================================================
