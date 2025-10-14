@@ -152,8 +152,9 @@ float health_compute_score(void) {
 
     // Deduct for phonebook fetch failures
     LOG_DEBUG("DEBUG: About to check g_service_metrics.phonebook_fetch_status");
-    // Use strncmp instead of strcmp to avoid unaligned reads on MIPS
-    if (strncmp(g_service_metrics.phonebook_fetch_status, "FAILED", 6) == 0) {
+    // MIPS FIX: Avoid string comparison functions entirely - just check first character
+    // "FAILED" starts with 'F', "SUCCESS" with 'S', "UNKNOWN" with 'U'
+    if (g_service_metrics.phonebook_fetch_status[0] == 'F') {
         score -= 10.0f;
         LOG_DEBUG("Health score: -10 for phonebook fetch failure");
     }
