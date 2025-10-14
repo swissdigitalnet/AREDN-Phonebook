@@ -898,6 +898,103 @@ health_score = 100
 - (phonebook_fetch_status == FAILED ? 10 : 0)
 ```
 
+### 5.2.1 Health Status Criteria (Green/Yellow/Red)
+
+This table defines the thresholds for health status indicators displayed in the AREDNmon dashboard:
+
+#### Overall Health Score
+
+| Status | Color | Score Range | Description |
+|--------|-------|-------------|-------------|
+| **Excellent** | 🟢 Green | 90-100 | System operating optimally |
+| **Good** | 🟡 Yellow | 70-89 | Minor issues, system functional |
+| **Degraded** | 🟠 Orange | 50-69 | Performance issues detected |
+| **Critical** | 🔴 Red | 0-49 | Serious problems, intervention needed |
+
+#### Individual Metric Thresholds
+
+| Parameter | 🟢 Green (Good) | 🟡 Yellow (Warning) | 🔴 Red (Critical) | Score Penalty |
+|-----------|-----------------|---------------------|-------------------|---------------|
+| **CPU Usage** | ≤ 20% | 20-50% | > 50% | -10 if > 20% |
+| **Memory Usage** | ≤ 12 MB | 12-20 MB | > 20 MB | -10 if > 12 MB |
+| **Thread Heartbeat** | < 30 min | N/A | ≥ 30 min (unresponsive) | -30 per thread |
+| **Restart Count (24h)** | 0 | N/A | ≥ 1 | -20 if > 0 |
+| **Crash Count (24h)** | 0 | N/A | ≥ 1 | -25 per crash |
+| **Phonebook Fetch** | SUCCESS | N/A | FAILED | -10 if failed |
+| **Memory Leak** | Not detected | N/A | Suspected | -15 if detected |
+
+**Notes:**
+- CPU Warning threshold (50%) is for the boolean check `cpu_normal`; score penalty applies at 20%
+- Memory thresholds are guidelines; severe memory growth (leak) adds additional -15 point penalty
+- Thread unresponsive timeout: 30 minutes (1800 seconds) of no heartbeat
+- All penalties are cumulative; minimum score is 0
+
+#### Boolean Health Checks
+
+These checks are reported in the `checks` section of the health JSON:
+
+| Check | 🟢 Pass Criteria | 🔴 Fail Criteria |
+|-------|------------------|------------------|
+| `memory_stable` | No memory leak detected | Memory leak suspected (growth rate analysis) |
+| `no_recent_crashes` | 0 crashes in last 24h | 1 or more crashes in last 24h |
+| `sip_service_ok` | Directory has entries (> 0) | Directory empty (= 0) |
+| `phonebook_current` | Updated < 2 hours ago | Updated ≥ 2 hours ago |
+| `all_threads_responsive` | All threads heartbeating | Any thread silent > 30 minutes |
+| `cpu_normal` | CPU < 50% | CPU ≥ 50% |
+
+**Pass/Fail Logic:**
+- All checks are **boolean** (pass = true, fail = false)
+- Independent of health score (score deductions happen separately)
+- Used for quick status overview in dashboard alerts
+
+#### Example Health Score Calculations
+
+**Example 1 - Excellent (Score: 100)**
+- CPU: 3.2% ✅
+- Memory: 5.8 MB ✅
+- Threads: All responsive ✅
+- No restarts ✅
+- No crashes ✅
+- Phonebook: SUCCESS ✅
+- Score: 100 - 0 = **100** 🟢
+
+**Example 2 - Good (Score: 80)**
+- CPU: 25% ⚠️ (-10 points)
+- Memory: 15 MB ⚠️ (-10 points)
+- Threads: All responsive ✅
+- No restarts ✅
+- No crashes ✅
+- Phonebook: SUCCESS ✅
+- Score: 100 - 10 - 10 = **80** 🟡
+
+**Example 3 - Degraded (Score: 60)**
+- CPU: 25% ⚠️ (-10 points)
+- Memory: 8 MB ✅
+- Threads: 1 unresponsive 🔴 (-30 points)
+- No restarts ✅
+- No crashes ✅
+- Phonebook: SUCCESS ✅
+- Score: 100 - 10 - 30 = **60** 🟠
+
+**Example 4 - Critical (Score: 35)**
+- CPU: 25% ⚠️ (-10 points)
+- Memory: 15 MB ⚠️ (-10 points)
+- Threads: 1 unresponsive 🔴 (-30 points)
+- 1 restart in 24h 🔴 (-20 points)
+- No crashes ✅
+- Phonebook: SUCCESS ✅
+- Score: 100 - 10 - 10 - 30 - 20 = **30** 🔴
+
+**Example 5 - Critical with Crash (Score: 0)**
+- CPU: 28% ⚠️ (-10 points)
+- Memory: 16 MB ⚠️ (-10 points)
+- Memory leak suspected 🔴 (-15 points)
+- Threads: 2 unresponsive 🔴 (-60 points)
+- 1 restart 🔴 (-20 points)
+- 1 crash 🔴 (-25 points)
+- Phonebook: FAILED 🔴 (-10 points)
+- Score: 100 - 10 - 10 - 15 - 60 - 20 - 25 - 10 = **-50** → clamped to **0** 🔴
+
 ### 5.3 Crash Detection
 
 **Signal handlers installed for:**
