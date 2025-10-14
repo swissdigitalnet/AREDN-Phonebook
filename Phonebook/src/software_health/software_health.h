@@ -39,7 +39,7 @@
 /**
  * Process Health - Overall process metrics
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     time_t process_start_time;      // When process started
     time_t last_restart_time;        // Last restart timestamp
     int restart_count_24h;           // Restarts in last 24 hours
@@ -51,7 +51,7 @@ typedef struct {
 /**
  * Thread Health - Individual thread monitoring
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     pthread_t tid;                   // Thread ID
     char name[HEALTH_MAX_THREAD_NAME_LEN];  // Thread name
     time_t last_heartbeat;           // Last heartbeat timestamp
@@ -59,24 +59,26 @@ typedef struct {
     int restart_count;               // How many times restarted
     bool is_responsive;              // Currently responsive?
     bool is_active;                  // Thread slot in use?
+    char _padding[6];                // Padding for alignment
 } thread_health_t;
 
 /**
  * Memory Health - Memory usage tracking
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     size_t initial_rss_bytes;        // RSS at startup
     size_t current_rss_bytes;        // Current RSS
     size_t peak_rss_bytes;           // Peak RSS observed
     float growth_rate_mb_per_hour;   // Memory growth rate
     bool leak_suspected;             // Leak detection flag
+    char _padding[3];                // Padding for alignment
     time_t last_check_time;          // Last check timestamp
 } memory_health_t;
 
 /**
  * CPU Metrics - CPU usage tracking
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     float current_cpu_pct;           // Current CPU percentage
     float last_cpu_pct;              // Previous reading
     time_t last_check_time;          // Last check timestamp
@@ -87,32 +89,34 @@ typedef struct {
 /**
  * Service Metrics - SIP service statistics
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     int registered_users_count;      // Dynamic registrations
     int directory_entries_count;     // Phonebook entries
     int active_calls_count;          // Active SIP calls
     time_t phonebook_last_updated;   // Last phonebook fetch
     char phonebook_fetch_status[32]; // SUCCESS, FAILED, STALE
     char phonebook_csv_hash[33];     // Current CSV hash (hex)
+    char _padding[3];                // Padding for alignment
     int phonebook_entries_loaded;    // Entries in memory
 } service_metrics_t;
 
 /**
  * Health Score Components - For calculation
  */
-typedef struct {
+typedef struct __attribute__((aligned(4))) {
     bool memory_stable;              // No leak detected
     bool no_recent_crashes;          // No crashes in 24h
     bool sip_service_ok;             // SIP working properly
     bool phonebook_current;          // Phonebook up to date
     bool all_threads_responsive;     // All threads OK
     bool cpu_normal;                 // CPU < 50%
+    char _padding[2];                // Padding for alignment
 } health_checks_t;
 
 /**
  * Crash Context - Information at crash time
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     int signal_number;               // Signal that caused crash
     char signal_name[32];            // Signal name (SIGSEGV, etc.)
     char description[128];           // Human-readable description
