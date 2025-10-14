@@ -14,31 +14,23 @@
 // GLOBAL STATE DEFINITIONS (direct structures like main.c globals)
 // ============================================================================
 
-// MIPS DEBUG: Test structures individually to find which causes BSS corruption
-// Strategy: Replace all but ONE structure with minimal stubs, test if crash occurs
-// This build tests: g_process_health ONLY
-// All other structures are single-byte stubs to satisfy extern references
+// MIPS DEBUG v2.7.3: Test structures individually by making arrays size 1 vs real size
+// Strategy: On MIPS, make thread_health array size 1 instead of 5
+// This tests if the thread_health array causes BSS corruption
+// If crash stops: thread_health is the culprit
+// If crash continues: other structures are responsible
 
 #ifdef __mips__
-    // TEST 1: Only g_process_health is real, all others are stubs
-    process_health_t g_process_health;  // REAL structure - testing this one
-
-    // Stub structures (minimal to satisfy linker)
-    char g_thread_health_stub;  // Replaces thread_health_t array
-    char g_memory_health_stub;  // Replaces memory_health_t
-    char g_cpu_metrics_stub;    // Replaces cpu_metrics_t
-    char g_service_metrics_stub; // Replaces service_metrics_t
-    char g_health_checks_stub;  // Replaces health_checks_t
+    // TEST: Minimize thread_health array (1 element instead of 5)
+    process_health_t g_process_health;
+    thread_health_t g_thread_health[1];  // REDUCED from [5] - testing this
+    memory_health_t g_memory_health;
+    cpu_metrics_t g_cpu_metrics;
+    service_metrics_t g_service_metrics;
+    health_checks_t g_health_checks;
     pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-    // Cast stubs to correct types for extern references
-    #define g_thread_health ((thread_health_t*)&g_thread_health_stub)
-    #define g_memory_health (*(memory_health_t*)&g_memory_health_stub)
-    #define g_cpu_metrics (*(cpu_metrics_t*)&g_cpu_metrics_stub)
-    #define g_service_metrics (*(service_metrics_t*)&g_service_metrics_stub)
-    #define g_health_checks (*(health_checks_t*)&g_health_checks_stub)
 #else
-    // x86: All structures are real
+    // x86: All structures at full size
     process_health_t g_process_health;
     thread_health_t g_thread_health[HEALTH_MAX_THREADS];
     memory_health_t g_memory_health;
@@ -58,9 +50,9 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 
 int software_health_init(void) {
 #ifdef __mips__
-    // MIPS DEBUG: Testing individual structure (g_process_health only)
-    // Init disabled to test if mere presence of structure in BSS causes corruption
-    LOG_WARN("Health monitoring disabled on MIPS (testing g_process_health structure only)");
+    // MIPS DEBUG: Testing reduced thread_health array size [1] vs [5]
+    // Init disabled to test if array size causes BSS corruption
+    LOG_WARN("Health monitoring disabled on MIPS (testing thread_health[1] vs [5])");
     return 0;
 #endif
 
