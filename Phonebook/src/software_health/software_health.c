@@ -14,13 +14,15 @@
 // GLOBAL STATE DEFINITIONS (heap-allocated for guaranteed alignment on all architectures)
 // ============================================================================
 
-process_health_t *g_process_health = NULL;
-thread_health_t *g_thread_health = NULL;
-memory_health_t *g_memory_health = NULL;
-cpu_metrics_t *g_cpu_metrics = NULL;
-service_metrics_t *g_service_metrics = NULL;
-health_checks_t *g_health_checks = NULL;
-pthread_mutex_t *g_health_mutex = NULL;
+// IMPORTANT: The pointer variables themselves must be aligned on MIPS
+// Otherwise accessing the pointer causes SIGSEGV even if the pointed-to memory is aligned
+process_health_t *g_process_health __attribute__((aligned(8))) = NULL;
+thread_health_t *g_thread_health __attribute__((aligned(8))) = NULL;
+memory_health_t *g_memory_health __attribute__((aligned(8))) = NULL;
+cpu_metrics_t *g_cpu_metrics __attribute__((aligned(8))) = NULL;
+service_metrics_t *g_service_metrics __attribute__((aligned(8))) = NULL;
+health_checks_t *g_health_checks __attribute__((aligned(8))) = NULL;
+pthread_mutex_t *g_health_mutex __attribute__((aligned(8))) = NULL;
 
 // Internal state
 static bool g_health_initialized = false;
