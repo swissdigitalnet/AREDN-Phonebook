@@ -14,13 +14,13 @@
 // GLOBAL STATE DEFINITIONS
 // ============================================================================
 
-process_health_t g_process_health;
-thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-memory_health_t g_memory_health;
-cpu_metrics_t g_cpu_metrics;
-service_metrics_t g_service_metrics;
-health_checks_t g_health_checks;
-pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
+process_health_t g_process_health __attribute__((aligned(8)));
+thread_health_t g_thread_health[HEALTH_MAX_THREADS] __attribute__((aligned(8)));
+memory_health_t g_memory_health __attribute__((aligned(8)));
+cpu_metrics_t g_cpu_metrics __attribute__((aligned(8)));
+service_metrics_t g_service_metrics __attribute__((aligned(8)));
+health_checks_t g_health_checks __attribute__((aligned(8)));
+pthread_mutex_t g_health_mutex __attribute__((aligned(8))) = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
 static bool g_health_initialized = false;
