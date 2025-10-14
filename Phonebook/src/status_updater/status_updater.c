@@ -58,11 +58,13 @@ void *status_updater_thread(void *arg) {
     LOG_INFO("Status updater started. Entering main loop.");
 
     // Register this thread for health monitoring
-    int thread_index = health_register_thread(pthread_self(), "status_updater");
-    if (thread_index < 0) {
-        LOG_WARN("Failed to register status updater thread for health monitoring");
-        // Continue anyway - health monitoring is not critical for operation
-    }
+    // DISABLED: Health monitoring causes BSS corruption on MIPS
+    // int thread_index = health_register_thread(pthread_self(), "status_updater");
+    // if (thread_index < 0) {
+    //     LOG_WARN("Failed to register status updater thread for health monitoring");
+    //     // Continue anyway - health monitoring is not critical for operation
+    // }
+    int thread_index = -1; // Placeholder for disabled health monitoring
 
     struct timespec ts;
 
@@ -71,9 +73,10 @@ void *status_updater_thread(void *arg) {
         g_updater_last_heartbeat = time(NULL);
 
         // Health Monitoring: Update heartbeat
-        if (thread_index >= 0) {
-            health_update_heartbeat(thread_index);
-        }
+        // DISABLED: Health monitoring causes BSS corruption on MIPS
+        // if (thread_index >= 0) {
+        //     health_update_heartbeat(thread_index);
+        // }
 
         pthread_mutex_lock(&updater_trigger_mutex);
         clock_gettime(CLOCK_REALTIME, &ts);

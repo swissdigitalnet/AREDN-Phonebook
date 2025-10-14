@@ -283,17 +283,20 @@ void *passive_safety_thread(void *arg) {
     LOG_INFO("Passive safety thread started - silent self-healing enabled");
 
     // Register this thread for health monitoring
-    int thread_index = health_register_thread(pthread_self(), "passive_safety");
-    if (thread_index < 0) {
-        LOG_WARN("Failed to register passive safety thread for health monitoring");
-        // Continue anyway - health monitoring is not critical for operation
-    }
+    // DISABLED: Health monitoring causes BSS corruption on MIPS
+    // int thread_index = health_register_thread(pthread_self(), "passive_safety");
+    // if (thread_index < 0) {
+    //     LOG_WARN("Failed to register passive safety thread for health monitoring");
+    //     // Continue anyway - health monitoring is not critical for operation
+    // }
+    int thread_index = -1; // Placeholder for disabled health monitoring
 
     while (1) {
         // Update health heartbeat
-        if (thread_index >= 0) {
-            health_update_heartbeat(thread_index);
-        }
+        // DISABLED: Health monitoring causes BSS corruption on MIPS
+        // if (thread_index >= 0) {
+        //     health_update_heartbeat(thread_index);
+        // }
 
         // Run safety checks every 5 minutes
         sleep(300);

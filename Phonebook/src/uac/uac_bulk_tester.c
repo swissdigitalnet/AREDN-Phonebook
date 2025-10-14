@@ -19,11 +19,13 @@ void *uac_bulk_tester_thread(void *arg) {
     LOG_INFO("UAC Bulk Tester thread started. Interval: %d seconds", g_uac_test_interval_seconds);
 
     // Register this thread for health monitoring
-    int thread_index = health_register_thread(pthread_self(), "uac_bulk_tester");
-    if (thread_index < 0) {
-        LOG_WARN("Failed to register UAC bulk tester thread for health monitoring");
-        // Continue anyway - health monitoring is not critical for operation
-    }
+    // DISABLED: Health monitoring causes BSS corruption on MIPS
+    // int thread_index = health_register_thread(pthread_self(), "uac_bulk_tester");
+    // if (thread_index < 0) {
+    //     LOG_WARN("Failed to register UAC bulk tester thread for health monitoring");
+    //     // Continue anyway - health monitoring is not critical for operation
+    // }
+    int thread_index = -1; // Placeholder for disabled health monitoring
 
     // If interval is 0, bulk testing is disabled
     if (g_uac_test_interval_seconds <= 0) {
@@ -58,9 +60,10 @@ void *uac_bulk_tester_thread(void *arg) {
         g_bulk_tester_last_heartbeat = time(NULL);
 
         // Health Monitoring: Update heartbeat
-        if (thread_index >= 0) {
-            health_update_heartbeat(thread_index);
-        }
+        // DISABLED: Health monitoring causes BSS corruption on MIPS
+        // if (thread_index >= 0) {
+        //     health_update_heartbeat(thread_index);
+        // }
 
         LOG_INFO("=== Starting UAC bulk test cycle ===");
 

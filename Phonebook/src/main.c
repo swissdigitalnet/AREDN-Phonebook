@@ -172,12 +172,13 @@ int main(int argc, char *argv[]) {
     validate_and_correct_config(); // Fix common config errors automatically
 
     // --- Initialize health monitoring system ---
-    LOG_INFO("Initializing health monitoring system...");
-    if (software_health_init() != 0) {
-        LOG_ERROR("Failed to initialize health monitoring system - continuing without it");
-    } else {
-        LOG_INFO("Health monitoring system initialized successfully");
-    }
+    // DISABLED: Health monitoring causes BSS corruption on MIPS
+    // LOG_INFO("Initializing health monitoring system...");
+    // if (software_health_init() != 0) {
+    //     LOG_ERROR("Failed to initialize health monitoring system - continuing without it");
+    // } else {
+    //     LOG_INFO("Health monitoring system initialized successfully");
+    // }
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
@@ -288,14 +289,15 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     // Phase 5: Health Monitoring Thread Creation
-    LOG_INFO("Creating health reporter thread...");
-    pthread_t health_reporter_tid;
-    if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
-        LOG_ERROR("Failed to create health reporter thread - continuing without health reporting");
-    } else {
-        LOG_DEBUG("Health reporter thread launched.");
-        LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
-    }
+    // DISABLED: Health monitoring causes BSS corruption on MIPS
+    // LOG_INFO("Creating health reporter thread...");
+    // pthread_t health_reporter_tid;
+    // if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
+    //     LOG_ERROR("Failed to create health reporter thread - continuing without health reporting");
+    // } else {
+    //     LOG_DEBUG("Health reporter thread launched.");
+    //     LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
+    // }
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
