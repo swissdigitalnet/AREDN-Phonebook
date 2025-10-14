@@ -45,7 +45,8 @@ int software_health_init(void) {
         fclose(debug_fp);
     }
 
-    pthread_mutex_lock(&g_health_mutex);
+    // MIPS FIX: Skip mutex during init - single-threaded anyway
+    // pthread_mutex_lock(&g_health_mutex);
 
     // Initialize process health
     memset(&g_process_health, 0, sizeof(g_process_health));
@@ -91,7 +92,8 @@ int software_health_init(void) {
 
     g_health_initialized = true;
 
-    pthread_mutex_unlock(&g_health_mutex);
+    // MIPS FIX: Skip mutex during init - single-threaded anyway
+    // pthread_mutex_unlock(&g_health_mutex);
 
     // DEBUG: Create marker file to verify initialization completed
     debug_fp = fopen("/tmp/health_init_completed.flag", "w");
