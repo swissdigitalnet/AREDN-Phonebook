@@ -51,10 +51,14 @@ int software_health_init(void) {
 
     pthread_mutex_lock(&g_health_mutex);
 
-    // Initialize process health
-    memset(&g_process_health, 0, sizeof(process_health_t));
+    // MIPS FIX v2.10.20: NO memset() to BSS - causes corruption!
+    // Initialize process health field-by-field (BSS is already zero-initialized)
+    // memset(&g_process_health, 0, sizeof(process_health_t));
     g_process_health.process_start_time = time(NULL);
     g_process_health.last_restart_time = time(NULL);
+    g_process_health.restart_count_24h = 0;
+    g_process_health.crash_count_24h = 0;
+    g_process_health.last_crash_time = 0;
 
     // MIPS FIX v2.10.16: DO NOT initialize g_thread_health array - ANY access corrupts BSS!
     // Root cause: memset() and field writes to array elements cause BSS corruption on MIPS ath79
@@ -66,30 +70,43 @@ int software_health_init(void) {
     //     g_thread_health[i].is_active = false;
     // }
 
-    // Initialize memory health
-    memset(&g_memory_health, 0, sizeof(memory_health_t));
-    g_memory_health.initial_rss_bytes = 0;  // Will be set on first update
+    // MIPS FIX v2.10.20: NO memset() to BSS - field-by-field init only
+    // Initialize memory health (BSS already zero-initialized)
+    // memset(&g_memory_health, 0, sizeof(memory_health_t));
+    g_memory_health.initial_rss_bytes = 0;
     g_memory_health.current_rss_bytes = 0;
     g_memory_health.peak_rss_bytes = 0;
+    g_memory_health.growth_rate_mb_per_hour = 0.0f;
+    g_memory_health.leak_suspected = false;
     g_memory_health.last_check_time = time(NULL);
 
-    // Initialize CPU metrics
-    memset(&g_cpu_metrics, 0, sizeof(cpu_metrics_t));
-    g_cpu_metrics.last_check_time = time(NULL);
+    // MIPS FIX v2.10.20: NO memset() to BSS
+    // Initialize CPU metrics (BSS already zero-initialized)
+    // memset(&g_cpu_metrics, 0, sizeof(cpu_metrics_t));
     g_cpu_metrics.current_cpu_pct = 0.0f;
+    g_cpu_metrics.last_cpu_pct = 0.0f;
+    g_cpu_metrics.last_check_time = time(NULL);
+    g_cpu_metrics.last_total_time = 0;
+    g_cpu_metrics.last_process_time = 0;
 
-    // Initialize service metrics
-    memset(&g_service_metrics, 0, sizeof(service_metrics_t));
-    // MIPS FIX: strncpy() to char arrays causes BSS corruption - DISABLED
-    // strncpy(g_service_metrics.phonebook_fetch_status, "UNKNOWN",
-    //         sizeof(g_service_metrics.phonebook_fetch_status) - 1);
-    // g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
+    // MIPS FIX v2.10.20: NO memset() to BSS
+    // Initialize service metrics (BSS already zero-initialized)
+    // memset(&g_service_metrics, 0, sizeof(service_metrics_t));
+    g_service_metrics.registered_users_count = 0;
+    g_service_metrics.directory_entries_count = 0;
+    g_service_metrics.active_calls_count = 0;
+    g_service_metrics.phonebook_last_updated = 0;
+    g_service_metrics.phonebook_entries_loaded = 0;
 
-    // Initialize health checks
-    memset(&g_health_checks, 0, sizeof(health_checks_t));
+    // MIPS FIX v2.10.20: NO memset() to BSS
+    // Initialize health checks (BSS already zero-initialized)
+    // memset(&g_health_checks, 0, sizeof(health_checks_t));
     g_health_checks.memory_stable = true;
     g_health_checks.no_recent_crashes = true;
+    g_health_checks.sip_service_ok = false;
+    g_health_checks.phonebook_current = false;
     g_health_checks.all_threads_responsive = true;
+    g_health_checks.cpu_normal = true;
 
     // MIPS FIX v2.10.18: g_node_name char array removed - don't store hostname
     // Get node name from hostname
