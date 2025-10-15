@@ -88,17 +88,17 @@ typedef struct __attribute__((aligned(8))) {
 
 /**
  * Service Metrics - SIP service statistics
- * MIPS FIX: Removed aligned(8) attribute - causes BSS corruption on MIPS
+ * MIPS FIX v2.10.4: Removed char arrays entirely - ANY char array in BSS causes corruption
+ * Simplified to int/time_t only
  */
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     int registered_users_count;      // Dynamic registrations
     int directory_entries_count;     // Phonebook entries
     int active_calls_count;          // Active SIP calls
     time_t phonebook_last_updated;   // Last phonebook fetch
-    char phonebook_fetch_status[32]; // SUCCESS, FAILED, STALE
-    char phonebook_csv_hash[33];     // Current CSV hash (hex)
-    char _padding[3];                // Padding for alignment
     int phonebook_entries_loaded;    // Entries in memory
+    // REMOVED: char arrays cause MIPS BSS corruption even when unused
+    // phonebook_fetch_status and phonebook_csv_hash removed
 } service_metrics_t;
 
 /**

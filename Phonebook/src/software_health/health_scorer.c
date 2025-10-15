@@ -125,10 +125,8 @@ float health_compute_score(void) {
         score -= crash_penalty;
     }
 
-    // Test: READ from g_service_metrics.phonebook_fetch_status (char array)
-    if (g_service_metrics.phonebook_fetch_status[0] == 'F') {
-        score -= 10.0f;
-    }
+    // MIPS FIX: phonebook_fetch_status field removed from struct
+    // (char arrays in BSS cause corruption on MIPS)
 
     // Clamp to valid range
     if (score < 0.0f) score = 0.0f;
