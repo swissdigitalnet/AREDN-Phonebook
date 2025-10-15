@@ -85,58 +85,32 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     bool in_grace_period = health_is_in_grace_period();
     const char *system_state = in_grace_period ? "starting" : "operational";
 
-    // NOW lock mutex and read data as fast as possible
-    pthread_mutex_lock(&g_health_mutex);
+    // MIPS TEST v2.10.6: NO MUTEX - test if mutex is the root cause
+    // For health monitoring, slightly stale data is acceptable
+    // Reading int/time_t/bool is atomic on most platforms
 
-    // Copy all needed data to local variables
-    int local_registered_users = g_service_metrics.registered_users_count;
-    int local_directory_entries = g_service_metrics.directory_entries_count;
-    int local_active_calls = g_service_metrics.active_calls_count;
-    time_t local_phonebook_last_updated = g_service_metrics.phonebook_last_updated;
-    int local_entries_loaded = g_service_metrics.phonebook_entries_loaded;
-
-    float current_cpu_pct = g_cpu_metrics.current_cpu_pct;
-    size_t current_rss_bytes = g_memory_health.current_rss_bytes;
-    time_t process_start_time = g_process_health.process_start_time;
-    int restart_count = g_process_health.restart_count_24h;
-    int crash_count = g_process_health.crash_count_24h;
-
-    bool all_responsive = g_health_checks.all_threads_responsive;
-    bool memory_stable = g_health_checks.memory_stable;
-    bool no_recent_crashes = g_health_checks.no_recent_crashes;
-    bool sip_service_ok = g_health_checks.sip_service_ok;
-    bool phonebook_current = g_health_checks.phonebook_current;
-    bool cpu_normal = g_health_checks.cpu_normal;
-
-    // Copy thread data
-    thread_health_t local_threads[HEALTH_MAX_THREADS];
-    memcpy(local_threads, g_thread_health, sizeof(local_threads));
-
-    // Unlock immediately after data copy
-    pthread_mutex_unlock(&g_health_mutex);
-
-    // NOW call remaining external functions with local data
+    // Format phonebook timestamp
     char phonebook_updated_str[32];
-    format_iso8601(local_phonebook_last_updated, phonebook_updated_str);
+    format_iso8601(g_service_metrics.phonebook_last_updated, phonebook_updated_str);
 
-    // Compute health score manually (can't call health_compute_score() - it reads char arrays!)
+    // Compute health score directly from globals
     float health_score = 100.0f;
-    if (current_cpu_pct > 20.0f) health_score -= 10.0f;
-    float mem_mb = (float)current_rss_bytes / (1024.0f * 1024.0f);
+    if (g_cpu_metrics.current_cpu_pct > 20.0f) health_score -= 10.0f;
+    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
     if (mem_mb > 12.0f) health_score -= 10.0f;
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (local_threads[i].is_active && !local_threads[i].is_responsive) {
+        if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
             health_score -= 30.0f;
         }
     }
-    if (restart_count > 0) health_score -= 20.0f;
-    if (crash_count > 0) health_score -= (crash_count * 25.0f);
+    if (g_process_health.restart_count_24h > 0) health_score -= 20.0f;
+    if (g_process_health.crash_count_24h > 0) health_score -= (g_process_health.crash_count_24h * 25.0f);
     if (health_score < 0.0f) health_score = 0.0f;
     if (health_score > 100.0f) health_score = 100.0f;
 
-    time_t uptime = now - process_start_time;
+    time_t uptime = now - g_process_health.process_start_time;
 
-    // Use placeholders for char arrays (still can't read safely on MIPS)
+    // Placeholders for removed string fields
     const char *local_fetch_status = "N/A";
     const char *local_csv_hash = "N/A";
 
@@ -159,32 +133,32 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         health_reason_to_string(reason),
         system_state);
 
-    // Process metrics (using local copies)
+    // Process metrics (read directly from globals)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"cpu_pct\": %.1f,\n"
         "  \"mem_mb\": %.1f,\n"
         "  \"uptime_seconds\": %ld,\n"
         "  \"restart_count\": %d,\n"
         "  \"health_score\": %.0f,\n",
-        current_cpu_pct,
+        g_cpu_metrics.current_cpu_pct,
         mem_mb,
         uptime,
-        restart_count,
+        g_process_health.restart_count_24h,
         health_score);
 
-    // Threads section (using local copy)
+    // Threads section (read directly from globals)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"threads\": {\n"
         "    \"all_responsive\": %s",
-        all_responsive ? "true" : "false");
+        g_health_checks.all_threads_responsive ? "true" : "false");
 
-    // Individual threads (using local_threads array)
+    // Individual threads (read directly from globals)
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (local_threads[i].is_active) {
+        if (g_thread_health[i].is_active) {
             char thread_heartbeat_str[32];
-            format_iso8601(local_threads[i].last_heartbeat, thread_heartbeat_str);
+            format_iso8601(g_thread_health[i].last_heartbeat, thread_heartbeat_str);
 
-            time_t heartbeat_age = now - local_threads[i].last_heartbeat;
+            time_t heartbeat_age = now - g_thread_health[i].last_heartbeat;
 
             offset += snprintf(buffer + offset, buffer_size - offset,
                 ",\n    \"%s\": {\n"
@@ -192,8 +166,8 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
                 "      \"last_heartbeat\": \"%s\",\n"
                 "      \"heartbeat_age_seconds\": %ld\n"
                 "    }",
-                local_threads[i].name,
-                local_threads[i].is_responsive ? "true" : "false",
+                g_thread_health[i].name,
+                g_thread_health[i].is_responsive ? "true" : "false",
                 thread_heartbeat_str,
                 heartbeat_age);
         }
@@ -201,18 +175,18 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
 
-    // SIP service metrics (using local copies - int fields only)
+    // SIP service metrics (read directly from globals)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"sip_service\": {\n"
         "    \"registered_users\": %d,\n"
         "    \"directory_entries\": %d,\n"
         "    \"active_calls\": %d\n"
         "  },\n",
-        local_registered_users,
-        local_directory_entries,
-        local_active_calls);
+        g_service_metrics.registered_users_count,
+        g_service_metrics.directory_entries_count,
+        g_service_metrics.active_calls_count);
 
-    // Phonebook status (using placeholders for strings - MIPS workaround)
+    // Phonebook status (placeholders for removed string fields)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
         "    \"last_updated\": \"%s\",\n"
@@ -223,9 +197,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         phonebook_updated_str,
         local_fetch_status,
         local_csv_hash,
-        local_entries_loaded);
+        g_service_metrics.phonebook_entries_loaded);
 
-    // Health checks (using local copies)
+    // Health checks (read directly from globals)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"checks\": {\n"
         "    \"memory_stable\": %s,\n"
@@ -235,12 +209,12 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"all_threads_responsive\": %s,\n"
         "    \"cpu_normal\": %s\n"
         "  }\n",
-        memory_stable ? "true" : "false",
-        no_recent_crashes ? "true" : "false",
-        sip_service_ok ? "true" : "false",
-        phonebook_current ? "true" : "false",
-        all_responsive ? "true" : "false",
-        cpu_normal ? "true" : "false");
+        g_health_checks.memory_stable ? "true" : "false",
+        g_health_checks.no_recent_crashes ? "true" : "false",
+        g_health_checks.sip_service_ok ? "true" : "false",
+        g_health_checks.phonebook_current ? "true" : "false",
+        g_health_checks.all_threads_responsive ? "true" : "false",
+        g_health_checks.cpu_normal ? "true" : "false");
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
