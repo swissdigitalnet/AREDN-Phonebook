@@ -48,14 +48,14 @@ bool health_should_report_now(health_report_reason_t *reason_out) {
     extern memory_health_t g_memory_health;
     extern health_checks_t g_health_checks;
 
-    // MIPS FIX v2.10.12: NO MUTEX for reading - reads don't need synchronization!
-    // Root cause: pthread_mutex operations on BSS structures cause corruption on MIPS
-    // Reading int/float/bool/time_t is atomic - slightly stale data is acceptable for monitoring
+    // MIPS FIX v2.10.13: Avoid health_compute_score() - it accesses g_thread_health array!
+    // Root cause: Accessing thread_health array structures causes BSS corruption on MIPS
+    // Use simple placeholder score for event detection
 
     time_t now = time(NULL);
     float current_cpu = g_cpu_metrics.current_cpu_pct;
     float current_mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
-    float current_score = health_compute_score();
+    float current_score = 100.0f; // Placeholder - avoid calling health_compute_score()
     bool all_threads_responsive = g_health_checks.all_threads_responsive;
 
     // Check 1: First report after startup
@@ -119,11 +119,11 @@ static void update_reporter_state(void) {
     extern cpu_metrics_t g_cpu_metrics;
     extern memory_health_t g_memory_health;
 
-    // MIPS FIX v2.10.12: NO MUTEX - reads are atomic, slightly stale data is OK
+    // MIPS FIX v2.10.13: Avoid health_compute_score() - accesses thread_health array
     g_reporter_state.last_cpu_pct = g_cpu_metrics.current_cpu_pct;
     g_reporter_state.last_mem_mb = (float)g_memory_health.current_rss_bytes /
                                     (1024.0f * 1024.0f);
-    g_reporter_state.last_health_score = health_compute_score();
+    g_reporter_state.last_health_score = 100.0f; // Placeholder - avoid thread_health access
     g_reporter_state.last_remote_report = time(NULL);
     g_reporter_state.is_first_report = false;
 }
