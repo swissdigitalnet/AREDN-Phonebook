@@ -99,6 +99,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     size_t current_rss_bytes = g_memory_health.current_rss_bytes;
     time_t process_start_time = g_process_health.process_start_time;
     int restart_count = g_process_health.restart_count_24h;
+    int crash_count = g_process_health.crash_count_24h;
 
     bool all_responsive = g_health_checks.all_threads_responsive;
     bool memory_stable = g_health_checks.memory_stable;
@@ -118,8 +119,21 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     char phonebook_updated_str[32];
     format_iso8601(local_phonebook_last_updated, phonebook_updated_str);
 
-    float health_score = health_compute_score();
+    // Compute health score manually (can't call health_compute_score() - it reads char arrays!)
+    float health_score = 100.0f;
+    if (current_cpu_pct > 20.0f) health_score -= 10.0f;
     float mem_mb = (float)current_rss_bytes / (1024.0f * 1024.0f);
+    if (mem_mb > 12.0f) health_score -= 10.0f;
+    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
+        if (local_threads[i].is_active && !local_threads[i].is_responsive) {
+            health_score -= 30.0f;
+        }
+    }
+    if (restart_count > 0) health_score -= 20.0f;
+    if (crash_count > 0) health_score -= (crash_count * 25.0f);
+    if (health_score < 0.0f) health_score = 0.0f;
+    if (health_score > 100.0f) health_score = 100.0f;
+
     time_t uptime = now - process_start_time;
 
     // Use placeholders for char arrays (still can't read safely on MIPS)
