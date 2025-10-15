@@ -196,27 +196,28 @@ void* health_reporter_thread(void *arg) {
         }
 
         // Update service metrics (from global state)
-        extern service_metrics_t g_service_metrics;
-        extern int num_registered_users;
-        extern int num_directory_entries;
-        extern CallSession call_sessions[MAX_CALL_SESSIONS];
-        extern pthread_mutex_t g_health_mutex;
+        // MIPS DEBUG: Disable g_service_metrics writes to isolate BSS corruption
+        // extern service_metrics_t g_service_metrics;
+        // extern int num_registered_users;
+        // extern int num_directory_entries;
+        // extern CallSession call_sessions[MAX_CALL_SESSIONS];
+        // extern pthread_mutex_t g_health_mutex;
 
-        pthread_mutex_lock(&g_health_mutex);
+        // pthread_mutex_lock(&g_health_mutex);
 
-        g_service_metrics.registered_users_count = num_registered_users;
-        g_service_metrics.directory_entries_count = num_directory_entries;
+        // g_service_metrics.registered_users_count = num_registered_users;
+        // g_service_metrics.directory_entries_count = num_directory_entries;
 
         // Count active calls
-        int active_calls = 0;
-        for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
-            if (call_sessions[i].in_use) {
-                active_calls++;
-            }
-        }
-        g_service_metrics.active_calls_count = active_calls;
+        // int active_calls = 0;
+        // for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
+        //     if (call_sessions[i].in_use) {
+        //         active_calls++;
+        //     }
+        // }
+        // g_service_metrics.active_calls_count = active_calls;
 
-        pthread_mutex_unlock(&g_health_mutex);
+        // pthread_mutex_unlock(&g_health_mutex);
 
         // DEBUG: Marker before local file write
         debug_fp = fopen("/tmp/health_loop_before_write.flag", "w");
