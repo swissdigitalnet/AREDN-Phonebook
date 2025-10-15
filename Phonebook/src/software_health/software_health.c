@@ -37,6 +37,10 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 // ============================================================================
 
 int software_health_init(void) {
+    // MIPS DEBUG v2.10.5: Complete disable to isolate base app
+    LOG_INFO("Health monitoring DISABLED on MIPS (debug mode)");
+    return 0;
+
     if (g_health_initialized) {
         LOG_WARN("Health monitoring already initialized");
         return 0;
