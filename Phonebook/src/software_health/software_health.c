@@ -307,9 +307,23 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    // MIPS DEBUG v2.9.9: Stub out formatter entirely to confirm baseline stability
-    // Known: v2.9.4 with this stub was STABLE
-    const char *minimal_json = "{\"status\":\"stub\",\"version\":\"2.9.9\"}\n";
+    // MIPS DEBUG v2.10.0: Minimal formatter WITHOUT external function calls
+    // Test hypothesis: external functions while holding mutex cause corruption
+    // This version uses ONLY snprintf with local variables - NO external calls
+
+    char json_buffer[256];
+    pthread_mutex_lock(&g_health_mutex);
+
+    // Read ONLY simple int fields - NO char arrays, NO external functions
+    int users = g_service_metrics.registered_users_count;
+    int entries = g_service_metrics.directory_entries_count;
+
+    pthread_mutex_unlock(&g_health_mutex);
+
+    // Build minimal JSON using ONLY snprintf - NO external functions
+    snprintf(json_buffer, sizeof(json_buffer),
+        "{\"version\":\"2.10.0\",\"users\":%d,\"entries\":%d}\n",
+        users, entries);
 
     FILE *fp = fopen(HEALTH_STATUS_JSON_PATH, "w");
     if (!fp) {
@@ -317,15 +331,10 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    size_t written = fwrite(minimal_json, 1, strlen(minimal_json), fp);
+    size_t written = fwrite(json_buffer, 1, strlen(json_buffer), fp);
     fclose(fp);
 
-    if (written != strlen(minimal_json)) {
-        LOG_ERROR("Failed to write complete health status file");
-        return -1;
-    }
-
-    LOG_DEBUG("Wrote health status stub to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
+    LOG_DEBUG("Wrote minimal JSON to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
     return 0;
 }
 
