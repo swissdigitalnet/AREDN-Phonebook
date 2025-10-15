@@ -70,46 +70,64 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     extern health_checks_t g_health_checks;
     extern pthread_mutex_t g_health_mutex;
 
+    // MIPS FIX v2.10.1: Call ALL external functions BEFORE locking mutex
+    // Root Cause: External function calls while holding g_health_mutex cause BSS corruption on MIPS
+    // Solution: Prepare all external data first, then lock only for quick reads
+
+    // Call external functions BEFORE mutex lock
+    extern const char* health_get_node_name(void);
+    const char *node_name = health_get_node_name();
+
+    time_t now = time(NULL);
+    char timestamp_str[32];
+    format_iso8601(now, timestamp_str);
+
+    bool in_grace_period = health_is_in_grace_period();
+    const char *system_state = in_grace_period ? "starting" : "operational";
+
+    // NOW lock mutex and read data as fast as possible
     pthread_mutex_lock(&g_health_mutex);
 
-    // MIPS FIX v3: DO NOT access char arrays in g_service_metrics AT ALL
-    // CRITICAL: ANY access (struct assignment, char-by-char, strncpy) causes SIGSEGV
-    // Root cause: BSS section corruption triggered by char array reads
-    // Solution: Read only int/time_t fields, use placeholders for strings
-
+    // Copy all needed data to local variables
     int local_registered_users = g_service_metrics.registered_users_count;
     int local_directory_entries = g_service_metrics.directory_entries_count;
     int local_active_calls = g_service_metrics.active_calls_count;
     time_t local_phonebook_last_updated = g_service_metrics.phonebook_last_updated;
     int local_entries_loaded = g_service_metrics.phonebook_entries_loaded;
 
-    // DO NOT READ: g_service_metrics.phonebook_fetch_status (causes crash)
-    // DO NOT READ: g_service_metrics.phonebook_csv_hash (causes crash)
-    const char *local_fetch_status = "N/A";  // Placeholder
-    const char *local_csv_hash = "N/A";       // Placeholder
+    float current_cpu_pct = g_cpu_metrics.current_cpu_pct;
+    size_t current_rss_bytes = g_memory_health.current_rss_bytes;
+    time_t process_start_time = g_process_health.process_start_time;
+    int restart_count = g_process_health.restart_count_24h;
 
-    // Get node name
-    extern const char* health_get_node_name(void);
-    const char *node_name = health_get_node_name();
+    bool all_responsive = g_health_checks.all_threads_responsive;
+    bool memory_stable = g_health_checks.memory_stable;
+    bool no_recent_crashes = g_health_checks.no_recent_crashes;
+    bool sip_service_ok = g_health_checks.sip_service_ok;
+    bool phonebook_current = g_health_checks.phonebook_current;
+    bool cpu_normal = g_health_checks.cpu_normal;
 
-    // Calculate metrics
-    float health_score = health_compute_score();
-    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
-    time_t uptime = time(NULL) - g_process_health.process_start_time;
-    time_t now = time(NULL);
+    // Copy thread data
+    thread_health_t local_threads[HEALTH_MAX_THREADS];
+    memcpy(local_threads, g_thread_health, sizeof(local_threads));
 
-    // Format timestamps
-    char timestamp_str[32];
+    // Unlock immediately after data copy
+    pthread_mutex_unlock(&g_health_mutex);
+
+    // NOW call remaining external functions with local data
     char phonebook_updated_str[32];
-    format_iso8601(now, timestamp_str);
     format_iso8601(local_phonebook_last_updated, phonebook_updated_str);
 
-    // Start building JSON
-    size_t offset = 0;
+    float health_score = health_compute_score();
+    float mem_mb = (float)current_rss_bytes / (1024.0f * 1024.0f);
+    time_t uptime = now - process_start_time;
 
-    // Check if in grace period
-    bool in_grace_period = health_is_in_grace_period();
-    const char *system_state = in_grace_period ? "starting" : "operational";
+    // Use placeholders for char arrays (still can't read safely on MIPS)
+    const char *local_fetch_status = "N/A";
+    const char *local_csv_hash = "N/A";
+
+    // Start building JSON (all using local variables now)
+    size_t offset = 0;
 
     // Header
     offset += snprintf(buffer + offset, buffer_size - offset,
@@ -127,32 +145,32 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         health_reason_to_string(reason),
         system_state);
 
-    // Process metrics
+    // Process metrics (using local copies)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"cpu_pct\": %.1f,\n"
         "  \"mem_mb\": %.1f,\n"
         "  \"uptime_seconds\": %ld,\n"
         "  \"restart_count\": %d,\n"
         "  \"health_score\": %.0f,\n",
-        g_cpu_metrics.current_cpu_pct,
+        current_cpu_pct,
         mem_mb,
         uptime,
-        g_process_health.restart_count_24h,
+        restart_count,
         health_score);
 
-    // Threads section
+    // Threads section (using local copy)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"threads\": {\n"
         "    \"all_responsive\": %s",
-        g_health_checks.all_threads_responsive ? "true" : "false");
+        all_responsive ? "true" : "false");
 
-    // Individual threads
+    // Individual threads (using local_threads array)
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (g_thread_health[i].is_active) {
+        if (local_threads[i].is_active) {
             char thread_heartbeat_str[32];
-            format_iso8601(g_thread_health[i].last_heartbeat, thread_heartbeat_str);
+            format_iso8601(local_threads[i].last_heartbeat, thread_heartbeat_str);
 
-            time_t heartbeat_age = now - g_thread_health[i].last_heartbeat;
+            time_t heartbeat_age = now - local_threads[i].last_heartbeat;
 
             offset += snprintf(buffer + offset, buffer_size - offset,
                 ",\n    \"%s\": {\n"
@@ -160,8 +178,8 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
                 "      \"last_heartbeat\": \"%s\",\n"
                 "      \"heartbeat_age_seconds\": %ld\n"
                 "    }",
-                g_thread_health[i].name,
-                g_thread_health[i].is_responsive ? "true" : "false",
+                local_threads[i].name,
+                local_threads[i].is_responsive ? "true" : "false",
                 thread_heartbeat_str,
                 heartbeat_age);
         }
@@ -193,7 +211,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         local_csv_hash,
         local_entries_loaded);
 
-    // Health checks
+    // Health checks (using local copies)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"checks\": {\n"
         "    \"memory_stable\": %s,\n"
@@ -203,17 +221,17 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"all_threads_responsive\": %s,\n"
         "    \"cpu_normal\": %s\n"
         "  }\n",
-        g_health_checks.memory_stable ? "true" : "false",
-        g_health_checks.no_recent_crashes ? "true" : "false",
-        g_health_checks.sip_service_ok ? "true" : "false",
-        g_health_checks.phonebook_current ? "true" : "false",
-        g_health_checks.all_threads_responsive ? "true" : "false",
-        g_health_checks.cpu_normal ? "true" : "false");
+        memory_stable ? "true" : "false",
+        no_recent_crashes ? "true" : "false",
+        sip_service_ok ? "true" : "false",
+        phonebook_current ? "true" : "false",
+        all_responsive ? "true" : "false",
+        cpu_normal ? "true" : "false");
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
 
-    pthread_mutex_unlock(&g_health_mutex);
+    // Mutex already unlocked above - no access to globals here
 
     if (offset >= buffer_size - 1) {
         LOG_ERROR("Health JSON buffer overflow (needed %zu, have %zu)", offset, buffer_size);
