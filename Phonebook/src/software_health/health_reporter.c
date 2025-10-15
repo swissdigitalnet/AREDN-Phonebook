@@ -178,7 +178,9 @@ void* health_reporter_thread(void *arg) {
         }
 
         // Update heartbeat
-        health_update_heartbeat(thread_index);
+        // MIPS FIX v2.10.14: DISABLE heartbeat - writing to g_thread_health array causes BSS corruption!
+        // Root cause: ANY access (read OR write) to g_thread_health array corrupts BSS on MIPS
+        // health_update_heartbeat(thread_index);
 
         // Update all health metrics
         // MIPS FIX v2.10.11: DISABLE health_update_metrics() - it accesses ALL BSS structures
