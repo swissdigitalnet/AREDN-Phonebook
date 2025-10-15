@@ -51,11 +51,15 @@ int software_health_init(void) {
     g_process_health.process_start_time = time(NULL);
     g_process_health.last_restart_time = time(NULL);
 
-    // Initialize thread health slots
-    memset(g_thread_health, 0, sizeof(thread_health_t) * HEALTH_MAX_THREADS);
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        g_thread_health[i].is_active = false;
-    }
+    // MIPS FIX v2.10.16: DO NOT initialize g_thread_health array - ANY access corrupts BSS!
+    // Root cause: memset() and field writes to array elements cause BSS corruption on MIPS ath79
+    // Even simple initialization like memset() or g_thread_health[i].is_active = false triggers crashes
+    // Solution: Leave array uninitialized - it's in BSS so zero-filled by loader anyway
+    // Thread registration (health_register_thread) is already disabled in v2.10.15
+    // memset(g_thread_health, 0, sizeof(thread_health_t) * HEALTH_MAX_THREADS);
+    // for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
+    //     g_thread_health[i].is_active = false;
+    // }
 
     // Initialize memory health
     memset(&g_memory_health, 0, sizeof(memory_health_t));
