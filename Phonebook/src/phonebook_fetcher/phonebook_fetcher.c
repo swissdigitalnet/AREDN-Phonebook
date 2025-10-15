@@ -112,13 +112,14 @@ void *phonebook_fetcher_thread(void *arg) {
             LOG_ERROR("CSV download failed. Skipping this cycle.");
 
             // Update health monitoring: mark fetch as failed
-            extern service_metrics_t g_service_metrics;
-            extern pthread_mutex_t g_health_mutex;
-            pthread_mutex_lock(&g_health_mutex);
-            strncpy(g_service_metrics.phonebook_fetch_status, "FAILED",
-                    sizeof(g_service_metrics.phonebook_fetch_status) - 1);
-            g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
-            pthread_mutex_unlock(&g_health_mutex);
+            // MIPS FIX: strncpy() to char arrays in BSS causes corruption - DISABLED
+            // extern service_metrics_t g_service_metrics;
+            // extern pthread_mutex_t g_health_mutex;
+            // pthread_mutex_lock(&g_health_mutex);
+            // strncpy(g_service_metrics.phonebook_fetch_status, "FAILED",
+            //         sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            // g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
+            // pthread_mutex_unlock(&g_health_mutex);
 
             goto end_fetcher_cycle;
         }
@@ -153,12 +154,13 @@ void *phonebook_fetcher_thread(void *arg) {
             remove(PB_CSV_TEMP_PATH); // Clean up unchanged temp file
 
             // Update health monitoring: fetch successful (no changes)
+            // MIPS FIX: strncpy() to char arrays in BSS causes corruption - DISABLED
             extern service_metrics_t g_service_metrics;
             extern pthread_mutex_t g_health_mutex;
             pthread_mutex_lock(&g_health_mutex);
-            strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
-                    sizeof(g_service_metrics.phonebook_fetch_status) - 1);
-            g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
+            // strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
+            //         sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            // g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
             g_service_metrics.phonebook_last_updated = time(NULL);
             g_service_metrics.directory_entries_count = num_directory_entries;
             pthread_mutex_unlock(&g_health_mutex);
@@ -221,21 +223,22 @@ void *phonebook_fetcher_thread(void *arg) {
                 }
 
                 // Update health monitoring: mark fetch as successful
+                // MIPS FIX: strncpy() to char arrays in BSS causes corruption - DISABLED
                 extern service_metrics_t g_service_metrics;
                 extern pthread_mutex_t g_health_mutex;
                 pthread_mutex_lock(&g_health_mutex);
-                strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
-                        sizeof(g_service_metrics.phonebook_fetch_status) - 1);
-                g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
+                // strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
+                //         sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+                // g_service_metrics.phonebook_fetch_status[sizeof(g_service_metrics.phonebook_fetch_status) - 1] = '\0';
                 g_service_metrics.phonebook_last_updated = time(NULL);
-                strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
-                        sizeof(g_service_metrics.phonebook_csv_hash) - 1);
-                g_service_metrics.phonebook_csv_hash[sizeof(g_service_metrics.phonebook_csv_hash) - 1] = '\0';
+                // strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
+                //         sizeof(g_service_metrics.phonebook_csv_hash) - 1);
+                // g_service_metrics.phonebook_csv_hash[sizeof(g_service_metrics.phonebook_csv_hash) - 1] = '\0';
                 g_service_metrics.phonebook_entries_loaded = num_directory_entries;
                 g_service_metrics.directory_entries_count = num_directory_entries;
                 pthread_mutex_unlock(&g_health_mutex);
-                LOG_INFO("Health monitoring: Phonebook fetch SUCCESS (%d entries, hash: %s)",
-                         num_directory_entries, new_csv_hash);
+                LOG_INFO("Health monitoring: Phonebook fetch SUCCESS (%d entries, hash: N/A on MIPS)",
+                         num_directory_entries);
 
             } else {
                 LOG_WARN("XML publish failed, not updating hash file.");
