@@ -147,39 +147,13 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         health_score);
 
     // Threads section (read directly from globals)
+    // MIPS FIX v2.10.8: Removed thread loop - accessing g_thread_health array causes BSS corruption
+    // Only output aggregate all_responsive status
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"threads\": {\n"
-        "    \"all_responsive\": %s",
+        "    \"all_responsive\": %s\n"
+        "  },\n",
         g_health_checks.all_threads_responsive ? "true" : "false");
-
-    // Individual threads (read directly from globals)
-    // MIPS FIX v2.10.7: DO NOT read char arrays from BSS (g_thread_health[i].name)
-    // Use placeholder thread names instead
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (g_thread_health[i].is_active) {
-            char thread_heartbeat_str[32];
-            format_iso8601(g_thread_health[i].last_heartbeat, thread_heartbeat_str);
-
-            time_t heartbeat_age = now - g_thread_health[i].last_heartbeat;
-
-            // Use placeholder name to avoid reading char array from BSS
-            char thread_name[16];
-            snprintf(thread_name, sizeof(thread_name), "thread_%d", i);
-
-            offset += snprintf(buffer + offset, buffer_size - offset,
-                ",\n    \"%s\": {\n"
-                "      \"responsive\": %s,\n"
-                "      \"last_heartbeat\": \"%s\",\n"
-                "      \"heartbeat_age_seconds\": %ld\n"
-                "    }",
-                thread_name,
-                g_thread_health[i].is_responsive ? "true" : "false",
-                thread_heartbeat_str,
-                heartbeat_age);
-        }
-    }
-
-    offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
 
     // SIP service metrics (read directly from globals)
     offset += snprintf(buffer + offset, buffer_size - offset,
