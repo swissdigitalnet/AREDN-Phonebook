@@ -64,9 +64,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
     extern service_metrics_t g_service_metrics;
 
-    // MIPS FIX v2.10.9: ONLY read from g_service_metrics - DO NOT access other structures
-    // Hypothesis: Accessing multiple BSS structures causes corruption on MIPS
-    // This matches v2.10.0 which was STABLE
+    // MIPS FIX v2.10.10: EXACTLY like v2.10.0 - ONLY 2 int fields
+    // NO time_t reads from BSS, NO format_iso8601() on BSS data
+    // Test if format_iso8601(BSS time_t) is the problem
 
     extern const char* health_get_node_name(void);
     const char *node_name = health_get_node_name();
@@ -75,11 +75,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     char timestamp_str[32];
     format_iso8601(now, timestamp_str);
 
-    // Format phonebook timestamp (time_t from g_service_metrics is OK)
-    char phonebook_updated_str[32];
-    format_iso8601(g_service_metrics.phonebook_last_updated, phonebook_updated_str);
-
-    // Start building JSON - ONLY using g_service_metrics data
+    // Start building JSON - ONLY 2 int fields from g_service_metrics
     size_t offset = 0;
 
     // Header
@@ -96,25 +92,12 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         timestamp_str,
         health_reason_to_string(reason));
 
-    // SIP service metrics (ONLY from g_service_metrics)
+    // SIP service metrics - ONLY 2 int fields (exactly like v2.10.0)
     offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"sip_service\": {\n"
-        "    \"registered_users\": %d,\n"
-        "    \"directory_entries\": %d,\n"
-        "    \"active_calls\": %d\n"
-        "  },\n",
+        "  \"registered_users\": %d,\n"
+        "  \"directory_entries\": %d\n",
         g_service_metrics.registered_users_count,
-        g_service_metrics.directory_entries_count,
-        g_service_metrics.active_calls_count);
-
-    // Phonebook status (ONLY from g_service_metrics)
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"phonebook\": {\n"
-        "    \"last_updated\": \"%s\",\n"
-        "    \"entries_loaded\": %d\n"
-        "  }\n",
-        phonebook_updated_str,
-        g_service_metrics.phonebook_entries_loaded);
+        g_service_metrics.directory_entries_count);
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
