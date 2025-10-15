@@ -157,10 +157,11 @@ void health_crash_signal_handler(int sig) {
     // Populate crash context
     memset(&g_crash_context, 0, sizeof(crash_context_t));
     g_crash_context.signal_number = sig;
-    strncpy(g_crash_context.signal_name, signal_to_name(sig),
-            sizeof(g_crash_context.signal_name) - 1);
-    strncpy(g_crash_context.description, signal_to_description(sig),
-            sizeof(g_crash_context.description) - 1);
+    // MIPS FIX v2.10.18: DO NOT write to char arrays in BSS - causes corruption!
+    // strncpy(g_crash_context.signal_name, signal_to_name(sig),
+    //         sizeof(g_crash_context.signal_name) - 1);
+    // strncpy(g_crash_context.description, signal_to_description(sig),
+    //         sizeof(g_crash_context.description) - 1);
     g_crash_context.crash_time = time(NULL);
 
     // Capture backtrace

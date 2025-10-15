@@ -34,7 +34,8 @@ pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
 static bool g_health_initialized = false;
-static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
+// MIPS FIX v2.10.18: g_node_name char array removed - char arrays in BSS cause corruption
+// static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 
 // ============================================================================
 // INITIALIZATION AND SHUTDOWN
@@ -90,18 +91,19 @@ int software_health_init(void) {
     g_health_checks.no_recent_crashes = true;
     g_health_checks.all_threads_responsive = true;
 
+    // MIPS FIX v2.10.18: g_node_name char array removed - don't store hostname
     // Get node name from hostname
-    char hostname[HEALTH_MAX_NODE_NAME_LEN];
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
-        strncpy(g_node_name, hostname, sizeof(g_node_name) - 1);
-        g_node_name[sizeof(g_node_name) - 1] = '\0';
-    }
+    // char hostname[HEALTH_MAX_NODE_NAME_LEN];
+    // if (gethostname(hostname, sizeof(hostname)) == 0) {
+    //     strncpy(g_node_name, hostname, sizeof(g_node_name) - 1);
+    //     g_node_name[sizeof(g_node_name) - 1] = '\0';
+    // }
 
     g_health_initialized = true;
 
     pthread_mutex_unlock(&g_health_mutex);
 
-    LOG_INFO("Software health monitoring initialized (node: %s)", g_node_name);
+    LOG_INFO("Software health monitoring initialized");
 
     // Check for previous crash
     if (health_load_crash_state()) {
@@ -335,8 +337,9 @@ void health_record_crash(int signal, const char *reason) {
 
     g_process_health.last_crash_time = time(NULL);
     g_process_health.crash_count_24h++;
-    strncpy(g_process_health.last_crash_reason, reason,
-            sizeof(g_process_health.last_crash_reason) - 1);
+    // MIPS FIX v2.10.18: last_crash_reason char array removed from struct
+    // strncpy(g_process_health.last_crash_reason, reason,
+    //         sizeof(g_process_health.last_crash_reason) - 1);
 
     pthread_mutex_unlock(&g_health_mutex);
 
@@ -389,7 +392,9 @@ const char* health_reason_to_string(health_report_reason_t reason) {
 // ============================================================================
 
 const char* health_get_node_name(void) {
-    return g_node_name;
+    // MIPS FIX v2.10.18: g_node_name removed - return static string
+    // Cannot store hostname in BSS (char array corruption)
+    return "unknown";
 }
 
 time_t health_get_uptime_seconds(void) {

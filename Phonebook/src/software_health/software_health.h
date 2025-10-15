@@ -38,13 +38,15 @@
 
 /**
  * Process Health - Overall process metrics
+ * MIPS FIX v2.10.18: Removed char array - ANY char array in BSS causes corruption
  */
 typedef struct __attribute__((aligned(8))) {
     time_t process_start_time;      // When process started
     time_t last_restart_time;        // Last restart timestamp
     int restart_count_24h;           // Restarts in last 24 hours
     int crash_count_24h;             // Crashes in last 24 hours
-    char last_crash_reason[HEALTH_MAX_CRASH_REASON_LEN];
+    // MIPS FIX v2.10.18: char last_crash_reason[256] REMOVED - char arrays in BSS corrupt MIPS!
+    // Root cause: strncpy() to this 256-byte array causes BSS corruption
     time_t last_crash_time;
 } process_health_t;
 
