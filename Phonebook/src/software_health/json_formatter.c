@@ -73,18 +73,32 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     pthread_mutex_lock(&g_health_mutex);
 
     // MIPS FIX: Copy g_service_metrics to local variables immediately
-    // to avoid multiple scattered reads from the global structure
+    // CRITICAL: Manual char-by-char copy - strncpy() causes BSS corruption on MIPS
     int local_registered_users = g_service_metrics.registered_users_count;
     int local_directory_entries = g_service_metrics.directory_entries_count;
     int local_active_calls = g_service_metrics.active_calls_count;
     time_t local_phonebook_last_updated = g_service_metrics.phonebook_last_updated;
-    char local_fetch_status[32];
-    char local_csv_hash[64];
     int local_entries_loaded = g_service_metrics.phonebook_entries_loaded;
-    strncpy(local_fetch_status, g_service_metrics.phonebook_fetch_status, sizeof(local_fetch_status) - 1);
-    local_fetch_status[sizeof(local_fetch_status) - 1] = '\0';
-    strncpy(local_csv_hash, g_service_metrics.phonebook_csv_hash, sizeof(local_csv_hash) - 1);
-    local_csv_hash[sizeof(local_csv_hash) - 1] = '\0';
+
+    // Manual copy for phonebook_fetch_status (avoid strncpy)
+    char local_fetch_status[32];
+    size_t i;
+    for (i = 0; i < sizeof(local_fetch_status) - 1 && i < sizeof(g_service_metrics.phonebook_fetch_status); i++) {
+        char c = g_service_metrics.phonebook_fetch_status[i];
+        local_fetch_status[i] = c;
+        if (c == '\0') break;
+    }
+    local_fetch_status[i] = '\0';
+
+    // Manual copy for phonebook_csv_hash (avoid strncpy)
+    char local_csv_hash[64];
+    size_t j;
+    for (j = 0; j < sizeof(local_csv_hash) - 1 && j < sizeof(g_service_metrics.phonebook_csv_hash); j++) {
+        char c = g_service_metrics.phonebook_csv_hash[j];
+        local_csv_hash[j] = c;
+        if (c == '\0') break;
+    }
+    local_csv_hash[j] = '\0';
 
     // Get node name
     extern const char* health_get_node_name(void);
