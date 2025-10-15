@@ -307,12 +307,9 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    char json_buffer[8192];
-    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
-    if (result != 0) {
-        LOG_ERROR("Failed to format health JSON");
-        return -1;
-    }
+    // MIPS DEBUG v2.9.9: Stub out formatter entirely to confirm baseline stability
+    // Known: v2.9.4 with this stub was STABLE
+    const char *minimal_json = "{\"status\":\"stub\",\"version\":\"2.9.9\"}\n";
 
     FILE *fp = fopen(HEALTH_STATUS_JSON_PATH, "w");
     if (!fp) {
@@ -320,15 +317,15 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    size_t written = fwrite(json_buffer, 1, strlen(json_buffer), fp);
+    size_t written = fwrite(minimal_json, 1, strlen(minimal_json), fp);
     fclose(fp);
 
-    if (written != strlen(json_buffer)) {
+    if (written != strlen(minimal_json)) {
         LOG_ERROR("Failed to write complete health status file");
         return -1;
     }
 
-    LOG_DEBUG("Wrote health status to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
+    LOG_DEBUG("Wrote health status stub to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
     return 0;
 }
 
