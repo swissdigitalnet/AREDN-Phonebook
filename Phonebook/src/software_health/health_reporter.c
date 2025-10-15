@@ -186,7 +186,9 @@ void* health_reporter_thread(void *arg) {
         health_update_heartbeat(thread_index);
 
         // Update all health metrics
-        health_update_metrics();
+        // MIPS FIX v2.10.11: DISABLE health_update_metrics() - it accesses ALL BSS structures
+        // This is the root cause of corruption, not the JSON formatter!
+        // health_update_metrics();
 
         // DEBUG: Marker after metrics update
         debug_fp = fopen("/tmp/health_loop_metrics.flag", "w");
