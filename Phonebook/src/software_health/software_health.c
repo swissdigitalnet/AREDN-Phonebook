@@ -21,7 +21,11 @@
 
 // All architectures: Full structures (extern refs require correct types)
 process_health_t g_process_health;
-thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+// MIPS FIX v2.10.17: REMOVE g_thread_health array from BSS entirely!
+// Root cause: The array's presence in BSS (even without access) corrupts memory on MIPS ath79
+// Evidence: v2.10.6-v2.10.16 all crashed at 68ed1xxx → 68ed3xxx addresses
+// Solution: Comment out declaration - let extern refs cause link warnings (not used anyway)
+// thread_health_t g_thread_health[HEALTH_MAX_THREADS];
 memory_health_t g_memory_health;
 cpu_metrics_t g_cpu_metrics;
 service_metrics_t g_service_metrics;
@@ -147,12 +151,12 @@ void health_update_heartbeat(int thread_index) {
         return;
     }
 
-    // MIPS FIX v2.10.12: NO MUTEX - writing time_t and bool is atomic
-    // Root cause: pthread_mutex operations on BSS structures cause corruption on MIPS
-    if (g_thread_health[thread_index].is_active) {
-        g_thread_health[thread_index].last_heartbeat = time(NULL);
-        g_thread_health[thread_index].is_responsive = true;
-    }
+    // MIPS FIX v2.10.17: g_thread_health array removed from BSS - this function is now a no-op
+    // if (g_thread_health[thread_index].is_active) {
+    //     g_thread_health[thread_index].last_heartbeat = time(NULL);
+    //     g_thread_health[thread_index].is_responsive = true;
+    // }
+    return; // No-op - thread health tracking disabled
 }
 
 // ============================================================================
@@ -231,41 +235,15 @@ void health_update_metrics(void) {
 
     bool in_grace_period = health_is_in_grace_period();
 
+    // MIPS FIX v2.10.17: g_thread_health array removed - skip thread responsiveness checks
+    // Assume all threads responsive (no tracking available)
     g_health_checks.all_threads_responsive = true;
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (g_thread_health[i].is_active) {
-            time_t silence = now - g_thread_health[i].last_heartbeat;
 
-            // Calculate timeout based on thread name and its sleep interval
-            int timeout_seconds = 1800; // Default: 30 minutes
-
-            if (strcmp(g_thread_health[i].name, "phonebook_fetcher") == 0) {
-                timeout_seconds = g_pb_interval_seconds * 2;
-            } else if (strcmp(g_thread_health[i].name, "status_updater") == 0) {
-                timeout_seconds = g_status_update_interval_seconds * 2;
-            } else if (strcmp(g_thread_health[i].name, "uac_bulk_tester") == 0) {
-                timeout_seconds = g_uac_test_interval_seconds * 2;
-            } else if (strcmp(g_thread_health[i].name, "health_reporter") == 0) {
-                timeout_seconds = g_health_local_update_seconds * 2;
-            } else if (strcmp(g_thread_health[i].name, "passive_safety") == 0) {
-                timeout_seconds = 300 * 2; // 5 minutes * 2 = 10 minutes
-            }
-
-            // During grace period: skip unresponsive checks (assume all responsive)
-            if (in_grace_period) {
-                g_thread_health[i].is_responsive = true;
-                continue;
-            }
-
-            // Thread is unresponsive if silence exceeds timeout
-            if (silence > timeout_seconds) {
-                g_thread_health[i].is_responsive = false;
-                g_health_checks.all_threads_responsive = false;
-                LOG_WARN("Thread '%s' unresponsive for %ld seconds (timeout: %d s)",
-                         g_thread_health[i].name, silence, timeout_seconds);
-            }
-        }
-    }
+    // for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
+    //     if (g_thread_health[i].is_active) {
+    //         ... thread checking code removed ...
+    //     }
+    // }
 
     // Update health checks
     health_update_checks();

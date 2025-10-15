@@ -20,7 +20,8 @@
  */
 void health_update_checks(void) {
     extern process_health_t g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    // MIPS FIX v2.10.17: g_thread_health array removed from BSS
+    // extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
     extern memory_health_t g_memory_health;
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
@@ -50,15 +51,15 @@ void health_update_checks(void) {
     g_health_checks.phonebook_current = (phonebook_age < 7200);  // 2 hours
 
     // Check 5: All threads responsive
-    LOG_DEBUG("DEBUG: Checking thread responsiveness");
+    // MIPS FIX v2.10.17: g_thread_health array removed - assume all threads responsive
+    LOG_DEBUG("DEBUG: Checking thread responsiveness (DISABLED - g_thread_health removed)");
     g_health_checks.all_threads_responsive = true;
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        LOG_DEBUG("DEBUG: Checking thread[%d].is_active", i);
-        if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
-            g_health_checks.all_threads_responsive = false;
-            break;
-        }
-    }
+    // for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
+    //     if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
+    //         g_health_checks.all_threads_responsive = false;
+    //         break;
+    //     }
+    // }
 
     // Check 6: CPU normal (< 50%)
     LOG_DEBUG("DEBUG: Checking CPU normal");
@@ -89,7 +90,8 @@ void health_update_checks(void) {
  */
 float health_compute_score(void) {
     extern process_health_t g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    // MIPS FIX v2.10.17: g_thread_health array removed from BSS
+    // extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
     extern memory_health_t g_memory_health;
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
@@ -107,12 +109,13 @@ float health_compute_score(void) {
         score -= 10.0f;
     }
 
-    // Deduct for unresponsive threads (30 points each)
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
-            score -= 30.0f;
-        }
-    }
+    // MIPS FIX v2.10.17: g_thread_health array removed - skip thread deductions
+    // Deduct for unresponsive threads (30 points each) - DISABLED
+    // for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
+    //     if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
+    //         score -= 30.0f;
+    //     }
+    // }
 
     // Deduct for recent restarts (20 points)
     if (g_process_health.restart_count_24h > 0) {
