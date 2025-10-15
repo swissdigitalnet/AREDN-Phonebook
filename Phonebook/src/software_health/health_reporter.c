@@ -225,14 +225,13 @@ void* health_reporter_thread(void *arg) {
             fclose(debug_fp);
         }
 
-        // DISABLED for incremental testing - skip JSON file write
-        // Testing if g_service_metrics WRITES (above) are safe
-        // if (g_health_local_reporting) {
-        //     health_report_reason_t local_reason = REASON_SCHEDULED;
-        //     if (health_write_status_file(local_reason) != 0) {
-        //         LOG_ERROR("Failed to write health status file");
-        //     }
-        // }
+        // Always write to local file (for AREDNmon dashboard)
+        if (g_health_local_reporting) {
+            health_report_reason_t local_reason = REASON_SCHEDULED;
+            if (health_write_status_file(local_reason) != 0) {
+                LOG_ERROR("Failed to write health status file");
+            }
+        }
 
         // Check if remote reporting is needed (event-driven)
         if (g_collector_enabled) {
