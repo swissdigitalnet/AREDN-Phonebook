@@ -177,10 +177,8 @@ void health_log_summary(void) {
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
     extern health_checks_t g_health_checks;
-    extern pthread_mutex_t g_health_mutex;
 
-    pthread_mutex_lock(&g_health_mutex);
-
+    // MIPS FIX v2.10.12: NO MUTEX - reads are atomic, logging doesn't need perfect consistency
     float score = health_compute_score();
     float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
     time_t uptime = time(NULL) - g_process_health.process_start_time;
@@ -200,6 +198,4 @@ void health_log_summary(void) {
              g_service_metrics.registered_users_count,
              g_service_metrics.directory_entries_count,
              g_service_metrics.active_calls_count);
-
-    pthread_mutex_unlock(&g_health_mutex);
 }

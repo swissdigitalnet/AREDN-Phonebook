@@ -170,14 +170,12 @@ void health_update_heartbeat(int thread_index) {
         return;
     }
 
-    pthread_mutex_lock(&g_health_mutex);
-
+    // MIPS FIX v2.10.12: NO MUTEX - writing time_t and bool is atomic
+    // Root cause: pthread_mutex operations on BSS structures cause corruption on MIPS
     if (g_thread_health[thread_index].is_active) {
         g_thread_health[thread_index].last_heartbeat = time(NULL);
         g_thread_health[thread_index].is_responsive = true;
     }
-
-    pthread_mutex_unlock(&g_health_mutex);
 }
 
 // ============================================================================
