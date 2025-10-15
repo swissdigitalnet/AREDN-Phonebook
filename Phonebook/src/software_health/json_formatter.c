@@ -72,33 +72,10 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     pthread_mutex_lock(&g_health_mutex);
 
-    // MIPS FIX: Copy g_service_metrics to local variables immediately
-    // CRITICAL: Manual char-by-char copy - strncpy() causes BSS corruption on MIPS
-    int local_registered_users = g_service_metrics.registered_users_count;
-    int local_directory_entries = g_service_metrics.directory_entries_count;
-    int local_active_calls = g_service_metrics.active_calls_count;
-    time_t local_phonebook_last_updated = g_service_metrics.phonebook_last_updated;
-    int local_entries_loaded = g_service_metrics.phonebook_entries_loaded;
-
-    // Manual copy for phonebook_fetch_status (avoid strncpy)
-    char local_fetch_status[32];
-    size_t i;
-    for (i = 0; i < sizeof(local_fetch_status) - 1 && i < sizeof(g_service_metrics.phonebook_fetch_status); i++) {
-        char c = g_service_metrics.phonebook_fetch_status[i];
-        local_fetch_status[i] = c;
-        if (c == '\0') break;
-    }
-    local_fetch_status[i] = '\0';
-
-    // Manual copy for phonebook_csv_hash (avoid strncpy)
-    char local_csv_hash[64];
-    size_t j;
-    for (j = 0; j < sizeof(local_csv_hash) - 1 && j < sizeof(g_service_metrics.phonebook_csv_hash); j++) {
-        char c = g_service_metrics.phonebook_csv_hash[j];
-        local_csv_hash[j] = c;
-        if (c == '\0') break;
-    }
-    local_csv_hash[j] = '\0';
+    // MIPS FIX v2: Copy entire structure using struct assignment
+    // CRITICAL: Even char-by-char reads cause SIGSEGV on MIPS
+    // Solution: Copy entire service_metrics_t structure at once
+    service_metrics_t local_service_metrics = g_service_metrics;
 
     // Get node name
     extern const char* health_get_node_name(void);
@@ -114,7 +91,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     char timestamp_str[32];
     char phonebook_updated_str[32];
     format_iso8601(now, timestamp_str);
-    format_iso8601(local_phonebook_last_updated, phonebook_updated_str);
+    format_iso8601(local_service_metrics.phonebook_last_updated, phonebook_updated_str);
 
     // Start building JSON
     size_t offset = 0;
@@ -181,20 +158,20 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
 
-    // SIP service metrics (using local copies)
+    // SIP service metrics (using local structure copy)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"sip_service\": {\n"
         "    \"registered_users\": %d,\n"
         "    \"directory_entries\": %d,\n"
         "    \"active_calls\": %d\n"
         "  },\n",
-        local_registered_users,
-        local_directory_entries,
-        local_active_calls);
+        local_service_metrics.registered_users_count,
+        local_service_metrics.directory_entries_count,
+        local_service_metrics.active_calls_count);
 
-    // Phonebook status (using local copies)
+    // Phonebook status (using local structure copy)
     char csv_hash_escaped[64];
-    json_escape(local_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
+    json_escape(local_service_metrics.phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
 
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
@@ -204,9 +181,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"entries_loaded\": %d\n"
         "  },\n",
         phonebook_updated_str,
-        local_fetch_status,
+        local_service_metrics.phonebook_fetch_status,
         csv_hash_escaped,
-        local_entries_loaded);
+        local_service_metrics.phonebook_entries_loaded);
 
     // Health checks
     offset += snprintf(buffer + offset, buffer_size - offset,
