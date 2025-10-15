@@ -150,8 +150,9 @@ void* health_reporter_thread(void *arg) {
         fclose(debug_fp);
     }
 
+    // MIPS TEST v2.10.21: Comment ONLY line 135 memset() - test if line 250 crashes instead
     // Initialize state
-    memset(&g_reporter_state, 0, sizeof(g_reporter_state));
+    // memset(&g_reporter_state, 0, sizeof(g_reporter_state));  // ← COMMENTED FOR TEST
     g_reporter_state.is_first_report = true;
     g_reporter_state.last_baseline_report = time(NULL);
 
