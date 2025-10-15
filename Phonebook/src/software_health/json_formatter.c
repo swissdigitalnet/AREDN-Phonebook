@@ -62,19 +62,12 @@ static void json_escape(const char *input, char *output, size_t output_size) {
  */
 int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
-    extern process_health_t g_process_health;
-    extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
-    extern health_checks_t g_health_checks;
-    extern pthread_mutex_t g_health_mutex;
 
-    // MIPS FIX v2.10.1: Call ALL external functions BEFORE locking mutex
-    // Root Cause: External function calls while holding g_health_mutex cause BSS corruption on MIPS
-    // Solution: Prepare all external data first, then lock only for quick reads
+    // MIPS FIX v2.10.9: ONLY read from g_service_metrics - DO NOT access other structures
+    // Hypothesis: Accessing multiple BSS structures causes corruption on MIPS
+    // This matches v2.10.0 which was STABLE
 
-    // Call external functions BEFORE mutex lock
     extern const char* health_get_node_name(void);
     const char *node_name = health_get_node_name();
 
@@ -82,39 +75,11 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     char timestamp_str[32];
     format_iso8601(now, timestamp_str);
 
-    bool in_grace_period = health_is_in_grace_period();
-    const char *system_state = in_grace_period ? "starting" : "operational";
-
-    // MIPS TEST v2.10.6: NO MUTEX - test if mutex is the root cause
-    // For health monitoring, slightly stale data is acceptable
-    // Reading int/time_t/bool is atomic on most platforms
-
-    // Format phonebook timestamp
+    // Format phonebook timestamp (time_t from g_service_metrics is OK)
     char phonebook_updated_str[32];
     format_iso8601(g_service_metrics.phonebook_last_updated, phonebook_updated_str);
 
-    // Compute health score directly from globals
-    float health_score = 100.0f;
-    if (g_cpu_metrics.current_cpu_pct > 20.0f) health_score -= 10.0f;
-    float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
-    if (mem_mb > 12.0f) health_score -= 10.0f;
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (g_thread_health[i].is_active && !g_thread_health[i].is_responsive) {
-            health_score -= 30.0f;
-        }
-    }
-    if (g_process_health.restart_count_24h > 0) health_score -= 20.0f;
-    if (g_process_health.crash_count_24h > 0) health_score -= (g_process_health.crash_count_24h * 25.0f);
-    if (health_score < 0.0f) health_score = 0.0f;
-    if (health_score > 100.0f) health_score = 100.0f;
-
-    time_t uptime = now - g_process_health.process_start_time;
-
-    // Placeholders for removed string fields
-    const char *local_fetch_status = "N/A";
-    const char *local_csv_hash = "N/A";
-
-    // Start building JSON (all using local variables now)
+    // Start building JSON - ONLY using g_service_metrics data
     size_t offset = 0;
 
     // Header
@@ -125,37 +90,13 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "  \"node\": \"%s\",\n"
         "  \"timestamp\": %ld,\n"
         "  \"sent_at\": \"%s\",\n"
-        "  \"reporting_reason\": \"%s\",\n"
-        "  \"system_state\": \"%s\",\n",
+        "  \"reporting_reason\": \"%s\",\n",
         node_name,
         now,
         timestamp_str,
-        health_reason_to_string(reason),
-        system_state);
+        health_reason_to_string(reason));
 
-    // Process metrics (read directly from globals)
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"cpu_pct\": %.1f,\n"
-        "  \"mem_mb\": %.1f,\n"
-        "  \"uptime_seconds\": %ld,\n"
-        "  \"restart_count\": %d,\n"
-        "  \"health_score\": %.0f,\n",
-        g_cpu_metrics.current_cpu_pct,
-        mem_mb,
-        uptime,
-        g_process_health.restart_count_24h,
-        health_score);
-
-    // Threads section (read directly from globals)
-    // MIPS FIX v2.10.8: Removed thread loop - accessing g_thread_health array causes BSS corruption
-    // Only output aggregate all_responsive status
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"threads\": {\n"
-        "    \"all_responsive\": %s\n"
-        "  },\n",
-        g_health_checks.all_threads_responsive ? "true" : "false");
-
-    // SIP service metrics (read directly from globals)
+    // SIP service metrics (ONLY from g_service_metrics)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"sip_service\": {\n"
         "    \"registered_users\": %d,\n"
@@ -166,40 +107,17 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         g_service_metrics.directory_entries_count,
         g_service_metrics.active_calls_count);
 
-    // Phonebook status (placeholders for removed string fields)
+    // Phonebook status (ONLY from g_service_metrics)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
         "    \"last_updated\": \"%s\",\n"
-        "    \"fetch_status\": \"%s\",\n"
-        "    \"csv_hash\": \"%s\",\n"
         "    \"entries_loaded\": %d\n"
-        "  },\n",
-        phonebook_updated_str,
-        local_fetch_status,
-        local_csv_hash,
-        g_service_metrics.phonebook_entries_loaded);
-
-    // Health checks (read directly from globals)
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"checks\": {\n"
-        "    \"memory_stable\": %s,\n"
-        "    \"no_recent_crashes\": %s,\n"
-        "    \"sip_service_ok\": %s,\n"
-        "    \"phonebook_current\": %s,\n"
-        "    \"all_threads_responsive\": %s,\n"
-        "    \"cpu_normal\": %s\n"
         "  }\n",
-        g_health_checks.memory_stable ? "true" : "false",
-        g_health_checks.no_recent_crashes ? "true" : "false",
-        g_health_checks.sip_service_ok ? "true" : "false",
-        g_health_checks.phonebook_current ? "true" : "false",
-        g_health_checks.all_threads_responsive ? "true" : "false",
-        g_health_checks.cpu_normal ? "true" : "false");
+        phonebook_updated_str,
+        g_service_metrics.phonebook_entries_loaded);
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
-
-    // Mutex already unlocked above - no access to globals here
 
     if (offset >= buffer_size - 1) {
         LOG_ERROR("Health JSON buffer overflow (needed %zu, have %zu)", offset, buffer_size);
