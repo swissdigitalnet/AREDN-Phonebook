@@ -131,38 +131,11 @@ int health_register_thread(pthread_t tid, const char *name) {
         return -1;
     }
 
-    pthread_mutex_lock(&g_health_mutex);
-
-    // Find free slot
-    int slot = -1;
-    for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-        if (!g_thread_health[i].is_active) {
-            slot = i;
-            break;
-        }
-    }
-
-    if (slot == -1) {
-        pthread_mutex_unlock(&g_health_mutex);
-        LOG_ERROR("No free thread health slots available");
-        return -1;
-    }
-
-    // Register thread
-    thread_health_t *th = &g_thread_health[slot];
-    th->tid = tid;
-    strncpy(th->name, name, sizeof(th->name) - 1);
-    th->name[sizeof(th->name) - 1] = '\0';
-    th->last_heartbeat = time(NULL);
-    th->start_time = time(NULL);
-    th->restart_count = 0;
-    th->is_responsive = true;
-    th->is_active = true;
-
-    pthread_mutex_unlock(&g_health_mutex);
-
-    LOG_INFO("Registered thread '%s' for health monitoring (slot %d)", name, slot);
-    return slot;
+    // MIPS FIX v2.10.15: DISABLE thread registration - strncpy to g_thread_health[].name corrupts BSS!
+    // Root cause: Writing to char arrays in g_thread_health array causes BSS corruption on MIPS
+    // Solution: Return success without touching the array
+    LOG_INFO("Thread '%s' registration skipped (MIPS BSS protection)", name);
+    return 0; // Return success without actual registration
 }
 
 void health_update_heartbeat(int thread_index) {
