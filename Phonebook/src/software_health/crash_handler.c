@@ -27,8 +27,10 @@ extern void syslog(int priority, const char *format, ...);
 #define SYSLOG_ERR     3
 #define SYSLOG_WARNING 4
 
-// Global crash context (for signal handler)
-static crash_context_t g_crash_context;
+// MIPS FIX v2.10.19: g_crash_context removed from BSS - memset() corrupts memory!
+// Root cause: memset(&g_crash_context, ...) writes 400+ bytes including char arrays to BSS
+// Solution: Use stack-allocated variable in signal handler instead
+// static crash_context_t g_crash_context;
 static volatile sig_atomic_t g_in_crash_handler = 0;
 
 // ============================================================================
@@ -154,19 +156,23 @@ void health_crash_signal_handler(int sig) {
     syslog(SYSLOG_CRIT, "=== CRASH DETECTED: Signal %d (%s) ===",
            sig, signal_to_name(sig));
 
+    // MIPS FIX v2.10.19: Use stack variable instead of BSS global
+    // crash_context_t allocated on stack (NOT in BSS - avoids corruption)
+    crash_context_t crash_ctx;
+
     // Populate crash context
-    memset(&g_crash_context, 0, sizeof(crash_context_t));
-    g_crash_context.signal_number = sig;
-    // MIPS FIX v2.10.18: DO NOT write to char arrays in BSS - causes corruption!
-    // strncpy(g_crash_context.signal_name, signal_to_name(sig),
-    //         sizeof(g_crash_context.signal_name) - 1);
-    // strncpy(g_crash_context.description, signal_to_description(sig),
-    //         sizeof(g_crash_context.description) - 1);
-    g_crash_context.crash_time = time(NULL);
+    memset(&crash_ctx, 0, sizeof(crash_context_t));
+    crash_ctx.signal_number = sig;
+    // MIPS FIX v2.10.18: DO NOT write to char arrays - causes corruption!
+    // strncpy(crash_ctx.signal_name, signal_to_name(sig),
+    //         sizeof(crash_ctx.signal_name) - 1);
+    // strncpy(crash_ctx.description, signal_to_description(sig),
+    //         sizeof(crash_ctx.description) - 1);
+    crash_ctx.crash_time = time(NULL);
 
     // Capture backtrace
-    g_crash_context.backtrace_size = backtrace(g_crash_context.backtrace,
-                                                 HEALTH_BACKTRACE_MAX_DEPTH);
+    crash_ctx.backtrace_size = backtrace(crash_ctx.backtrace,
+                                         HEALTH_BACKTRACE_MAX_DEPTH);
 
     // Get current metrics (may be unsafe, but try)
     extern memory_health_t g_memory_health;
@@ -174,8 +180,8 @@ void health_crash_signal_handler(int sig) {
     extern pthread_mutex_t g_health_mutex;
 
     // Try to get metrics without locking (risky but we're crashing anyway)
-    g_crash_context.memory_at_crash_bytes = g_memory_health.current_rss_bytes;
-    g_crash_context.cpu_at_crash_pct = g_cpu_metrics.current_cpu_pct;
+    crash_ctx.memory_at_crash_bytes = g_memory_health.current_rss_bytes;
+    crash_ctx.cpu_at_crash_pct = g_cpu_metrics.current_cpu_pct;
 
     // Get active calls count
     extern CallSession call_sessions[MAX_CALL_SESSIONS];
@@ -185,22 +191,22 @@ void health_crash_signal_handler(int sig) {
             active_calls++;
         }
     }
-    g_crash_context.active_calls = active_calls;
+    crash_ctx.active_calls = active_calls;
 
     // Get crash count from process health
     extern process_health_t g_process_health;
-    g_crash_context.crash_count_24h = g_process_health.crash_count_24h + 1;
+    crash_ctx.crash_count_24h = g_process_health.crash_count_24h + 1;
 
     // Save crash state to file
-    health_save_crash_state(&g_crash_context);
+    health_save_crash_state(&crash_ctx);
 
     // Log backtrace to syslog
-    if (g_crash_context.backtrace_size > 0) {
-        syslog(SYSLOG_CRIT, "Backtrace (%d frames):", g_crash_context.backtrace_size);
-        char **symbols = backtrace_symbols(g_crash_context.backtrace,
-                                            g_crash_context.backtrace_size);
+    if (crash_ctx.backtrace_size > 0) {
+        syslog(SYSLOG_CRIT, "Backtrace (%d frames):", crash_ctx.backtrace_size);
+        char **symbols = backtrace_symbols(crash_ctx.backtrace,
+                                            crash_ctx.backtrace_size);
         if (symbols) {
-            for (int i = 0; i < g_crash_context.backtrace_size; i++) {
+            for (int i = 0; i < crash_ctx.backtrace_size; i++) {
                 syslog(SYSLOG_CRIT, "  [%d] %s", i, symbols[i]);
             }
             free(symbols);
@@ -208,9 +214,9 @@ void health_crash_signal_handler(int sig) {
     }
 
     syslog(SYSLOG_CRIT, "Crash context: memory=%.1fMB cpu=%.1f%% calls=%d",
-           (float)g_crash_context.memory_at_crash_bytes / (1024.0f * 1024.0f),
-           g_crash_context.cpu_at_crash_pct,
-           g_crash_context.active_calls);
+           (float)crash_ctx.memory_at_crash_bytes / (1024.0f * 1024.0f),
+           crash_ctx.cpu_at_crash_pct,
+           crash_ctx.active_calls);
 
     // Emergency: sync logs to disk
     sync();
