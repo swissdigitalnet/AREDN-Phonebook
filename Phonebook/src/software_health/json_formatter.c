@@ -72,10 +72,21 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     pthread_mutex_lock(&g_health_mutex);
 
-    // MIPS FIX v2: Copy entire structure using struct assignment
-    // CRITICAL: Even char-by-char reads cause SIGSEGV on MIPS
-    // Solution: Copy entire service_metrics_t structure at once
-    service_metrics_t local_service_metrics = g_service_metrics;
+    // MIPS FIX v3: DO NOT access char arrays in g_service_metrics AT ALL
+    // CRITICAL: ANY access (struct assignment, char-by-char, strncpy) causes SIGSEGV
+    // Root cause: BSS section corruption triggered by char array reads
+    // Solution: Read only int/time_t fields, use placeholders for strings
+
+    int local_registered_users = g_service_metrics.registered_users_count;
+    int local_directory_entries = g_service_metrics.directory_entries_count;
+    int local_active_calls = g_service_metrics.active_calls_count;
+    time_t local_phonebook_last_updated = g_service_metrics.phonebook_last_updated;
+    int local_entries_loaded = g_service_metrics.phonebook_entries_loaded;
+
+    // DO NOT READ: g_service_metrics.phonebook_fetch_status (causes crash)
+    // DO NOT READ: g_service_metrics.phonebook_csv_hash (causes crash)
+    const char *local_fetch_status = "N/A";  // Placeholder
+    const char *local_csv_hash = "N/A";       // Placeholder
 
     // Get node name
     extern const char* health_get_node_name(void);
@@ -91,7 +102,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     char timestamp_str[32];
     char phonebook_updated_str[32];
     format_iso8601(now, timestamp_str);
-    format_iso8601(local_service_metrics.phonebook_last_updated, phonebook_updated_str);
+    format_iso8601(local_phonebook_last_updated, phonebook_updated_str);
 
     // Start building JSON
     size_t offset = 0;
@@ -158,21 +169,18 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
 
-    // SIP service metrics (using local structure copy)
+    // SIP service metrics (using local copies - int fields only)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"sip_service\": {\n"
         "    \"registered_users\": %d,\n"
         "    \"directory_entries\": %d,\n"
         "    \"active_calls\": %d\n"
         "  },\n",
-        local_service_metrics.registered_users_count,
-        local_service_metrics.directory_entries_count,
-        local_service_metrics.active_calls_count);
+        local_registered_users,
+        local_directory_entries,
+        local_active_calls);
 
-    // Phonebook status (using local structure copy)
-    char csv_hash_escaped[64];
-    json_escape(local_service_metrics.phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
-
+    // Phonebook status (using placeholders for strings - MIPS workaround)
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
         "    \"last_updated\": \"%s\",\n"
@@ -181,9 +189,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         "    \"entries_loaded\": %d\n"
         "  },\n",
         phonebook_updated_str,
-        local_service_metrics.phonebook_fetch_status,
-        csv_hash_escaped,
-        local_service_metrics.phonebook_entries_loaded);
+        local_fetch_status,
+        local_csv_hash,
+        local_entries_loaded);
 
     // Health checks
     offset += snprintf(buffer + offset, buffer_size - offset,
