@@ -177,13 +177,19 @@ void* health_reporter_thread(void *arg) {
             const char *reason_str = health_reason_to_string(reason);
             LOG_INFO("Health report triggered: %s", reason_str);
 
+            // v2.10.47 DEBUG: Trace execution path to diagnose silent failure
+            LOG_INFO("DEBUG: About to check g_health_local_reporting (value=%d)", g_health_local_reporting);
+
             // Write local health status file for AREDNmon dashboard
             if (g_health_local_reporting) {
+                LOG_INFO("DEBUG: Inside g_health_local_reporting block, calling health_write_status_file()");
                 if (health_write_status_file(reason) == 0) {
                     LOG_INFO("Local health file updated successfully");
                 } else {
                     LOG_WARN("Failed to write local health file");
                 }
+            } else {
+                LOG_INFO("DEBUG: g_health_local_reporting is FALSE/0 - skipping file write");
             }
 
             // Send to remote collector if configured
