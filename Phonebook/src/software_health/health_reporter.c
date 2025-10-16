@@ -147,25 +147,38 @@ void* health_reporter_thread(void *arg) {
     (void)arg;
 
     LOG_INFO("Health reporter thread started");
+    LOG_INFO("[HEALTH_REPORTER] Initializing reporter state...");
 
     // Initialize state
     memset(&g_reporter_state, 0, sizeof(g_reporter_state));
+    LOG_INFO("[HEALTH_REPORTER] memset complete");
     g_reporter_state.is_first_report = true;
+    LOG_INFO("[HEALTH_REPORTER] is_first_report=true");
     g_reporter_state.last_baseline_report = time(NULL);
+    LOG_INFO("[HEALTH_REPORTER] last_baseline_report=%ld", g_reporter_state.last_baseline_report);
 
     // Register this thread for health monitoring
+    LOG_INFO("[HEALTH_REPORTER] Calling health_register_thread...");
     int thread_index = health_register_thread(pthread_self(), "health_reporter");
+    LOG_INFO("[HEALTH_REPORTER] health_register_thread returned %d", thread_index);
     if (thread_index < 0) {
         LOG_ERROR("Failed to register health reporter thread");
         return NULL;
     }
+    LOG_INFO("[HEALTH_REPORTER] Thread registered successfully, entering main loop");
 
     while (1) {
+        LOG_INFO("[HEALTH_REPORTER] === START OF LOOP ITERATION ===");
+
         // Update heartbeat
+        LOG_INFO("[HEALTH_REPORTER] Updating heartbeat for thread_index=%d", thread_index);
         health_update_heartbeat(thread_index);
+        LOG_INFO("[HEALTH_REPORTER] Heartbeat updated");
 
         // Update all health metrics
+        LOG_INFO("[HEALTH_REPORTER] Calling health_update_metrics...");
         health_update_metrics();
+        LOG_INFO("[HEALTH_REPORTER] health_update_metrics complete");
 
         // Update service metrics (from global state)
         extern service_metrics_t g_service_metrics;
