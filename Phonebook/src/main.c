@@ -179,7 +179,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     LOG_INFO("Health monitoring system initialized");
-    LOG_INFO("=== BUILD VERIFICATION: v2.2.8 ===");
+    LOG_INFO("=== BUILD VERIFICATION: v2.2.9 ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
