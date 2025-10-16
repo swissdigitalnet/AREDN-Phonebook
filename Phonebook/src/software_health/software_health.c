@@ -269,19 +269,26 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    // MIPS FIX v2.10.1: Full formatter with proper mutex handling
-    // External functions called BEFORE/AFTER mutex lock, not during
+    // MIPS FIX v2.10.30: Allocate json_buffer on HEAP instead of STACK
+    // Root cause: 8KB stack buffer causes stack overflow on MIPS (default stack ~64KB)
+    // Stack overflow was misdiagnosed as BSS corruption due to crash addresses
+    char *json_buffer = malloc(8192);
+    if (!json_buffer) {
+        LOG_ERROR("Failed to allocate json_buffer on heap");
+        return -1;
+    }
 
-    char json_buffer[8192];
-    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
+    int result = health_format_agent_health_json(json_buffer, 8192, reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON");
+        free(json_buffer);
         return -1;
     }
 
     FILE *fp = fopen(HEALTH_STATUS_JSON_PATH, "w");
     if (!fp) {
         LOG_ERROR("Failed to open health status file: %s", HEALTH_STATUS_JSON_PATH);
+        free(json_buffer);
         return -1;
     }
 
@@ -290,10 +297,12 @@ int health_write_status_file(health_report_reason_t reason) {
 
     if (written != strlen(json_buffer)) {
         LOG_ERROR("Failed to write complete health status file");
+        free(json_buffer);
         return -1;
     }
 
     LOG_DEBUG("Wrote health status to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
+    free(json_buffer);
     return 0;
 }
 
@@ -311,10 +320,17 @@ int health_send_to_collector(health_report_reason_t reason) {
         return 0; // Not an error, just disabled
     }
 
-    char json_buffer[8192];
-    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
+    // MIPS FIX v2.10.30: Allocate json_buffer on HEAP instead of STACK
+    char *json_buffer = malloc(8192);
+    if (!json_buffer) {
+        LOG_ERROR("Failed to allocate json_buffer on heap");
+        return -1;
+    }
+
+    int result = health_format_agent_health_json(json_buffer, 8192, reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON for collector");
+        free(json_buffer);
         return -1;
     }
 
@@ -322,11 +338,13 @@ int health_send_to_collector(health_report_reason_t reason) {
     if (result != 0) {
         LOG_WARN("Failed to send health data to collector (reason: %s)",
                  health_reason_to_string(reason));
+        free(json_buffer);
         return -1;
     }
 
     LOG_INFO("Sent health report to collector (reason: %s)",
              health_reason_to_string(reason));
+    free(json_buffer);
     return 0;
 }
 
@@ -358,14 +376,22 @@ bool health_load_crash_state(void) {
 
     if (result == 0) {
         // Crash state found - save as JSON for dashboard
-        char json_buffer[4096];
-        health_format_crash_report_json(json_buffer, sizeof(json_buffer), &ctx);
+        // MIPS FIX v2.10.30: Allocate json_buffer on HEAP instead of STACK
+        char *json_buffer = malloc(4096);
+        if (!json_buffer) {
+            LOG_ERROR("Failed to allocate json_buffer on heap");
+            return true; // Still return true - crash was detected
+        }
+
+        health_format_crash_report_json(json_buffer, 4096, &ctx);
 
         FILE *fp = fopen(CRASH_REPORT_JSON_PATH, "w");
         if (fp) {
             fwrite(json_buffer, 1, strlen(json_buffer), fp);
             fclose(fp);
         }
+
+        free(json_buffer);
 
         // Send to collector if enabled
         health_send_to_collector(REASON_CRASH);
