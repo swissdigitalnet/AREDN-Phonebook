@@ -143,13 +143,27 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.36 - MINIMAL TEST: NO malloc, NO function calls, NOTHING
-    // Testing if pthread_create itself or minimal thread execution causes corruption
-    // If this works, we'll add code back line by line to find the toxic instruction
+    // v2.10.37 - Test FIRST operation: malloc()
+    // Add back ONLY malloc to see if heap allocation triggers corruption
+    // v2.10.36 (just sleep) was STABLE for 10+ minutes
+    // If v2.10.37 crashes → malloc() is toxic
+    // If v2.10.37 works → move to next operation (memset)
 
-    LOG_INFO("Health reporter thread started - v2.10.36 MINIMAL TEST (just sleep)");
+    LOG_INFO("Health reporter thread started - v2.10.37 testing malloc()");
 
-    // Just sleep forever - NO heap allocations, NO BSS access, NO function calls
+    // Test malloc() - the FIRST operation in original code
+    if (!g_reporter_state) {
+        LOG_INFO("Attempting malloc(sizeof(reporter_state_t))...");
+        g_reporter_state = malloc(sizeof(reporter_state_t));
+        if (!g_reporter_state) {
+            LOG_ERROR("Failed to allocate reporter state on heap!");
+            return NULL;
+        }
+        LOG_INFO("malloc() SUCCESS - reporter state allocated on heap");
+    }
+
+    // Just sleep - NO memset, NO struct field writes, NO function calls yet
+    LOG_INFO("Entering sleep loop - monitoring for crashes...");
     while (1) {
         sleep(60);
     }
