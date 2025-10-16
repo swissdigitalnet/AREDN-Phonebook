@@ -16,6 +16,7 @@
 /**
  * Update all health checks
  * Sets boolean flags for each health aspect
+ * NOTE: Caller MUST hold g_health_mutex when calling this function
  */
 void health_update_checks(void) {
     extern process_health_t g_process_health;
@@ -24,9 +25,6 @@ void health_update_checks(void) {
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
     extern health_checks_t g_health_checks;
-    extern pthread_mutex_t g_health_mutex;
-
-    pthread_mutex_lock(&g_health_mutex);
 
     // Check 1: Memory stable (no leak detected)
     g_health_checks.memory_stable = !g_memory_health.leak_suspected;
@@ -55,8 +53,6 @@ void health_update_checks(void) {
 
     // Check 6: CPU normal (< 50%)
     g_health_checks.cpu_normal = (g_cpu_metrics.current_cpu_pct < 50.0f);
-
-    pthread_mutex_unlock(&g_health_mutex);
 }
 
 // ============================================================================
@@ -76,6 +72,7 @@ void health_update_checks(void) {
  * - Phonebook fetch failed: -10 points
  * - Memory leak suspected: -15 points
  *
+ * NOTE: Caller MUST hold g_health_mutex when calling this function
  * @return Health score 0.0-100.0
  */
 float health_compute_score(void) {
@@ -84,9 +81,6 @@ float health_compute_score(void) {
     extern memory_health_t g_memory_health;
     extern cpu_metrics_t g_cpu_metrics;
     extern service_metrics_t g_service_metrics;
-    extern pthread_mutex_t g_health_mutex;
-
-    pthread_mutex_lock(&g_health_mutex);
 
     float score = 100.0f;
 
@@ -140,8 +134,6 @@ float health_compute_score(void) {
         score -= 15.0f;
         LOG_DEBUG("Health score: -15 for suspected memory leak");
     }
-
-    pthread_mutex_unlock(&g_health_mutex);
 
     // Clamp to valid range
     if (score < 0.0f) score = 0.0f;
