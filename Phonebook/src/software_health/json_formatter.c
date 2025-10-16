@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <execinfo.h>  // For backtrace_symbols()
+// execinfo.h not available in musl libc (OpenWrt) - backtrace disabled
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -267,29 +267,8 @@ int health_format_crash_report_json(char *buffer, size_t buffer_size,
         ctx->active_calls,
         ctx->crash_count_24h);
 
-    // Backtrace (if available)
-    if (ctx->backtrace_size > 0) {
-        offset += snprintf(buffer + offset, buffer_size - offset, ",\n  \"backtrace\": [");
-
-        char **symbols = backtrace_symbols((void **)ctx->backtrace, ctx->backtrace_size);
-        if (symbols) {
-            for (int i = 0; i < ctx->backtrace_size && offset < buffer_size - 200; i++) {
-                if (i > 0) {
-                    offset += snprintf(buffer + offset, buffer_size - offset, ",");
-                }
-
-                // Escape backtrace symbol
-                char symbol_escaped[512];
-                json_escape(symbols[i], symbol_escaped, sizeof(symbol_escaped));
-
-                offset += snprintf(buffer + offset, buffer_size - offset,
-                    "\n    \"%s\"", symbol_escaped);
-            }
-            free(symbols);
-        }
-
-        offset += snprintf(buffer + offset, buffer_size - offset, "\n  ]");
-    }
+    // Backtrace disabled - not available in musl libc
+    // (backtrace_size is always 0)
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "\n}\n");

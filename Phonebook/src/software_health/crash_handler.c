@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <execinfo.h>  // For backtrace()
+// execinfo.h not available in musl libc (OpenWrt) - backtrace disabled
 
 // Forward declare syslog to avoid including syslog.h (which conflicts with log_manager.h)
 extern void syslog(int priority, const char *format, ...);
@@ -159,9 +159,8 @@ void health_crash_signal_handler(int sig) {
             sizeof(g_crash_context.description) - 1);
     g_crash_context.crash_time = time(NULL);
 
-    // Capture backtrace
-    g_crash_context.backtrace_size = backtrace(g_crash_context.backtrace,
-                                                 HEALTH_BACKTRACE_MAX_DEPTH);
+    // Capture backtrace (disabled - not available in musl libc)
+    g_crash_context.backtrace_size = 0;  // backtrace() not available in musl
 
     // Get current metrics (may be unsafe, but try)
     extern memory_health_t g_memory_health;
@@ -189,18 +188,8 @@ void health_crash_signal_handler(int sig) {
     // Save crash state to file
     health_save_crash_state(&g_crash_context);
 
-    // Log backtrace to syslog
-    if (g_crash_context.backtrace_size > 0) {
-        syslog(SYSLOG_CRIT, "Backtrace (%d frames):", g_crash_context.backtrace_size);
-        char **symbols = backtrace_symbols(g_crash_context.backtrace,
-                                            g_crash_context.backtrace_size);
-        if (symbols) {
-            for (int i = 0; i < g_crash_context.backtrace_size; i++) {
-                syslog(SYSLOG_CRIT, "  [%d] %s", i, symbols[i]);
-            }
-            free(symbols);
-        }
-    }
+    // Log backtrace to syslog (disabled - not available in musl libc)
+    // Backtrace functionality removed for musl compatibility
 
     syslog(SYSLOG_CRIT, "Crash context: memory=%.1fMB cpu=%.1f%% calls=%d",
            (float)g_crash_context.memory_at_crash_bytes / (1024.0f * 1024.0f),
@@ -275,27 +264,6 @@ void health_setup_crash_handlers(void) {
  * @return Number of bytes written
  */
 int health_format_backtrace(const crash_context_t *ctx, char *buffer, size_t buffer_size) {
-    if (ctx->backtrace_size == 0) {
-        return snprintf(buffer, buffer_size, "[]");
-    }
-
-    char **symbols = backtrace_symbols((void **)ctx->backtrace, ctx->backtrace_size);
-    if (!symbols) {
-        return snprintf(buffer, buffer_size, "[]");
-    }
-
-    size_t offset = 0;
-    offset += snprintf(buffer + offset, buffer_size - offset, "[");
-
-    for (int i = 0; i < ctx->backtrace_size && offset < buffer_size - 100; i++) {
-        if (i > 0) {
-            offset += snprintf(buffer + offset, buffer_size - offset, ", ");
-        }
-        offset += snprintf(buffer + offset, buffer_size - offset, "\"%s\"", symbols[i]);
-    }
-
-    offset += snprintf(buffer + offset, buffer_size - offset, "]");
-    free(symbols);
-
-    return offset;
+    // Backtrace disabled - not available in musl libc
+    return snprintf(buffer, buffer_size, "[]");
 }
