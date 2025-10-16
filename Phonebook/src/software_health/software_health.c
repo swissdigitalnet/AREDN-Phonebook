@@ -311,6 +311,12 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
+    if (!g_process_health || !g_memory_health || !g_cpu_metrics ||
+        !g_service_metrics || !g_health_checks) {
+        LOG_ERROR("DEBUG: health_write_status_file() FAILED - global health pointers unset");
+        return -1;
+    }
+
     LOG_INFO("DEBUG: health_write_status_file() - calling malloc(8192)");
     // MIPS FIX v2.10.30: Allocate json_buffer on HEAP instead of STACK
     // Root cause: 8KB stack buffer causes stack overflow on MIPS (default stack ~64KB)

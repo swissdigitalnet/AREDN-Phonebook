@@ -77,6 +77,11 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     extern service_metrics_t *g_service_metrics;
     LOG_INFO("DEBUG: health_format_agent_health_json() - checking g_service_metrics=%p", (void*)g_service_metrics);
 
+    if (!g_service_metrics) {
+        LOG_ERROR("DEBUG: health_format_agent_health_json() FAILED - g_service_metrics is NULL");
+        return -1;
+    }
+
     // MIPS FIX v2.10.10: EXACTLY like v2.10.0 - ONLY 2 int fields
     // NO time_t reads from BSS, NO format_iso8601() on BSS data
     // Test if format_iso8601(BSS time_t) is the problem
