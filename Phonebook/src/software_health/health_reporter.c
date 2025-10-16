@@ -46,19 +46,19 @@ extern float g_health_score_threshold;
  * @return true if report needed, false otherwise
  */
 bool health_should_report_now(health_report_reason_t *reason_out) {
-    extern cpu_metrics_t g_cpu_metrics;
-    extern memory_health_t g_memory_health;
-    extern health_checks_t g_health_checks;
+    extern cpu_metrics_t *g_cpu_metrics;
+    extern memory_health_t *g_memory_health;
+    extern health_checks_t *g_health_checks;
 
     // MIPS FIX v2.10.13: Avoid health_compute_score() - it accesses g_thread_health array!
     // Root cause: Accessing thread_health array structures causes BSS corruption on MIPS
     // Use simple placeholder score for event detection
 
     time_t now = time(NULL);
-    float current_cpu = g_cpu_metrics.current_cpu_pct;
-    float current_mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
+    float current_cpu = g_cpu_metrics->current_cpu_pct;
+    float current_mem_mb = (float)g_memory_health->current_rss_bytes / (1024.0f * 1024.0f);
     float current_score = 100.0f; // Placeholder - avoid calling health_compute_score()
-    bool all_threads_responsive = g_health_checks.all_threads_responsive;
+    bool all_threads_responsive = g_health_checks->all_threads_responsive;
 
     // Check 1: First report after startup
     if (g_reporter_state->is_first_report) {
@@ -118,12 +118,12 @@ bool health_should_report_now(health_report_reason_t *reason_out) {
  * Update reporter state after reporting
  */
 static void update_reporter_state(void) {
-    extern cpu_metrics_t g_cpu_metrics;
-    extern memory_health_t g_memory_health;
+    extern cpu_metrics_t *g_cpu_metrics;
+    extern memory_health_t *g_memory_health;
 
     // MIPS FIX v2.10.13: Avoid health_compute_score() - accesses thread_health array
-    g_reporter_state->last_cpu_pct = g_cpu_metrics.current_cpu_pct;
-    g_reporter_state->last_mem_mb = (float)g_memory_health.current_rss_bytes /
+    g_reporter_state->last_cpu_pct = g_cpu_metrics->current_cpu_pct;
+    g_reporter_state->last_mem_mb = (float)g_memory_health->current_rss_bytes /
                                     (1024.0f * 1024.0f);
     g_reporter_state->last_health_score = 100.0f; // Placeholder - avoid thread_health access
     g_reporter_state->last_remote_report = time(NULL);

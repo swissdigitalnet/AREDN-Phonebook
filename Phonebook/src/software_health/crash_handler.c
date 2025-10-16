@@ -175,13 +175,13 @@ void health_crash_signal_handler(int sig) {
                                          HEALTH_BACKTRACE_MAX_DEPTH);
 
     // Get current metrics (may be unsafe, but try)
-    extern memory_health_t g_memory_health;
-    extern cpu_metrics_t g_cpu_metrics;
+    extern memory_health_t *g_memory_health;
+    extern cpu_metrics_t *g_cpu_metrics;
     extern pthread_mutex_t g_health_mutex;
 
     // Try to get metrics without locking (risky but we're crashing anyway)
-    crash_ctx.memory_at_crash_bytes = g_memory_health.current_rss_bytes;
-    crash_ctx.cpu_at_crash_pct = g_cpu_metrics.current_cpu_pct;
+    crash_ctx.memory_at_crash_bytes = g_memory_health->current_rss_bytes;
+    crash_ctx.cpu_at_crash_pct = g_cpu_metrics->current_cpu_pct;
 
     // Get active calls count
     extern CallSession call_sessions[MAX_CALL_SESSIONS];
@@ -194,8 +194,8 @@ void health_crash_signal_handler(int sig) {
     crash_ctx.active_calls = active_calls;
 
     // Get crash count from process health
-    extern process_health_t g_process_health;
-    crash_ctx.crash_count_24h = g_process_health.crash_count_24h + 1;
+    extern process_health_t *g_process_health;
+    crash_ctx.crash_count_24h = g_process_health->crash_count_24h + 1;
 
     // Save crash state to file
     health_save_crash_state(&crash_ctx);

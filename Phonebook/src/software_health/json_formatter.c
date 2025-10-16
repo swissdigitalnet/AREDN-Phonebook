@@ -62,7 +62,7 @@ static void json_escape(const char *input, char *output, size_t output_size) {
  */
 int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
-    extern service_metrics_t g_service_metrics;
+    extern service_metrics_t *g_service_metrics;
 
     // MIPS FIX v2.10.10: EXACTLY like v2.10.0 - ONLY 2 int fields
     // NO time_t reads from BSS, NO format_iso8601() on BSS data
@@ -98,8 +98,8 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"registered_users\": %d,\n"
         "  \"directory_entries\": %d\n",
-        g_service_metrics.registered_users_count,
-        g_service_metrics.directory_entries_count);
+        g_service_metrics->registered_users_count,
+        g_service_metrics->directory_entries_count);
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");

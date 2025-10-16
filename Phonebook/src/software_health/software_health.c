@@ -19,54 +19,18 @@
 // Analysis shows all health structures total ~1KB in BSS - should NOT cause corruption
 // But empirically proven: disabling health monitoring (HEALTH_LOCAL_REPORTING=0) stops crashes
 
-// MIPS FIX v2.10.28: FORCE DATA section with NON-ZERO initialization!
-// v2.10.27 FAILED: = {0} still went to BSS (compiler optimization)
-// Crash addresses: 0x68f09807, 0x68f0980c (STILL BSS!)
-// Root cause: Zero-initialized structs optimized into BSS by compiler
-// Solution: Initialize with NON-ZERO sentinel values to force DATA section
+// MIPS FIX v2.10.29: MOVE ALL STRUCTURES TO HEAP - DEFINITIVE BSS TEST!
+// v2.10.28 FAILED: Non-zero init still went to BSS (0x68f0991a-0x68f09924)
+// User's decisive approach: Stop theorizing, eliminate BSS completely
+// Solution: Allocate ALL health structures on HEAP like g_reporter_state
 
-// All architectures: Non-zero initialization forces DATA section placement
-process_health_t g_process_health = {
-    .process_start_time = 1,  // Non-zero sentinel (real value set in init)
-    .last_restart_time = 1,
-    .restart_count_24h = 0,
-    .crash_count_24h = 0,
-    .last_crash_time = 0
-};
-
-memory_health_t g_memory_health = {
-    .initial_rss_bytes = 1,  // Non-zero sentinel
-    .current_rss_bytes = 1,
-    .peak_rss_bytes = 1,
-    .growth_rate_mb_per_hour = 0.0f,
-    .leak_suspected = false,
-    .last_check_time = 1
-};
-
-cpu_metrics_t g_cpu_metrics = {
-    .current_cpu_pct = 0.0f,
-    .last_cpu_pct = 0.0f,
-    .last_check_time = 1,  // Non-zero sentinel
-    .last_total_time = 0,
-    .last_process_time = 0
-};
-
-service_metrics_t g_service_metrics = {
-    .registered_users_count = 0,
-    .directory_entries_count = 0,
-    .active_calls_count = 0,
-    .phonebook_last_updated = 0,
-    .phonebook_entries_loaded = 0
-};
-
-health_checks_t g_health_checks = {
-    .memory_stable = true,
-    .no_recent_crashes = true,
-    .sip_service_ok = false,
-    .phonebook_current = false,
-    .all_threads_responsive = true,
-    .cpu_normal = true
-};
+// HEAP ALLOCATION - NO BSS!
+// Pointers are safe in BSS (8 bytes each), actual structs allocated on heap
+process_health_t *g_process_health = NULL;
+memory_health_t *g_memory_health = NULL;
+cpu_metrics_t *g_cpu_metrics = NULL;
+service_metrics_t *g_service_metrics = NULL;
+health_checks_t *g_health_checks = NULL;
 
 pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -89,62 +53,37 @@ int software_health_init(void) {
 
     pthread_mutex_lock(&g_health_mutex);
 
-    // MIPS FIX v2.10.20: NO memset() to BSS - causes corruption!
-    // Initialize process health field-by-field (BSS is already zero-initialized)
-    // memset(&g_process_health, 0, sizeof(process_health_t));
-    g_process_health.process_start_time = time(NULL);
-    g_process_health.last_restart_time = time(NULL);
-    g_process_health.restart_count_24h = 0;
-    g_process_health.crash_count_24h = 0;
-    g_process_health.last_crash_time = 0;
+    // MIPS FIX v2.10.29: ALLOCATE ALL STRUCTURES ON HEAP - NO BSS!
+    // Allocate all structures on HEAP
+    g_process_health = malloc(sizeof(process_health_t));
+    g_memory_health = malloc(sizeof(memory_health_t));
+    g_cpu_metrics = malloc(sizeof(cpu_metrics_t));
+    g_service_metrics = malloc(sizeof(service_metrics_t));
+    g_health_checks = malloc(sizeof(health_checks_t));
 
-    // MIPS FIX v2.10.16: DO NOT initialize g_thread_health array - ANY access corrupts BSS!
-    // Root cause: memset() and field writes to array elements cause BSS corruption on MIPS ath79
-    // Even simple initialization like memset() or g_thread_health[i].is_active = false triggers crashes
-    // Solution: Leave array uninitialized - it's in BSS so zero-filled by loader anyway
-    // Thread registration (health_register_thread) is already disabled in v2.10.15
-    // memset(g_thread_health, 0, sizeof(thread_health_t) * HEALTH_MAX_THREADS);
-    // for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
-    //     g_thread_health[i].is_active = false;
-    // }
+    if (!g_process_health || !g_memory_health || !g_cpu_metrics ||
+        !g_service_metrics || !g_health_checks) {
+        LOG_ERROR("Failed to allocate health structures on heap!");
+        pthread_mutex_unlock(&g_health_mutex);
+        return -1;
+    }
 
-    // MIPS FIX v2.10.20: NO memset() to BSS - field-by-field init only
-    // Initialize memory health (BSS already zero-initialized)
-    // memset(&g_memory_health, 0, sizeof(memory_health_t));
-    g_memory_health.initial_rss_bytes = 0;
-    g_memory_health.current_rss_bytes = 0;
-    g_memory_health.peak_rss_bytes = 0;
-    g_memory_health.growth_rate_mb_per_hour = 0.0f;
-    g_memory_health.leak_suspected = false;
-    g_memory_health.last_check_time = time(NULL);
+    // Safe to memset heap memory
+    memset(g_process_health, 0, sizeof(process_health_t));
+    memset(g_memory_health, 0, sizeof(memory_health_t));
+    memset(g_cpu_metrics, 0, sizeof(cpu_metrics_t));
+    memset(g_service_metrics, 0, sizeof(service_metrics_t));
+    memset(g_health_checks, 0, sizeof(health_checks_t));
 
-    // MIPS FIX v2.10.20: NO memset() to BSS
-    // Initialize CPU metrics (BSS already zero-initialized)
-    // memset(&g_cpu_metrics, 0, sizeof(cpu_metrics_t));
-    g_cpu_metrics.current_cpu_pct = 0.0f;
-    g_cpu_metrics.last_cpu_pct = 0.0f;
-    g_cpu_metrics.last_check_time = time(NULL);
-    g_cpu_metrics.last_total_time = 0;
-    g_cpu_metrics.last_process_time = 0;
-
-    // MIPS FIX v2.10.20: NO memset() to BSS
-    // Initialize service metrics (BSS already zero-initialized)
-    // memset(&g_service_metrics, 0, sizeof(service_metrics_t));
-    g_service_metrics.registered_users_count = 0;
-    g_service_metrics.directory_entries_count = 0;
-    g_service_metrics.active_calls_count = 0;
-    g_service_metrics.phonebook_last_updated = 0;
-    g_service_metrics.phonebook_entries_loaded = 0;
-
-    // MIPS FIX v2.10.20: NO memset() to BSS
-    // Initialize health checks (BSS already zero-initialized)
-    // memset(&g_health_checks, 0, sizeof(health_checks_t));
-    g_health_checks.memory_stable = true;
-    g_health_checks.no_recent_crashes = true;
-    g_health_checks.sip_service_ok = false;
-    g_health_checks.phonebook_current = false;
-    g_health_checks.all_threads_responsive = true;
-    g_health_checks.cpu_normal = true;
+    // Initialize with real values
+    g_process_health->process_start_time = time(NULL);
+    g_process_health->last_restart_time = time(NULL);
+    g_memory_health->last_check_time = time(NULL);
+    g_cpu_metrics->last_check_time = time(NULL);
+    g_health_checks->memory_stable = true;
+    g_health_checks->no_recent_crashes = true;
+    g_health_checks->all_threads_responsive = true;
+    g_health_checks->cpu_normal = true;
 
     // MIPS FIX v2.10.18: g_node_name char array removed - don't store hostname
     // Get node name from hostname
@@ -163,7 +102,7 @@ int software_health_init(void) {
     // Check for previous crash
     if (health_load_crash_state()) {
         LOG_WARN("Previous crash detected - crash report will be sent");
-        g_process_health.restart_count_24h++;
+        g_process_health->restart_count_24h++;
     }
 
     return 0;
@@ -182,7 +121,19 @@ void software_health_shutdown(void) {
 
     pthread_mutex_destroy(&g_health_mutex);
 
-    // Structures are static globals - no need to free
+    // Free heap-allocated structures
+    free(g_process_health);
+    free(g_memory_health);
+    free(g_cpu_metrics);
+    free(g_service_metrics);
+    free(g_health_checks);
+
+    g_process_health = NULL;
+    g_memory_health = NULL;
+    g_cpu_metrics = NULL;
+    g_service_metrics = NULL;
+    g_health_checks = NULL;
+
     LOG_DEBUG("Health monitoring shutdown complete");
 }
 
@@ -227,11 +178,11 @@ bool health_is_system_healthy(void) {
 
     pthread_mutex_lock(&g_health_mutex);
 
-    bool healthy = g_health_checks.memory_stable &&
-                   g_health_checks.no_recent_crashes &&
-                   g_health_checks.sip_service_ok &&
-                   g_health_checks.all_threads_responsive &&
-                   g_health_checks.cpu_normal;
+    bool healthy = g_health_checks->memory_stable &&
+                   g_health_checks->no_recent_crashes &&
+                   g_health_checks->sip_service_ok &&
+                   g_health_checks->all_threads_responsive &&
+                   g_health_checks->cpu_normal;
 
     pthread_mutex_unlock(&g_health_mutex);
 
@@ -255,7 +206,7 @@ bool health_is_in_grace_period(void) {
         return true; // Not yet initialized - still starting
     }
 
-    time_t uptime = time(NULL) - g_process_health.process_start_time;
+    time_t uptime = time(NULL) - g_process_health->process_start_time;
     return (uptime < HEALTH_STARTUP_GRACE_PERIOD_SECONDS);
 }
 
@@ -275,9 +226,9 @@ void health_update_metrics(void) {
 
     // Update CPU metrics
     float cpu_pct = health_get_cpu_usage();
-    g_cpu_metrics.last_cpu_pct = g_cpu_metrics.current_cpu_pct;
-    g_cpu_metrics.current_cpu_pct = cpu_pct;
-    g_cpu_metrics.last_check_time = now;
+    g_cpu_metrics->last_cpu_pct = g_cpu_metrics->current_cpu_pct;
+    g_cpu_metrics->current_cpu_pct = cpu_pct;
+    g_cpu_metrics->last_check_time = now;
 
     // Update memory metrics
     health_update_memory_stats();
@@ -294,7 +245,7 @@ void health_update_metrics(void) {
 
     // MIPS FIX v2.10.17: g_thread_health array removed - skip thread responsiveness checks
     // Assume all threads responsive (no tracking available)
-    g_health_checks.all_threads_responsive = true;
+    g_health_checks->all_threads_responsive = true;
 
     // for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
     //     if (g_thread_health[i].is_active) {
@@ -390,11 +341,11 @@ void health_record_crash(int signal, const char *reason) {
 
     pthread_mutex_lock(&g_health_mutex);
 
-    g_process_health.last_crash_time = time(NULL);
-    g_process_health.crash_count_24h++;
+    g_process_health->last_crash_time = time(NULL);
+    g_process_health->crash_count_24h++;
     // MIPS FIX v2.10.18: last_crash_reason char array removed from struct
-    // strncpy(g_process_health.last_crash_reason, reason,
-    //         sizeof(g_process_health.last_crash_reason) - 1);
+    // strncpy(g_process_health->last_crash_reason, reason,
+    //         sizeof(g_process_health->last_crash_reason) - 1);
 
     pthread_mutex_unlock(&g_health_mutex);
 
@@ -456,5 +407,5 @@ time_t health_get_uptime_seconds(void) {
     if (!g_health_initialized) {
         return 0;
     }
-    return time(NULL) - g_process_health.process_start_time;
+    return time(NULL) - g_process_health->process_start_time;
 }
