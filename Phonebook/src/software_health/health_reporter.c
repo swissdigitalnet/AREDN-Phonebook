@@ -158,11 +158,45 @@ void* health_reporter_thread(void *arg) {
             fclose(wait_marker);
         }
     }
+
+    // v2.10.34: PINPOINT CORRUPTION - Add markers in critical gap
+    // Previous test showed: wait loop completes cleanly, but first fprintf shows corruption
+    // This test narrows down EXACTLY which operation triggers corruption
+
+    // Marker A: BEFORE LOG_INFO call
+    FILE *marker_a = fopen("/tmp/health_marker_A_before_loginfo.flag", "w");
+    if (marker_a) {
+        fprintf(marker_a, "A: Before LOG_INFO\n");
+        fclose(marker_a);
+    }
+
     LOG_INFO("DIAGNOSTIC: 30-second wait complete - thread still alive!");
+
+    // Marker B: AFTER LOG_INFO call
+    FILE *marker_b = fopen("/tmp/health_marker_B_after_loginfo.flag", "w");
+    if (marker_b) {
+        fprintf(marker_b, "B: After LOG_INFO\n");
+        fclose(marker_b);
+    }
 
     // DEBUG: Create marker file to verify thread started
     FILE *debug_fp = fopen("/tmp/health_reporter_started.flag", "w");
+
+    // Marker C: AFTER fopen, BEFORE fprintf
+    FILE *marker_c = fopen("/tmp/health_marker_C_after_fopen.flag", "w");
+    if (marker_c) {
+        fprintf(marker_c, "C: After fopen, before if\n");
+        fclose(marker_c);
+    }
+
     if (debug_fp) {
+        // Marker D: INSIDE if, BEFORE fprintf with time(NULL)
+        FILE *marker_d = fopen("/tmp/health_marker_D_before_time.flag", "w");
+        if (marker_d) {
+            fprintf(marker_d, "D: Inside if, before time(NULL)\n");
+            fclose(marker_d);
+        }
+
         fprintf(debug_fp, "Reporter thread started at %ld\n", time(NULL));
         fclose(debug_fp);
     }
