@@ -19,17 +19,55 @@
 // Analysis shows all health structures total ~1KB in BSS - should NOT cause corruption
 // But empirically proven: disabling health monitoring (HEALTH_LOCAL_REPORTING=0) stops crashes
 
-// MIPS FIX v2.10.27: INITIALIZE ALL STRUCTURES - moves them from BSS to DATA section!
-// Hypothesis: BSS address range (0x68f09xxx) is toxic, but DATA section might be safe
-// Initialization forces linker to place these in .data instead of .bss
-// This tests if the problem is BSS-specific or all global memory
+// MIPS FIX v2.10.28: FORCE DATA section with NON-ZERO initialization!
+// v2.10.27 FAILED: = {0} still went to BSS (compiler optimization)
+// Crash addresses: 0x68f09807, 0x68f0980c (STILL BSS!)
+// Root cause: Zero-initialized structs optimized into BSS by compiler
+// Solution: Initialize with NON-ZERO sentinel values to force DATA section
 
-// All architectures: Full structures (now initialized = moved to DATA section)
-process_health_t g_process_health = {0};
-memory_health_t g_memory_health = {0};
-cpu_metrics_t g_cpu_metrics = {0};
-service_metrics_t g_service_metrics = {0};
-health_checks_t g_health_checks = {0};
+// All architectures: Non-zero initialization forces DATA section placement
+process_health_t g_process_health = {
+    .process_start_time = 1,  // Non-zero sentinel (real value set in init)
+    .last_restart_time = 1,
+    .restart_count_24h = 0,
+    .crash_count_24h = 0,
+    .last_crash_time = 0
+};
+
+memory_health_t g_memory_health = {
+    .initial_rss_bytes = 1,  // Non-zero sentinel
+    .current_rss_bytes = 1,
+    .peak_rss_bytes = 1,
+    .growth_rate_mb_per_hour = 0.0f,
+    .leak_suspected = false,
+    .last_check_time = 1
+};
+
+cpu_metrics_t g_cpu_metrics = {
+    .current_cpu_pct = 0.0f,
+    .last_cpu_pct = 0.0f,
+    .last_check_time = 1,  // Non-zero sentinel
+    .last_total_time = 0,
+    .last_process_time = 0
+};
+
+service_metrics_t g_service_metrics = {
+    .registered_users_count = 0,
+    .directory_entries_count = 0,
+    .active_calls_count = 0,
+    .phonebook_last_updated = 0,
+    .phonebook_entries_loaded = 0
+};
+
+health_checks_t g_health_checks = {
+    .memory_stable = true,
+    .no_recent_crashes = true,
+    .sip_service_ok = false,
+    .phonebook_current = false,
+    .all_threads_responsive = true,
+    .cpu_normal = true
+};
+
 pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
