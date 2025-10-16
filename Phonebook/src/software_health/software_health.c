@@ -303,11 +303,15 @@ void health_update_metrics(void) {
 // ============================================================================
 
 int health_write_status_file(health_report_reason_t reason) {
+    // v2.10.48: DEBUG TRACE - diagnose silent failure
+    LOG_INFO("DEBUG: health_write_status_file() ENTRY - g_health_initialized=%d", g_health_initialized);
 
     if (!g_health_initialized) {
+        LOG_ERROR("DEBUG: health_write_status_file() FAILED - g_health_initialized is FALSE!");
         return -1;
     }
 
+    LOG_INFO("DEBUG: health_write_status_file() - calling malloc(8192)");
     // MIPS FIX v2.10.30: Allocate json_buffer on HEAP instead of STACK
     // Root cause: 8KB stack buffer causes stack overflow on MIPS (default stack ~64KB)
     // Stack overflow was misdiagnosed as BSS corruption due to crash addresses
@@ -317,6 +321,7 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
+    LOG_INFO("DEBUG: health_write_status_file() - calling health_format_agent_health_json()");
     int result = health_format_agent_health_json(json_buffer, 8192, reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON");
@@ -324,6 +329,7 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
+    LOG_INFO("DEBUG: health_write_status_file() - calling fopen(%s)", HEALTH_STATUS_JSON_PATH);
     FILE *fp = fopen(HEALTH_STATUS_JSON_PATH, "w");
     if (!fp) {
         LOG_ERROR("Failed to open health status file: %s", HEALTH_STATUS_JSON_PATH);
@@ -331,6 +337,7 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
+    LOG_INFO("DEBUG: health_write_status_file() - calling fwrite()");
     size_t written = fwrite(json_buffer, 1, strlen(json_buffer), fp);
     fclose(fp);
 
@@ -340,7 +347,7 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    LOG_DEBUG("Wrote health status to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
+    LOG_INFO("DEBUG: Wrote health status to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
     free(json_buffer);
     return 0;
 }
