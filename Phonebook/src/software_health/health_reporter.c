@@ -143,13 +143,13 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.41 - Test SIXTH operation: health_should_report_now() call
-    // v2.10.40 (+ health_register_thread) was STABLE ✓
-    // health_register_thread() is NOT toxic - moving to event detection
-    // If v2.10.41 crashes → health_should_report_now() is toxic
-    // If v2.10.41 works → move to full event loop
+    // v2.10.42 - Test SEVENTH operation: update_reporter_state() call
+    // v2.10.41 (+ health_should_report_now) was STABLE ✓ (87+ min)
+    // Event detection is NOT toxic - moving to state updates
+    // If v2.10.42 crashes → update_reporter_state() is toxic
+    // If v2.10.42 works → move to full implementation
 
-    LOG_INFO("Health reporter thread started - v2.10.41 testing health_should_report_now()");
+    LOG_INFO("Health reporter thread started - v2.10.42 testing update_reporter_state()");
 
     // Test malloc() + memset() + struct field writes + health_register_thread()
     if (!g_reporter_state) {
@@ -175,13 +175,18 @@ void* health_reporter_thread(void *arg) {
     health_register_thread(pthread_self(), "health_reporter");
     LOG_INFO("health_register_thread() SUCCESS");
 
-    // Add health_should_report_now() - SIXTH operation
-    LOG_INFO("Entering test loop - calling health_should_report_now()...");
+    // Add update_reporter_state() call - SEVENTH operation
+    LOG_INFO("Entering test loop - calling health_should_report_now() + update_reporter_state()...");
     while (1) {
         health_report_reason_t reason;
-        LOG_INFO("Attempting health_should_report_now()...");
         bool should_report = health_should_report_now(&reason);
-        LOG_INFO("health_should_report_now() returned: %d (reason: %d)", should_report, reason);
+        LOG_INFO("health_should_report_now() returned: %d", should_report);
+
+        if (should_report) {
+            LOG_INFO("Attempting update_reporter_state()...");
+            update_reporter_state();
+            LOG_INFO("update_reporter_state() SUCCESS");
+        }
 
         sleep(10);  // Check every 10 seconds for faster testing
     }
