@@ -191,11 +191,17 @@ void* health_reporter_thread(void *arg) {
         pthread_mutex_unlock(&g_health_mutex);
 
         // Always write to local file (for AREDNmon dashboard)
+        LOG_INFO("[HEALTH_REPORTER] g_health_local_reporting=%d", g_health_local_reporting);
         if (g_health_local_reporting) {
+            LOG_INFO("[HEALTH_REPORTER] Calling health_write_status_file...");
             health_report_reason_t local_reason = REASON_SCHEDULED;
-            if (health_write_status_file(local_reason) != 0) {
+            int write_result = health_write_status_file(local_reason);
+            LOG_INFO("[HEALTH_REPORTER] health_write_status_file returned %d", write_result);
+            if (write_result != 0) {
                 LOG_ERROR("Failed to write health status file");
             }
+        } else {
+            LOG_WARN("[HEALTH_REPORTER] Local reporting DISABLED, skipping health_write_status_file");
         }
 
         // Check if remote reporting is needed (event-driven)

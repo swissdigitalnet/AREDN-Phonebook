@@ -247,12 +247,17 @@ void health_update_metrics(void) {
 // ============================================================================
 
 int health_write_status_file(health_report_reason_t reason) {
+    LOG_INFO("[HEALTH_WRITE] Function called, reason=%d", reason);
     if (!g_health_initialized) {
+        LOG_WARN("[HEALTH_WRITE] Not initialized, returning -1");
         return -1;
     }
 
+    LOG_INFO("[HEALTH_WRITE] Allocating 8KB buffer for JSON");
     char json_buffer[8192];
+    LOG_INFO("[HEALTH_WRITE] Calling health_format_agent_health_json...");
     int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
+    LOG_INFO("[HEALTH_WRITE] health_format_agent_health_json returned %d", result);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON");
         return -1;
