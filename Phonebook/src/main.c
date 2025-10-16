@@ -278,16 +278,19 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Passive safety thread launched (silent self-healing enabled).");
     LOG_DEBUG("Passive safety thread TID: %lu", (unsigned long)g_passive_safety_tid);
 
-    // Phase 4: UAC Thread Creation
-    LOG_INFO("Creating UAC bulk tester thread...");
-    if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
-        LOG_ERROR("Failed to create UAC bulk tester thread.");
-        return EXIT_FAILURE;
-    }
-    LOG_DEBUG("UAC bulk tester thread launched.");
-    LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
+    // v2.10.35: DISABLE UAC bulk tester to test if 5th thread triggers corruption
+    // If health_reporter works as 4th thread, proves issue is thread count limit
+    // When thread is created: stack allocation, TLS, pthread structures
+    // On MIPS with 56MB RAM, 5 threads may exhaust TLS slots or memory
+    LOG_INFO("UAC bulk tester thread DISABLED v2.10.35 (testing thread count hypothesis)");
+    // if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
+    //     LOG_ERROR("Failed to create UAC bulk tester thread.");
+    //     return EXIT_FAILURE;
+    // }
+    // LOG_DEBUG("UAC bulk tester thread launched.");
+    // LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
-    // Phase 5: Health Monitoring Thread Creation - RE-ENABLED v2.10.32 with instrumentation
+    // Phase 5: Health Monitoring Thread Creation - Now becomes 4th thread instead of 5th
     // v2.10.32: Detailed sequence logging to identify exact crash point in malloc() corruption
     // Instrumented with ~50 checkpoints showing heap/stack metrics at each step
     LOG_INFO("Health monitoring thread ENABLED v2.10.32 (instrumented)");

@@ -143,63 +143,7 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    LOG_INFO("Health reporter thread started");
-
-    // v2.10.33: TIME-DEPENDENT TEST - Wait 30 seconds before doing anything
-    // If crash still happens immediately → corruption is instantaneous upon thread creation
-    // If crash happens after 30 seconds → corruption builds up over time
-    // If no crash after 30 seconds → the specific code path triggers corruption
-    LOG_INFO("DIAGNOSTIC: Sleeping 30 seconds to test if crash is time-dependent...");
-    for (int i = 0; i < 30; i++) {
-        sleep(1);
-        FILE *wait_marker = fopen("/tmp/health_wait_progress.flag", "w");
-        if (wait_marker) {
-            fprintf(wait_marker, "Waiting... %d/30 seconds\n", i+1);
-            fclose(wait_marker);
-        }
-    }
-
-    // v2.10.34: PINPOINT CORRUPTION - Add markers in critical gap
-    // Previous test showed: wait loop completes cleanly, but first fprintf shows corruption
-    // This test narrows down EXACTLY which operation triggers corruption
-
-    // Marker A: BEFORE LOG_INFO call
-    FILE *marker_a = fopen("/tmp/health_marker_A_before_loginfo.flag", "w");
-    if (marker_a) {
-        fprintf(marker_a, "A: Before LOG_INFO\n");
-        fclose(marker_a);
-    }
-
-    LOG_INFO("DIAGNOSTIC: 30-second wait complete - thread still alive!");
-
-    // Marker B: AFTER LOG_INFO call
-    FILE *marker_b = fopen("/tmp/health_marker_B_after_loginfo.flag", "w");
-    if (marker_b) {
-        fprintf(marker_b, "B: After LOG_INFO\n");
-        fclose(marker_b);
-    }
-
-    // DEBUG: Create marker file to verify thread started
-    FILE *debug_fp = fopen("/tmp/health_reporter_started.flag", "w");
-
-    // Marker C: AFTER fopen, BEFORE fprintf
-    FILE *marker_c = fopen("/tmp/health_marker_C_after_fopen.flag", "w");
-    if (marker_c) {
-        fprintf(marker_c, "C: After fopen, before if\n");
-        fclose(marker_c);
-    }
-
-    if (debug_fp) {
-        // Marker D: INSIDE if, BEFORE fprintf with time(NULL)
-        FILE *marker_d = fopen("/tmp/health_marker_D_before_time.flag", "w");
-        if (marker_d) {
-            fprintf(marker_d, "D: Inside if, before time(NULL)\n");
-            fclose(marker_d);
-        }
-
-        fprintf(debug_fp, "Reporter thread started at %ld\n", time(NULL));
-        fclose(debug_fp);
-    }
+    LOG_INFO("Health reporter thread started - v2.10.35 testing as 4th thread");
 
     // MIPS FIX v2.10.22: Allocate state on HEAP at thread start (if not already allocated)
     // BSS structures cause crashes on MIPS - heap is safe!
@@ -224,21 +168,7 @@ void* health_reporter_thread(void *arg) {
         return NULL;
     }
 
-    // DEBUG: Marker after thread registration
-    debug_fp = fopen("/tmp/health_loop_registered.flag", "w");
-    if (debug_fp) {
-        fprintf(debug_fp, "Thread registered at %ld, index=%d\n", time(NULL), thread_index);
-        fclose(debug_fp);
-    }
-
     while (1) {
-        // DEBUG: Marker at loop start
-        debug_fp = fopen("/tmp/health_loop_start.flag", "w");
-        if (debug_fp) {
-            fprintf(debug_fp, "Loop iteration at %ld\n", time(NULL));
-            fclose(debug_fp);
-        }
-
         // Update heartbeat
         // MIPS FIX v2.10.14: DISABLE heartbeat - writing to g_thread_health array causes BSS corruption!
         // Root cause: ANY access (read OR write) to g_thread_health array corrupts BSS on MIPS
@@ -248,13 +178,6 @@ void* health_reporter_thread(void *arg) {
         // MIPS FIX v2.10.11: DISABLE health_update_metrics() - it accesses ALL BSS structures
         // This is the root cause of corruption, not the JSON formatter!
         // health_update_metrics();
-
-        // DEBUG: Marker after metrics update
-        debug_fp = fopen("/tmp/health_loop_metrics.flag", "w");
-        if (debug_fp) {
-            fprintf(debug_fp, "Metrics updated at %ld\n", time(NULL));
-            fclose(debug_fp);
-        }
 
         // Update service metrics (from global state)
         // MIPS FIX v2.10.24: DISABLE ALL WRITES to g_service_metrics (BSS structure)!
@@ -277,13 +200,6 @@ void* health_reporter_thread(void *arg) {
         //     }
         // }
         // g_service_metrics.active_calls_count = active_calls;
-
-        // DEBUG: Marker before local file write
-        debug_fp = fopen("/tmp/health_loop_before_write.flag", "w");
-        if (debug_fp) {
-            fprintf(debug_fp, "Before write at %ld, local_reporting=%d\n", time(NULL), g_health_local_reporting);
-            fclose(debug_fp);
-        }
 
         // MIPS FIX v2.10.26: RE-ENABLE health reporting!
         // Root cause FOUND: json_formatter.c was passing BSS struct fields directly to snprintf
@@ -312,14 +228,6 @@ void* health_reporter_thread(void *arg) {
         //         }
         //     }
         // }
-
-        // Debug heartbeat marker
-        debug_fp = fopen("/tmp/health_thread_alive.flag", "w");
-        if (debug_fp) {
-            fprintf(debug_fp, "Thread alive at %ld, g_reporter_state=%p\n",
-                    time(NULL), (void*)g_reporter_state);
-            fclose(debug_fp);
-        }
 
         // Sleep for configured interval (default: 60 seconds for local updates)
         sleep(g_health_local_update_seconds);
