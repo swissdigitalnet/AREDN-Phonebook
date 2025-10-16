@@ -143,13 +143,13 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.42 - Test SEVENTH operation: update_reporter_state() call
-    // v2.10.41 (+ health_should_report_now) was STABLE ✓ (87+ min)
-    // Event detection is NOT toxic - moving to state updates
-    // If v2.10.42 crashes → update_reporter_state() is toxic
-    // If v2.10.42 works → move to full implementation
+    // v2.10.43 - Test EIGHTH operation: Log report reason
+    // v2.10.42 (+ update_reporter_state) was STABLE ✓ (620s / 10+ min)
+    // State updates are NOT toxic - moving to reason logging
+    // If v2.10.43 crashes → reason logging/enum handling is toxic
+    // If v2.10.43 works → move to baseline timestamp update
 
-    LOG_INFO("Health reporter thread started - v2.10.42 testing update_reporter_state()");
+    LOG_INFO("Health reporter thread started - v2.10.43 testing report reason logging");
 
     // Test malloc() + memset() + struct field writes + health_register_thread()
     if (!g_reporter_state) {
@@ -175,14 +175,15 @@ void* health_reporter_thread(void *arg) {
     health_register_thread(pthread_self(), "health_reporter");
     LOG_INFO("health_register_thread() SUCCESS");
 
-    // Add update_reporter_state() call - SEVENTH operation
-    LOG_INFO("Entering test loop - calling health_should_report_now() + update_reporter_state()...");
+    // Add reason logging - EIGHTH operation
+    LOG_INFO("Entering test loop - calling health_should_report_now() + reason logging...");
     while (1) {
         health_report_reason_t reason;
         bool should_report = health_should_report_now(&reason);
         LOG_INFO("health_should_report_now() returned: %d", should_report);
 
         if (should_report) {
+            LOG_INFO("Report triggered with reason: %d", reason);
             LOG_INFO("Attempting update_reporter_state()...");
             update_reporter_state();
             LOG_INFO("update_reporter_state() SUCCESS");
