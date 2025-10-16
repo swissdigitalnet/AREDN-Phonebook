@@ -143,13 +143,13 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.40 - Test FIFTH operation: health_register_thread() call
-    // v2.10.39 (malloc + memset + struct writes) was STABLE ✓
-    // struct field writes are NOT toxic - moving to health_register_thread()
-    // If v2.10.40 crashes → health_register_thread() is toxic
-    // If v2.10.40 works → move to next operation (while loop)
+    // v2.10.41 - Test SIXTH operation: health_should_report_now() call
+    // v2.10.40 (+ health_register_thread) was STABLE ✓
+    // health_register_thread() is NOT toxic - moving to event detection
+    // If v2.10.41 crashes → health_should_report_now() is toxic
+    // If v2.10.41 works → move to full event loop
 
-    LOG_INFO("Health reporter thread started - v2.10.40 testing health_register_thread()");
+    LOG_INFO("Health reporter thread started - v2.10.41 testing health_should_report_now()");
 
     // Test malloc() + memset() + struct field writes + health_register_thread()
     if (!g_reporter_state) {
@@ -171,15 +171,19 @@ void* health_reporter_thread(void *arg) {
         LOG_INFO("struct field writes SUCCESS");
     }
 
-    // Add health_register_thread() - FIFTH operation
     LOG_INFO("Attempting health_register_thread()...");
     health_register_thread(pthread_self(), "health_reporter");
     LOG_INFO("health_register_thread() SUCCESS");
 
-    // Just sleep - NO while loop with event detection yet
-    LOG_INFO("Entering sleep loop - monitoring for crashes...");
+    // Add health_should_report_now() - SIXTH operation
+    LOG_INFO("Entering test loop - calling health_should_report_now()...");
     while (1) {
-        sleep(60);
+        health_report_reason_t reason;
+        LOG_INFO("Attempting health_should_report_now()...");
+        bool should_report = health_should_report_now(&reason);
+        LOG_INFO("health_should_report_now() returned: %d (reason: %d)", should_report, reason);
+
+        sleep(10);  // Check every 10 seconds for faster testing
     }
 
     return NULL;
