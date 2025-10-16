@@ -92,18 +92,14 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         timestamp_str,
         health_reason_to_string(reason));
 
-    // MIPS FIX v2.10.26: Copy BSS values to stack BEFORE passing to snprintf!
-    // Root cause: Passing BSS struct fields directly to functions is TOXIC on MIPS ath79
-    // Solution: Read BSS values into local (stack) variables first
-    int registered_users = g_service_metrics.registered_users_count;
-    int directory_entries = g_service_metrics.directory_entries_count;
-
-    // Now safe to pass stack variables to snprintf
+    // MIPS FIX v2.10.27: Test DATA section - structures now initialized (not BSS)
+    // Hypothesis: DATA section might allow direct reads (BSS was toxic)
+    // If this works, proves the problem was BSS address range, not global access
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"registered_users\": %d,\n"
         "  \"directory_entries\": %d\n",
-        registered_users,
-        directory_entries);
+        g_service_metrics.registered_users_count,
+        g_service_metrics.directory_entries_count);
 
     // Close JSON
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");

@@ -19,17 +19,17 @@
 // Analysis shows all health structures total ~1KB in BSS - should NOT cause corruption
 // But empirically proven: disabling health monitoring (HEALTH_LOCAL_REPORTING=0) stops crashes
 
-// All architectures: Full structures (extern refs require correct types)
-process_health_t g_process_health;
-// MIPS FIX v2.10.17: REMOVE g_thread_health array from BSS entirely!
-// Root cause: The array's presence in BSS (even without access) corrupts memory on MIPS ath79
-// Evidence: v2.10.6-v2.10.16 all crashed at 68ed1xxx → 68ed3xxx addresses
-// Solution: Comment out declaration - let extern refs cause link warnings (not used anyway)
-// thread_health_t g_thread_health[HEALTH_MAX_THREADS];
-memory_health_t g_memory_health;
-cpu_metrics_t g_cpu_metrics;
-service_metrics_t g_service_metrics;
-health_checks_t g_health_checks;
+// MIPS FIX v2.10.27: INITIALIZE ALL STRUCTURES - moves them from BSS to DATA section!
+// Hypothesis: BSS address range (0x68f09xxx) is toxic, but DATA section might be safe
+// Initialization forces linker to place these in .data instead of .bss
+// This tests if the problem is BSS-specific or all global memory
+
+// All architectures: Full structures (now initialized = moved to DATA section)
+process_health_t g_process_health = {0};
+memory_health_t g_memory_health = {0};
+cpu_metrics_t g_cpu_metrics = {0};
+service_metrics_t g_service_metrics = {0};
+health_checks_t g_health_checks = {0};
 pthread_mutex_t g_health_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Internal state
