@@ -187,8 +187,8 @@ void* health_reporter_thread(void *arg) {
             }
 
             // Send to remote collector if configured
-            extern char g_health_collector_url[];
-            if (g_health_collector_url[0] != '\0') {
+            extern char g_collector_url[];
+            if (g_collector_url[0] != '\0') {
                 if (health_send_to_collector(reason) == 0) {
                     LOG_INFO("Remote health report sent successfully");
                 } else {

@@ -28,7 +28,7 @@
 
 
 // --- Application-specific Constants (remain hardcoded as agreed) -----------------------------------
-#define AREDN_PHONEBOOK_VERSION "2.10.45"
+#define AREDN_PHONEBOOK_VERSION "2.10.46"
 #define APP_NAME "AREDN-Phonebook"
 #define SIP_PORT 5060
 #define MAX_SIP_MSG_LEN 2048
