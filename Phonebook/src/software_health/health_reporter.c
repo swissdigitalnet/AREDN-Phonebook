@@ -236,20 +236,20 @@ void* health_reporter_thread(void *arg) {
             fclose(debug_fp);
         }
 
-        // MIPS FIX v2.10.25: DISABLE ALL health reporting functions!
-        // Testing minimal thread loop with ONLY heap operations to isolate BSS issue
-        // Root cause investigation: Are health_write_status_file() or health_should_report_now()
-        // accessing OTHER BSS structures?
+        // MIPS FIX v2.10.26: RE-ENABLE health reporting!
+        // Root cause FOUND: json_formatter.c was passing BSS struct fields directly to snprintf
+        // Solution: Copy BSS values to stack variables first (see json_formatter.c:98-99)
 
-        // DISABLED - may access BSS structures:
-        // if (g_health_local_reporting) {
-        //     health_report_reason_t local_reason = REASON_SCHEDULED;
-        //     if (health_write_status_file(local_reason) != 0) {
-        //         LOG_ERROR("Failed to write health status file");
-        //     }
-        // }
+        // Always write to local file (for AREDNmon dashboard)
+        if (g_health_local_reporting) {
+            health_report_reason_t local_reason = REASON_SCHEDULED;
+            if (health_write_status_file(local_reason) != 0) {
+                LOG_ERROR("Failed to write health status file");
+            }
+        }
 
-        // DISABLED - reads from BSS (g_cpu_metrics, g_memory_health, g_health_checks):
+        // Check if remote reporting is needed (event-driven)
+        // DISABLED for now - health_should_report_now() still reads from BSS
         // if (g_collector_enabled) {
         //     health_report_reason_t remote_reason;
         //     if (health_should_report_now(&remote_reason)) {
@@ -264,7 +264,7 @@ void* health_reporter_thread(void *arg) {
         //     }
         // }
 
-        // Minimal test: Just write a heartbeat marker to /tmp
+        // Debug heartbeat marker
         debug_fp = fopen("/tmp/health_thread_alive.flag", "w");
         if (debug_fp) {
             fprintf(debug_fp, "Thread alive at %ld, g_reporter_state=%p\n",
