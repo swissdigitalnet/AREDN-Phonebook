@@ -143,13 +143,13 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.43 - Test EIGHTH operation: Log report reason
-    // v2.10.42 (+ update_reporter_state) was STABLE ✓ (620s / 10+ min)
-    // State updates are NOT toxic - moving to reason logging
-    // If v2.10.43 crashes → reason logging/enum handling is toxic
-    // If v2.10.43 works → move to baseline timestamp update
+    // v2.10.44 - Test NINTH operation: Update baseline timestamp
+    // v2.10.43 (+ reason logging) was STABLE ✓ (619s / 10+ min)
+    // Reason logging is NOT toxic - moving to baseline timestamp update
+    // If v2.10.44 crashes → baseline timestamp write is toxic
+    // If v2.10.44 works → all event-driven operations are confirmed safe
 
-    LOG_INFO("Health reporter thread started - v2.10.43 testing report reason logging");
+    LOG_INFO("Health reporter thread started - v2.10.44 testing baseline timestamp update");
 
     // Test malloc() + memset() + struct field writes + health_register_thread()
     if (!g_reporter_state) {
@@ -175,8 +175,8 @@ void* health_reporter_thread(void *arg) {
     health_register_thread(pthread_self(), "health_reporter");
     LOG_INFO("health_register_thread() SUCCESS");
 
-    // Add reason logging - EIGHTH operation
-    LOG_INFO("Entering test loop - calling health_should_report_now() + reason logging...");
+    // Add baseline timestamp update - NINTH operation
+    LOG_INFO("Entering test loop - baseline timestamp updates enabled...");
     while (1) {
         health_report_reason_t reason;
         bool should_report = health_should_report_now(&reason);
@@ -187,6 +187,11 @@ void* health_reporter_thread(void *arg) {
             LOG_INFO("Attempting update_reporter_state()...");
             update_reporter_state();
             LOG_INFO("update_reporter_state() SUCCESS");
+
+            // Update baseline timestamp - NINTH operation
+            LOG_INFO("Updating baseline timestamp...");
+            g_reporter_state->last_baseline_report = time(NULL);
+            LOG_INFO("Baseline timestamp updated");
         }
 
         sleep(10);  // Check every 10 seconds for faster testing
