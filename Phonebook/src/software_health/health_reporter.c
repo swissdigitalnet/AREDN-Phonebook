@@ -143,15 +143,15 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.37 - Test FIRST operation: malloc()
-    // Add back ONLY malloc to see if heap allocation triggers corruption
-    // v2.10.36 (just sleep) was STABLE for 10+ minutes
-    // If v2.10.37 crashes → malloc() is toxic
-    // If v2.10.37 works → move to next operation (memset)
+    // v2.10.38 - Test SECOND operation: memset()
+    // v2.10.37 (malloc only) was STABLE for 34+ minutes ✓
+    // malloc() is NOT toxic - moving to memset()
+    // If v2.10.38 crashes → memset() is toxic
+    // If v2.10.38 works → move to next operation (struct field writes)
 
-    LOG_INFO("Health reporter thread started - v2.10.37 testing malloc()");
+    LOG_INFO("Health reporter thread started - v2.10.38 testing malloc() + memset()");
 
-    // Test malloc() - the FIRST operation in original code
+    // Test malloc() + memset() - the FIRST TWO operations
     if (!g_reporter_state) {
         LOG_INFO("Attempting malloc(sizeof(reporter_state_t))...");
         g_reporter_state = malloc(sizeof(reporter_state_t));
@@ -159,10 +159,15 @@ void* health_reporter_thread(void *arg) {
             LOG_ERROR("Failed to allocate reporter state on heap!");
             return NULL;
         }
-        LOG_INFO("malloc() SUCCESS - reporter state allocated on heap");
+        LOG_INFO("malloc() SUCCESS");
+
+        // Add memset() - SECOND operation
+        LOG_INFO("Attempting memset(g_reporter_state, 0, sizeof(reporter_state_t))...");
+        memset(g_reporter_state, 0, sizeof(reporter_state_t));
+        LOG_INFO("memset() SUCCESS - reporter state zeroed");
     }
 
-    // Just sleep - NO memset, NO struct field writes, NO function calls yet
+    // Just sleep - NO struct field writes, NO function calls yet
     LOG_INFO("Entering sleep loop - monitoring for crashes...");
     while (1) {
         sleep(60);
