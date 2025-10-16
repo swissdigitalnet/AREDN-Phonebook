@@ -109,6 +109,14 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     // Header
     LOG_DEBUG("[JSON_FMT:112] building header section");
+    LOG_DEBUG("[JSON_FMT:112a] Validating arguments: buffer=%p, offset=%zu, buffer_size=%zu",
+              (void*)buffer, offset, buffer_size);
+    LOG_DEBUG("[JSON_FMT:112b] node_name=%p (%s)", (void*)node_name, node_name ? node_name : "NULL");
+    LOG_DEBUG("[JSON_FMT:112c] now=%ld", now);
+    LOG_DEBUG("[JSON_FMT:112d] timestamp_str=%p (%s)", (void*)timestamp_str, timestamp_str);
+    const char *reason_str = health_reason_to_string(reason);
+    LOG_DEBUG("[JSON_FMT:112e] reason_str=%p (%s)", (void*)reason_str, reason_str ? reason_str : "NULL");
+    LOG_DEBUG("[JSON_FMT:112f] About to call snprintf...");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "{\n"
         "  \"schema\": \"meshmon.v2\",\n"
@@ -120,7 +128,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         node_name,
         now,
         timestamp_str,
-        health_reason_to_string(reason));
+        reason_str);
     LOG_DEBUG("[JSON_FMT:113] header complete, offset=%zu", offset);
 
     // Process metrics

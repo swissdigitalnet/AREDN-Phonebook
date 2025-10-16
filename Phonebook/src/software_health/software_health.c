@@ -253,8 +253,9 @@ int health_write_status_file(health_report_reason_t reason) {
         return -1;
     }
 
-    LOG_INFO("[HEALTH_WRITE] Allocating 8KB buffer for JSON");
-    char json_buffer[8192];
+    LOG_INFO("[HEALTH_WRITE] Allocating 4KB buffer for JSON (reduced from 8KB for stack safety)");
+    char json_buffer[4096];  // Reduced from 8192 to avoid stack overflow on embedded systems
+    LOG_INFO("[HEALTH_WRITE] Buffer allocated at %p, size=%zu", (void*)json_buffer, sizeof(json_buffer));
     LOG_INFO("[HEALTH_WRITE] Calling health_format_agent_health_json...");
     int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
     LOG_INFO("[HEALTH_WRITE] health_format_agent_health_json returned %d", result);
@@ -295,7 +296,7 @@ int health_send_to_collector(health_report_reason_t reason) {
         return 0; // Not an error, just disabled
     }
 
-    char json_buffer[8192];
+    char json_buffer[4096];  // Reduced from 8192 to avoid stack overflow
     int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON for collector");
