@@ -208,25 +208,26 @@ void* health_reporter_thread(void *arg) {
         }
 
         // Update service metrics (from global state)
-        // MIPS FIX v2.10.12: NO MUTEX for writes to int fields - int writes are ATOMIC!
-        // Root cause: pthread_mutex operations on BSS structures cause corruption on MIPS
-        extern service_metrics_t g_service_metrics;
-        extern int num_registered_users;
-        extern int num_directory_entries;
-        extern CallSession call_sessions[MAX_CALL_SESSIONS];
+        // MIPS FIX v2.10.24: DISABLE ALL WRITES to g_service_metrics (BSS structure)!
+        // Root cause: ANY write to BSS structures causes corruption on MIPS, not just mutex ops
+        // Even "atomic" int writes to BSS are TOXIC on MIPS ath79!
+        // extern service_metrics_t g_service_metrics;
+        // extern int num_registered_users;
+        // extern int num_directory_entries;
+        // extern CallSession call_sessions[MAX_CALL_SESSIONS];
 
-        // Direct writes - no mutex needed (int writes are atomic)
-        g_service_metrics.registered_users_count = num_registered_users;
-        g_service_metrics.directory_entries_count = num_directory_entries;
+        // DISABLED - writing to BSS crashes on MIPS:
+        // g_service_metrics.registered_users_count = num_registered_users;
+        // g_service_metrics.directory_entries_count = num_directory_entries;
 
-        // Count active calls
-        int active_calls = 0;
-        for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
-            if (call_sessions[i].in_use) {
-                active_calls++;
-            }
-        }
-        g_service_metrics.active_calls_count = active_calls;
+        // Count active calls - DISABLED
+        // int active_calls = 0;
+        // for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
+        //     if (call_sessions[i].in_use) {
+        //         active_calls++;
+        //     }
+        // }
+        // g_service_metrics.active_calls_count = active_calls;
 
         // DEBUG: Marker before local file write
         debug_fp = fopen("/tmp/health_loop_before_write.flag", "w");
