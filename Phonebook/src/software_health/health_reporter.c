@@ -143,15 +143,15 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.39 - Test THIRD+FOURTH operations: struct field writes
-    // v2.10.38 (malloc + memset) was STABLE 30+ sec ✓
-    // memset() is NOT toxic - moving to struct field writes
-    // If v2.10.39 crashes → struct writes or time(NULL) is toxic
-    // If v2.10.39 works → move to next operation (health_register_thread)
+    // v2.10.40 - Test FIFTH operation: health_register_thread() call
+    // v2.10.39 (malloc + memset + struct writes) was STABLE ✓
+    // struct field writes are NOT toxic - moving to health_register_thread()
+    // If v2.10.40 crashes → health_register_thread() is toxic
+    // If v2.10.40 works → move to next operation (while loop)
 
-    LOG_INFO("Health reporter thread started - v2.10.39 testing struct field writes");
+    LOG_INFO("Health reporter thread started - v2.10.40 testing health_register_thread()");
 
-    // Test malloc() + memset() + struct field writes
+    // Test malloc() + memset() + struct field writes + health_register_thread()
     if (!g_reporter_state) {
         LOG_INFO("Attempting malloc...");
         g_reporter_state = malloc(sizeof(reporter_state_t));
@@ -165,17 +165,18 @@ void* health_reporter_thread(void *arg) {
         memset(g_reporter_state, 0, sizeof(reporter_state_t));
         LOG_INFO("memset() SUCCESS");
 
-        // Add struct field writes - THIRD and FOURTH operations
-        LOG_INFO("Attempting g_reporter_state->is_first_report = true...");
+        LOG_INFO("Attempting struct field writes...");
         g_reporter_state->is_first_report = true;
-        LOG_INFO("is_first_report = true SUCCESS");
-
-        LOG_INFO("Attempting g_reporter_state->last_baseline_report = time(NULL)...");
         g_reporter_state->last_baseline_report = time(NULL);
-        LOG_INFO("time(NULL) SUCCESS - struct initialized");
+        LOG_INFO("struct field writes SUCCESS");
     }
 
-    // Just sleep - NO health_register_thread() call yet
+    // Add health_register_thread() - FIFTH operation
+    LOG_INFO("Attempting health_register_thread()...");
+    health_register_thread(pthread_self(), "health_reporter");
+    LOG_INFO("health_register_thread() SUCCESS");
+
+    // Just sleep - NO while loop with event detection yet
     LOG_INFO("Entering sleep loop - monitoring for crashes...");
     while (1) {
         sleep(60);
