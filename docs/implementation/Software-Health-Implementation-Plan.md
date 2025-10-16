@@ -122,6 +122,135 @@ int main() {
 
 ---
 
+## Thread Safety & Mutex Design
+
+### Critical Design: Mutex Locking Strategy
+
+**Problem Solved (v2.2.7-v2.2.8):** Multiple recursive mutex deadlocks were causing the health reporter thread to hang indefinitely.
+
+#### Mutex Hierarchy
+
+The health monitoring system uses a **single global mutex** (`g_health_mutex`) to protect all shared health data structures:
+- `g_process_health`
+- `g_thread_health[]`
+- `g_memory_health`
+- `g_cpu_metrics`
+- `g_service_metrics`
+- `g_health_checks`
+
+#### Locking Rules
+
+**Rule 1: Top-Level Functions Lock, Internal Functions Don't**
+
+Functions are categorized into two types:
+
+**Public API Functions** (acquire mutex):
+- `health_update_heartbeat()` - Updates thread heartbeat
+- `health_register_thread()` - Registers new thread
+- `health_write_status_file()` - Writes JSON status file
+- `health_get_memory_mb()` - Simple memory read
+- `health_get_peak_memory_mb()` - Simple peak memory read
+
+**Internal Worker Functions** (caller must hold mutex):
+- `health_update_metrics()` - Updates CPU, memory, thread checks
+- `health_get_cpu_usage()` - Reads /proc/self/stat
+- `health_update_memory_stats()` - Updates memory tracking
+- `health_update_checks()` - Updates boolean health flags
+- `health_compute_score()` - Calculates 0-100 health score
+- `health_format_agent_health_json()` - Formats JSON output
+
+**Rule 2: Never Nest Mutex Locks**
+
+❌ **WRONG** (causes deadlock):
+```c
+void health_update_metrics(void) {
+    pthread_mutex_lock(&g_health_mutex);
+
+    // This function tries to lock AGAIN → DEADLOCK!
+    float cpu = health_get_cpu_usage();
+
+    pthread_mutex_unlock(&g_health_mutex);
+}
+
+float health_get_cpu_usage(void) {
+    pthread_mutex_lock(&g_health_mutex);  // ← DEADLOCK HERE
+    // ... read CPU stats ...
+    pthread_mutex_unlock(&g_health_mutex);
+}
+```
+
+✅ **CORRECT** (no nested locks):
+```c
+void health_update_metrics(void) {
+    pthread_mutex_lock(&g_health_mutex);
+
+    // Caller holds mutex, internal function assumes it
+    float cpu = health_get_cpu_usage();
+
+    pthread_mutex_unlock(&g_health_mutex);
+}
+
+// NOTE: Caller MUST hold g_health_mutex
+float health_get_cpu_usage(void) {
+    // No mutex lock - caller already holds it
+    // ... read CPU stats ...
+}
+```
+
+**Rule 3: Document Locking Requirements**
+
+Every internal function that requires the caller to hold the mutex **MUST** document this:
+
+```c
+/**
+ * Update memory statistics and detect leaks
+ * NOTE: Caller MUST hold g_health_mutex when calling this function
+ */
+void health_update_memory_stats(void) {
+    // No mutex operations - caller holds lock
+}
+```
+
+#### Call Graph Example
+
+```
+health_reporter_thread()
+  └─> pthread_mutex_lock(&g_health_mutex)
+      └─> health_update_metrics()
+          ├─> health_get_cpu_usage()        [no lock - caller has it]
+          ├─> health_update_memory_stats()   [no lock - caller has it]
+          └─> health_update_checks()         [no lock - caller has it]
+      └─> health_compute_score()             [no lock - caller has it]
+      └─> health_format_agent_health_json()  [no lock - caller has it]
+  └─> pthread_mutex_unlock(&g_health_mutex)
+```
+
+#### Deadlocks Fixed in v2.2.7-v2.2.8
+
+1. **health_get_cpu_usage()** - Removed recursive lock (called from `health_update_metrics()`)
+2. **health_update_memory_stats()** - Removed recursive lock (called from `health_update_metrics()`)
+3. **health_update_checks()** - Removed recursive lock (called from `health_update_metrics()`)
+4. **health_compute_score()** - Removed recursive lock (called from multiple locked contexts)
+
+#### Read-Only Functions
+
+Simple read functions that return a single value **MAY** lock/unlock if they are:
+- Called from external modules (not internal health code)
+- Reading a single primitive value
+- Not calling any other health functions
+
+Examples:
+```c
+float health_get_memory_mb(void) {
+    pthread_mutex_lock(&g_health_mutex);
+    float mb = g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
+    pthread_mutex_unlock(&g_health_mutex);
+    return mb;
+}
+```
+
+---
+
 ## Phase 2: Thread Monitoring & Crash Detection (Week 2)
 
 ### 2.1 Thread Health Monitoring
