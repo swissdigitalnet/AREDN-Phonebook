@@ -129,6 +129,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         now,
         timestamp_str,
         reason_str);
+    LOG_INFO("DEBUG: health_format_agent_health_json() - first snprintf done, offset=%zu", offset);
     LOG_DEBUG("[JSON_FMT:113] header complete, offset=%zu", offset);
 
     // Process metrics
