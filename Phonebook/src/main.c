@@ -287,18 +287,17 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("UAC bulk tester thread launched.");
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
-    // Phase 5: Health Monitoring Thread Creation - DISABLED v2.10.31
-    // Root cause: malloc() on MIPS returns addresses that trigger page faults
-    // System is too memory-constrained (12MB free) for heap allocations
-    // Health monitoring disabled until root cause resolved
-    LOG_INFO("Health monitoring thread DISABLED (MIPS malloc issue - v2.10.31)");
-    // pthread_t health_reporter_tid;
-    // if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
-    //     LOG_ERROR("Failed to create health reporter thread - continuing without health reporting");
-    // } else {
-    //     LOG_DEBUG("Health reporter thread launched.");
-    //     LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
-    // }
+    // Phase 5: Health Monitoring Thread Creation - RE-ENABLED v2.10.32 with instrumentation
+    // v2.10.32: Detailed sequence logging to identify exact crash point in malloc() corruption
+    // Instrumented with ~50 checkpoints showing heap/stack metrics at each step
+    LOG_INFO("Health monitoring thread ENABLED v2.10.32 (instrumented)");
+    pthread_t health_reporter_tid;
+    if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create health reporter thread - continuing without health reporting");
+    } else {
+        LOG_DEBUG("Health reporter thread launched.");
+        LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
+    }
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();

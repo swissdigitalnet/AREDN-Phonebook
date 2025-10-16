@@ -6,6 +6,7 @@
 #include "software_health.h"
 #include "../common.h"
 #include "../log_manager/log_manager.h"
+#include "debug_instrumentation.h"
 #include <string.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -44,67 +45,105 @@ static bool g_health_initialized = false;
 // ============================================================================
 
 int software_health_init(void) {
+    DEBUG_LOG(1, "software_health_init: START");
+
     if (g_health_initialized) {
         LOG_WARN("Health monitoring already initialized");
+        DEBUG_LOG(2, "software_health_init: Already initialized, returning");
         return 0;
     }
 
+    DEBUG_LOG(3, "software_health_init: Logging init message");
     LOG_INFO("Initializing software health monitoring system with direct globals (MIPS-compatible)");
 
+    DEBUG_LOG(4, "software_health_init: Locking mutex");
     pthread_mutex_lock(&g_health_mutex);
+    DEBUG_LOG(5, "software_health_init: Mutex locked");
 
     // MIPS FIX v2.10.29: ALLOCATE ALL STRUCTURES ON HEAP - NO BSS!
     // Allocate all structures on HEAP
+    DEBUG_LOG(10, "software_health_init: malloc process_health");
     g_process_health = malloc(sizeof(process_health_t));
-    g_memory_health = malloc(sizeof(memory_health_t));
-    g_cpu_metrics = malloc(sizeof(cpu_metrics_t));
-    g_service_metrics = malloc(sizeof(service_metrics_t));
-    g_health_checks = malloc(sizeof(health_checks_t));
+    DEBUG_LOG_MALLOC(11, "malloc process_health", sizeof(process_health_t), g_process_health);
 
+    DEBUG_LOG(12, "software_health_init: malloc memory_health");
+    g_memory_health = malloc(sizeof(memory_health_t));
+    DEBUG_LOG_MALLOC(13, "malloc memory_health", sizeof(memory_health_t), g_memory_health);
+
+    DEBUG_LOG(14, "software_health_init: malloc cpu_metrics");
+    g_cpu_metrics = malloc(sizeof(cpu_metrics_t));
+    DEBUG_LOG_MALLOC(15, "malloc cpu_metrics", sizeof(cpu_metrics_t), g_cpu_metrics);
+
+    DEBUG_LOG(16, "software_health_init: malloc service_metrics");
+    g_service_metrics = malloc(sizeof(service_metrics_t));
+    DEBUG_LOG_MALLOC(17, "malloc service_metrics", sizeof(service_metrics_t), g_service_metrics);
+
+    DEBUG_LOG(18, "software_health_init: malloc health_checks");
+    g_health_checks = malloc(sizeof(health_checks_t));
+    DEBUG_LOG_MALLOC(19, "malloc health_checks", sizeof(health_checks_t), g_health_checks);
+
+    DEBUG_LOG(20, "software_health_init: Checking malloc results");
     if (!g_process_health || !g_memory_health || !g_cpu_metrics ||
         !g_service_metrics || !g_health_checks) {
         LOG_ERROR("Failed to allocate health structures on heap!");
+        DEBUG_LOG(21, "software_health_init: malloc FAILED");
         pthread_mutex_unlock(&g_health_mutex);
         return -1;
     }
+    DEBUG_LOG(22, "software_health_init: All mallocs succeeded");
 
     // Safe to memset heap memory
+    DEBUG_LOG(30, "software_health_init: memset process_health");
     memset(g_process_health, 0, sizeof(process_health_t));
+    DEBUG_LOG(31, "software_health_init: memset memory_health");
     memset(g_memory_health, 0, sizeof(memory_health_t));
+    DEBUG_LOG(32, "software_health_init: memset cpu_metrics");
     memset(g_cpu_metrics, 0, sizeof(cpu_metrics_t));
+    DEBUG_LOG(33, "software_health_init: memset service_metrics");
     memset(g_service_metrics, 0, sizeof(service_metrics_t));
+    DEBUG_LOG(34, "software_health_init: memset health_checks");
     memset(g_health_checks, 0, sizeof(health_checks_t));
+    DEBUG_LOG(35, "software_health_init: All memsets complete");
 
     // Initialize with real values
+    DEBUG_LOG(40, "software_health_init: Setting initial values");
     g_process_health->process_start_time = time(NULL);
+    DEBUG_LOG(41, "software_health_init: Set process_start_time");
     g_process_health->last_restart_time = time(NULL);
+    DEBUG_LOG(42, "software_health_init: Set last_restart_time");
     g_memory_health->last_check_time = time(NULL);
+    DEBUG_LOG(43, "software_health_init: Set memory last_check_time");
     g_cpu_metrics->last_check_time = time(NULL);
+    DEBUG_LOG(44, "software_health_init: Set cpu last_check_time");
     g_health_checks->memory_stable = true;
+    DEBUG_LOG(45, "software_health_init: Set memory_stable");
     g_health_checks->no_recent_crashes = true;
+    DEBUG_LOG(46, "software_health_init: Set no_recent_crashes");
     g_health_checks->all_threads_responsive = true;
+    DEBUG_LOG(47, "software_health_init: Set all_threads_responsive");
     g_health_checks->cpu_normal = true;
-
-    // MIPS FIX v2.10.18: g_node_name char array removed - don't store hostname
-    // Get node name from hostname
-    // char hostname[HEALTH_MAX_NODE_NAME_LEN];
-    // if (gethostname(hostname, sizeof(hostname)) == 0) {
-    //     strncpy(g_node_name, hostname, sizeof(g_node_name) - 1);
-    //     g_node_name[sizeof(g_node_name) - 1] = '\0';
-    // }
+    DEBUG_LOG(48, "software_health_init: Set cpu_normal");
 
     g_health_initialized = true;
+    DEBUG_LOG(50, "software_health_init: Set health_initialized flag");
 
     pthread_mutex_unlock(&g_health_mutex);
+    DEBUG_LOG(51, "software_health_init: Unlocked mutex");
 
     LOG_INFO("Software health monitoring initialized");
+    DEBUG_LOG(52, "software_health_init: Logged success message");
 
     // Check for previous crash
+    DEBUG_LOG(53, "software_health_init: Checking crash state");
     if (health_load_crash_state()) {
         LOG_WARN("Previous crash detected - crash report will be sent");
         g_process_health->restart_count_24h++;
+        DEBUG_LOG(54, "software_health_init: Previous crash detected");
+    } else {
+        DEBUG_LOG(55, "software_health_init: No previous crash");
     }
 
+    DEBUG_LOG(99, "software_health_init: COMPLETE - returning 0");
     return 0;
 }
 
