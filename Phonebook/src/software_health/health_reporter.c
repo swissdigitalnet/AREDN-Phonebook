@@ -145,6 +145,21 @@ void* health_reporter_thread(void *arg) {
 
     LOG_INFO("Health reporter thread started");
 
+    // v2.10.33: TIME-DEPENDENT TEST - Wait 30 seconds before doing anything
+    // If crash still happens immediately → corruption is instantaneous upon thread creation
+    // If crash happens after 30 seconds → corruption builds up over time
+    // If no crash after 30 seconds → the specific code path triggers corruption
+    LOG_INFO("DIAGNOSTIC: Sleeping 30 seconds to test if crash is time-dependent...");
+    for (int i = 0; i < 30; i++) {
+        sleep(1);
+        FILE *wait_marker = fopen("/tmp/health_wait_progress.flag", "w");
+        if (wait_marker) {
+            fprintf(wait_marker, "Waiting... %d/30 seconds\n", i+1);
+            fclose(wait_marker);
+        }
+    }
+    LOG_INFO("DIAGNOSTIC: 30-second wait complete - thread still alive!");
+
     // DEBUG: Create marker file to verify thread started
     FILE *debug_fp = fopen("/tmp/health_reporter_started.flag", "w");
     if (debug_fp) {
