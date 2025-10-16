@@ -27,6 +27,7 @@
 #include "uac/uac.h"                    // For UAC load testing module
 #include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
 #include "uac/uac_ping.h"               // For UAC ping/options testing
+#include "software_health/software_health.h" // For health monitoring system
 
 // Define MODULE_NAME specific to main.c
 #define MODULE_NAME "MAIN"
@@ -49,6 +50,7 @@ char g_server_ip[64] = {0};
 pthread_t fetcher_tid = 0;
 pthread_t status_updater_tid = 0;
 pthread_t bulk_tester_tid = 0;
+pthread_t health_reporter_tid = 0;
 
 // Mutexes and Condition Variables (DEFINED here)
 pthread_mutex_t registered_users_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -170,6 +172,14 @@ int main(int argc, char *argv[]) {
     // --- Passive Safety: Self-correct configuration ---
     validate_and_correct_config(); // Fix common config errors automatically
 
+    // --- Initialize health monitoring system ---
+    LOG_INFO("Initializing software health monitoring...");
+    if (software_health_init() != 0) {
+        LOG_ERROR("Failed to initialize health monitoring system");
+        return EXIT_FAILURE;
+    }
+    LOG_INFO("Health monitoring system initialized");
+
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
@@ -277,6 +287,15 @@ int main(int argc, char *argv[]) {
     }
     LOG_DEBUG("UAC bulk tester thread launched.");
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
+
+    // Phase 4.5: Health Reporter Thread Creation
+    LOG_INFO("Creating health reporter thread...");
+    if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create health reporter thread.");
+        return EXIT_FAILURE;
+    }
+    LOG_INFO("Health reporter thread launched.");
+    LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
