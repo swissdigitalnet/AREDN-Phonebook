@@ -252,8 +252,7 @@ int health_write_status_file(health_report_reason_t reason) {
     }
 
     char json_buffer[8192];
-    // DISABLED: int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
-    int result = 0; // DISABLED
+    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON");
         return -1;
@@ -292,14 +291,14 @@ int health_send_to_collector(health_report_reason_t reason) {
     }
 
     char json_buffer[8192];
-    // DISABLED: int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
-    int result = 0; // DISABLED
+    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON for collector");
         return -1;
     }
 
     // DISABLED: result = health_http_post_json(g_collector_url, json_buffer, g_collector_timeout_seconds);
+    result = 0; // DISABLED - only testing JSON formatter, not HTTP client
     if (result != 0) {
         LOG_WARN("Failed to send health data to collector (reason: %s)",
                  health_reason_to_string(reason));
@@ -339,7 +338,7 @@ bool health_load_crash_state(void) {
     if (result == 0) {
         // Crash state found - save as JSON for dashboard
         char json_buffer[4096];
-        // DISABLED: health_format_crash_report_json(json_buffer, sizeof(json_buffer), &ctx);
+        health_format_crash_report_json(json_buffer, sizeof(json_buffer), &ctx);
 
         FILE *fp = fopen(CRASH_REPORT_JSON_PATH, "w");
         if (fp) {
@@ -348,7 +347,7 @@ bool health_load_crash_state(void) {
         }
 
         // Send to collector if enabled
-        // DISABLED: health_send_to_collector(REASON_CRASH);
+        // DISABLED: health_send_to_collector(REASON_CRASH); // Only testing JSON formatter, not collector
 
         return true;
     }

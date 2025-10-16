@@ -22,9 +22,13 @@
  * @param buffer Output buffer (min 32 bytes)
  */
 static void format_iso8601(time_t timestamp, char *buffer) {
+    LOG_DEBUG("[JSON_FMT:001] format_iso8601 start");
     struct tm tm;
+    LOG_DEBUG("[JSON_FMT:002] before gmtime_r");
     gmtime_r(&timestamp, &tm);
+    LOG_DEBUG("[JSON_FMT:003] after gmtime_r, before strftime");
     strftime(buffer, 32, "%Y-%m-%dT%H:%M:%SZ", &tm);
+    LOG_DEBUG("[JSON_FMT:004] format_iso8601 complete");
 }
 
 /**
@@ -35,6 +39,7 @@ static void format_iso8601(time_t timestamp, char *buffer) {
  * @param output_size Output buffer size
  */
 static void json_escape(const char *input, char *output, size_t output_size) {
+    LOG_DEBUG("[JSON_FMT:010] json_escape start, output_size=%zu", output_size);
     size_t j = 0;
     for (size_t i = 0; input[i] && j < output_size - 2; i++) {
         if (input[i] == '"' || input[i] == '\\') {
@@ -42,7 +47,9 @@ static void json_escape(const char *input, char *output, size_t output_size) {
         }
         output[j++] = input[i];
     }
+    LOG_DEBUG("[JSON_FMT:011] json_escape loop complete, j=%zu", j);
     output[j] = '\0';
+    LOG_DEBUG("[JSON_FMT:012] json_escape complete");
 }
 
 // ============================================================================
@@ -59,6 +66,7 @@ static void json_escape(const char *input, char *output, size_t output_size) {
  */
 int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
+    LOG_DEBUG("[JSON_FMT:100] health_format_agent_health_json START, buffer_size=%zu, reason=%d", buffer_size, reason);
     extern process_health_t g_process_health;
     extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
     extern memory_health_t g_memory_health;
@@ -67,28 +75,40 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     extern health_checks_t g_health_checks;
     extern pthread_mutex_t g_health_mutex;
 
+    LOG_DEBUG("[JSON_FMT:101] before mutex_lock");
     pthread_mutex_lock(&g_health_mutex);
+    LOG_DEBUG("[JSON_FMT:102] after mutex_lock");
 
     // Get node name
+    LOG_DEBUG("[JSON_FMT:103] getting node name");
     extern const char* health_get_node_name(void);
     const char *node_name = health_get_node_name();
+    LOG_DEBUG("[JSON_FMT:104] node_name=%s", node_name ? node_name : "NULL");
 
     // Calculate metrics
+    LOG_DEBUG("[JSON_FMT:105] calculating metrics");
     float health_score = health_compute_score();
     float mem_mb = (float)g_memory_health.current_rss_bytes / (1024.0f * 1024.0f);
     time_t uptime = time(NULL) - g_process_health.process_start_time;
     time_t now = time(NULL);
+    LOG_DEBUG("[JSON_FMT:106] metrics calculated: score=%.0f, mem_mb=%.1f, uptime=%ld", health_score, mem_mb, uptime);
 
     // Format timestamps
+    LOG_DEBUG("[JSON_FMT:107] formatting timestamps");
     char timestamp_str[32];
     char phonebook_updated_str[32];
+    LOG_DEBUG("[JSON_FMT:108] calling format_iso8601 for now=%ld", now);
     format_iso8601(now, timestamp_str);
+    LOG_DEBUG("[JSON_FMT:109] calling format_iso8601 for phonebook_last_updated=%ld", g_service_metrics.phonebook_last_updated);
     format_iso8601(g_service_metrics.phonebook_last_updated, phonebook_updated_str);
+    LOG_DEBUG("[JSON_FMT:110] timestamps formatted");
 
     // Start building JSON
     size_t offset = 0;
+    LOG_DEBUG("[JSON_FMT:111] starting JSON build");
 
     // Header
+    LOG_DEBUG("[JSON_FMT:112] building header section");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "{\n"
         "  \"schema\": \"meshmon.v2\",\n"
@@ -101,8 +121,10 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         now,
         timestamp_str,
         health_reason_to_string(reason));
+    LOG_DEBUG("[JSON_FMT:113] header complete, offset=%zu", offset);
 
     // Process metrics
+    LOG_DEBUG("[JSON_FMT:114] building process metrics");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"cpu_pct\": %.1f,\n"
         "  \"mem_mb\": %.1f,\n"
@@ -114,20 +136,28 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         uptime,
         g_process_health.restart_count_24h,
         health_score);
+    LOG_DEBUG("[JSON_FMT:115] process metrics complete, offset=%zu", offset);
 
     // Threads section
+    LOG_DEBUG("[JSON_FMT:116] building threads section");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"threads\": {\n"
         "    \"all_responsive\": %s",
         g_health_checks.all_threads_responsive ? "true" : "false");
+    LOG_DEBUG("[JSON_FMT:117] threads header done, offset=%zu", offset);
 
     // Individual threads
+    LOG_DEBUG("[JSON_FMT:118] iterating through %d threads", HEALTH_MAX_THREADS);
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
         if (g_thread_health[i].is_active) {
+            LOG_DEBUG("[JSON_FMT:119] processing active thread %d: %s", i, g_thread_health[i].name);
             char thread_heartbeat_str[32];
+            LOG_DEBUG("[JSON_FMT:120] calling format_iso8601 for thread %d heartbeat", i);
             format_iso8601(g_thread_health[i].last_heartbeat, thread_heartbeat_str);
+            LOG_DEBUG("[JSON_FMT:121] thread %d heartbeat formatted", i);
 
             time_t heartbeat_age = now - g_thread_health[i].last_heartbeat;
+            LOG_DEBUG("[JSON_FMT:122] thread %d heartbeat_age=%ld", i, heartbeat_age);
 
             offset += snprintf(buffer + offset, buffer_size - offset,
                 ",\n    \"%s\": {\n"
@@ -139,12 +169,16 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
                 g_thread_health[i].is_responsive ? "true" : "false",
                 thread_heartbeat_str,
                 heartbeat_age);
+            LOG_DEBUG("[JSON_FMT:123] thread %d data appended, offset=%zu", i, offset);
         }
     }
+    LOG_DEBUG("[JSON_FMT:124] threads loop complete");
 
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
+    LOG_DEBUG("[JSON_FMT:125] threads section closed, offset=%zu", offset);
 
     // SIP service metrics
+    LOG_DEBUG("[JSON_FMT:126] building SIP service metrics");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"sip_service\": {\n"
         "    \"registered_users\": %d,\n"
@@ -154,10 +188,14 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         g_service_metrics.registered_users_count,
         g_service_metrics.directory_entries_count,
         g_service_metrics.active_calls_count);
+    LOG_DEBUG("[JSON_FMT:127] SIP service metrics complete, offset=%zu", offset);
 
     // Phonebook status
+    LOG_DEBUG("[JSON_FMT:128] building phonebook status");
     char csv_hash_escaped[64];
+    LOG_DEBUG("[JSON_FMT:129] calling json_escape for csv_hash='%s'", g_service_metrics.phonebook_csv_hash);
     json_escape(g_service_metrics.phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
+    LOG_DEBUG("[JSON_FMT:130] json_escape complete, csv_hash_escaped='%s'", csv_hash_escaped);
 
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"phonebook\": {\n"
@@ -170,8 +208,10 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         g_service_metrics.phonebook_fetch_status,
         csv_hash_escaped,
         g_service_metrics.phonebook_entries_loaded);
+    LOG_DEBUG("[JSON_FMT:131] phonebook status complete, offset=%zu", offset);
 
     // Health checks
+    LOG_DEBUG("[JSON_FMT:132] building health checks");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"checks\": {\n"
         "    \"memory_stable\": %s,\n"
@@ -185,17 +225,23 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         g_health_checks.sip_service_ok ? "true" : "false",
         g_health_checks.phonebook_current ? "true" : "false",
         g_health_checks.all_threads_responsive ? "true" : "false");
+    LOG_DEBUG("[JSON_FMT:133] health checks complete, offset=%zu", offset);
 
     // Close JSON
+    LOG_DEBUG("[JSON_FMT:134] closing JSON");
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
+    LOG_DEBUG("[JSON_FMT:135] JSON closed, final offset=%zu", offset);
 
+    LOG_DEBUG("[JSON_FMT:136] before mutex_unlock");
     pthread_mutex_unlock(&g_health_mutex);
+    LOG_DEBUG("[JSON_FMT:137] after mutex_unlock");
 
     if (offset >= buffer_size - 1) {
         LOG_ERROR("Health JSON buffer overflow (needed %zu, have %zu)", offset, buffer_size);
         return -1;
     }
 
+    LOG_DEBUG("[JSON_FMT:138] health_format_agent_health_json COMPLETE, returning 0");
     return 0;
 }
 
@@ -213,27 +259,35 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
  */
 int health_format_crash_report_json(char *buffer, size_t buffer_size,
                                      const crash_context_t *ctx) {
+    LOG_DEBUG("[JSON_FMT:200] health_format_crash_report_json START, buffer_size=%zu", buffer_size);
     extern const char* health_get_node_name(void);
     const char *node_name = health_get_node_name();
+    LOG_DEBUG("[JSON_FMT:201] got node_name=%s", node_name ? node_name : "NULL");
 
     time_t now = time(NULL);
     char sent_at_str[32];
     char crash_time_str[32];
+    LOG_DEBUG("[JSON_FMT:202] formatting timestamps");
     format_iso8601(now, sent_at_str);
     format_iso8601(ctx->crash_time, crash_time_str);
+    LOG_DEBUG("[JSON_FMT:203] timestamps formatted");
 
     // Calculate memory in MB
     float mem_mb = (float)ctx->memory_at_crash_bytes / (1024.0f * 1024.0f);
 
     // JSON escape description
+    LOG_DEBUG("[JSON_FMT:204] escaping description");
     char description_escaped[256];
     json_escape(ctx->description, description_escaped, sizeof(description_escaped));
 
+    LOG_DEBUG("[JSON_FMT:205] escaping last_operation");
     char last_op_escaped[256];
     json_escape(ctx->last_operation, last_op_escaped, sizeof(last_op_escaped));
+    LOG_DEBUG("[JSON_FMT:206] escaping complete");
 
     // Start building JSON
     size_t offset = 0;
+    LOG_DEBUG("[JSON_FMT:207] building crash report JSON");
 
     offset += snprintf(buffer + offset, buffer_size - offset,
         "{\n"
@@ -271,6 +325,7 @@ int health_format_crash_report_json(char *buffer, size_t buffer_size,
     // (backtrace_size is always 0)
 
     // Close JSON
+    LOG_DEBUG("[JSON_FMT:208] closing crash report JSON");
     offset += snprintf(buffer + offset, buffer_size - offset, "\n}\n");
 
     if (offset >= buffer_size - 1) {
@@ -278,5 +333,6 @@ int health_format_crash_report_json(char *buffer, size_t buffer_size,
         return -1;
     }
 
+    LOG_DEBUG("[JSON_FMT:209] health_format_crash_report_json COMPLETE, returning 0");
     return 0;
 }
