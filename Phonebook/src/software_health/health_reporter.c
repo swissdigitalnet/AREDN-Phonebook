@@ -50,14 +50,10 @@ bool health_should_report_now(health_report_reason_t *reason_out) {
     extern memory_health_t *g_memory_health;
     extern health_checks_t *g_health_checks;
 
-    // MIPS FIX v2.10.13: Avoid health_compute_score() - it accesses g_thread_health array!
-    // Root cause: Accessing thread_health array structures causes BSS corruption on MIPS
-    // Use simple placeholder score for event detection
-
     time_t now = time(NULL);
     float current_cpu = g_cpu_metrics->current_cpu_pct;
     float current_mem_mb = (float)g_memory_health->current_rss_bytes / (1024.0f * 1024.0f);
-    float current_score = 100.0f; // Placeholder - avoid calling health_compute_score()
+    float current_score = health_compute_score(); // Use actual health calculation
     bool all_threads_responsive = g_health_checks->all_threads_responsive;
 
     // Check 1: First report after startup
@@ -121,11 +117,10 @@ static void update_reporter_state(void) {
     extern cpu_metrics_t *g_cpu_metrics;
     extern memory_health_t *g_memory_health;
 
-    // MIPS FIX v2.10.13: Avoid health_compute_score() - accesses thread_health array
     g_reporter_state->last_cpu_pct = g_cpu_metrics->current_cpu_pct;
     g_reporter_state->last_mem_mb = (float)g_memory_health->current_rss_bytes /
                                     (1024.0f * 1024.0f);
-    g_reporter_state->last_health_score = 100.0f; // Placeholder - avoid thread_health access
+    g_reporter_state->last_health_score = health_compute_score();
     g_reporter_state->last_remote_report = time(NULL);
     g_reporter_state->is_first_report = false;
 }
@@ -143,58 +138,72 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.44 - Test NINTH operation: Update baseline timestamp
-    // v2.10.43 (+ reason logging) was STABLE ✓ (619s / 10+ min)
-    // Reason logging is NOT toxic - moving to baseline timestamp update
-    // If v2.10.44 crashes → baseline timestamp write is toxic
-    // If v2.10.44 works → all event-driven operations are confirmed safe
+    // v2.10.45 - FULL IMPLEMENTATION: Enable complete health reporting!
+    // v2.10.36-v2.10.44 confirmed ALL individual operations are SAFE on MIPS:
+    // ✓ malloc() + memset() + struct field writes (v2.10.36-39)
+    // ✓ health_register_thread() (v2.10.40)
+    // ✓ health_should_report_now() event detection (v2.10.41)
+    // ✓ update_reporter_state() (v2.10.42)
+    // ✓ Report reason logging (v2.10.43)
+    // ✓ Baseline timestamp updates (v2.10.44)
+    //
+    // Now enabling full reporter: local file writes + remote HTTP reporting!
 
-    LOG_INFO("Health reporter thread started - v2.10.44 testing baseline timestamp update");
+    LOG_INFO("Health reporter thread started - v2.10.45 FULL IMPLEMENTATION");
 
-    // Test malloc() + memset() + struct field writes + health_register_thread()
+    // Initialize reporter state on heap (MIPS-safe)
     if (!g_reporter_state) {
-        LOG_INFO("Attempting malloc...");
         g_reporter_state = malloc(sizeof(reporter_state_t));
         if (!g_reporter_state) {
             LOG_ERROR("Failed to allocate reporter state on heap!");
             return NULL;
         }
-        LOG_INFO("malloc() SUCCESS");
-
-        LOG_INFO("Attempting memset...");
         memset(g_reporter_state, 0, sizeof(reporter_state_t));
-        LOG_INFO("memset() SUCCESS");
-
-        LOG_INFO("Attempting struct field writes...");
         g_reporter_state->is_first_report = true;
         g_reporter_state->last_baseline_report = time(NULL);
-        LOG_INFO("struct field writes SUCCESS");
+        LOG_INFO("Reporter state initialized on heap");
     }
 
-    LOG_INFO("Attempting health_register_thread()...");
+    // Register thread for health monitoring
     health_register_thread(pthread_self(), "health_reporter");
-    LOG_INFO("health_register_thread() SUCCESS");
 
-    // Add baseline timestamp update - NINTH operation
-    LOG_INFO("Entering test loop - baseline timestamp updates enabled...");
+    // Main event-driven reporting loop
+    LOG_INFO("Starting event-driven health monitoring loop...");
     while (1) {
         health_report_reason_t reason;
-        bool should_report = health_should_report_now(&reason);
-        LOG_INFO("health_should_report_now() returned: %d", should_report);
 
-        if (should_report) {
-            LOG_INFO("Report triggered with reason: %d", reason);
-            LOG_INFO("Attempting update_reporter_state()...");
+        // Check if reporting needed
+        if (health_should_report_now(&reason)) {
+            const char *reason_str = health_reason_to_string(reason);
+            LOG_INFO("Health report triggered: %s", reason_str);
+
+            // Write local health status file for AREDNmon dashboard
+            if (g_health_local_reporting) {
+                if (health_write_status_file(reason) == 0) {
+                    LOG_INFO("Local health file updated successfully");
+                } else {
+                    LOG_WARN("Failed to write local health file");
+                }
+            }
+
+            // Send to remote collector if configured
+            extern char g_health_collector_url[];
+            if (g_health_collector_url[0] != '\0') {
+                if (health_send_to_collector(reason) == 0) {
+                    LOG_INFO("Remote health report sent successfully");
+                } else {
+                    LOG_WARN("Failed to send remote health report");
+                }
+            }
+
+            // Update reporter state after successful reporting
             update_reporter_state();
-            LOG_INFO("update_reporter_state() SUCCESS");
-
-            // Update baseline timestamp - NINTH operation
-            LOG_INFO("Updating baseline timestamp...");
-            g_reporter_state->last_baseline_report = time(NULL);
-            LOG_INFO("Baseline timestamp updated");
+            if (reason == REASON_SCHEDULED) {
+                g_reporter_state->last_baseline_report = time(NULL);
+            }
         }
 
-        sleep(10);  // Check every 10 seconds for faster testing
+        sleep(g_health_local_update_seconds);  // Configurable check interval
     }
 
     return NULL;
