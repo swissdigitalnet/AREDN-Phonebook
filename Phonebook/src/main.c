@@ -179,6 +179,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     LOG_INFO("Health monitoring system initialized");
+    LOG_INFO("=== BUILD VERIFICATION: BLUEBIRD ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
