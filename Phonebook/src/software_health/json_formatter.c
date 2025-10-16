@@ -25,9 +25,17 @@ char **backtrace_symbols(void *const *buffer, int size);
  * @param buffer Output buffer (min 32 bytes)
  */
 static void format_iso8601(time_t timestamp, char *buffer) {
+    // v2.10.49: DEBUG TRACE - diagnose silent failure in JSON formatting
+    LOG_INFO("DEBUG: format_iso8601() ENTRY - timestamp=%ld, buffer=%p", (long)timestamp, (void*)buffer);
+
     struct tm tm;
+    LOG_INFO("DEBUG: format_iso8601() - calling gmtime_r()");
     gmtime_r(&timestamp, &tm);
+
+    LOG_INFO("DEBUG: format_iso8601() - calling strftime()");
     strftime(buffer, 32, "%Y-%m-%dT%H:%M:%SZ", &tm);
+
+    LOG_INFO("DEBUG: format_iso8601() - COMPLETE, result='%s'", buffer);
 }
 
 /**
@@ -62,23 +70,43 @@ static void json_escape(const char *input, char *output, size_t output_size) {
  */
 int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
+    // v2.10.49: DEBUG TRACE - comprehensive logging to find silent failure
+    LOG_INFO("DEBUG: health_format_agent_health_json() ENTRY - buffer=%p, buffer_size=%zu, reason=%d",
+             (void*)buffer, buffer_size, reason);
+
     extern service_metrics_t *g_service_metrics;
+    LOG_INFO("DEBUG: health_format_agent_health_json() - checking g_service_metrics=%p", (void*)g_service_metrics);
 
     // MIPS FIX v2.10.10: EXACTLY like v2.10.0 - ONLY 2 int fields
     // NO time_t reads from BSS, NO format_iso8601() on BSS data
     // Test if format_iso8601(BSS time_t) is the problem
 
+    LOG_INFO("DEBUG: health_format_agent_health_json() - calling health_get_node_name()");
     extern const char* health_get_node_name(void);
     const char *node_name = health_get_node_name();
+    LOG_INFO("DEBUG: health_format_agent_health_json() - node_name='%s'", node_name);
 
+    LOG_INFO("DEBUG: health_format_agent_health_json() - calling time(NULL)");
     time_t now = time(NULL);
+    LOG_INFO("DEBUG: health_format_agent_health_json() - now=%ld", (long)now);
+
+    LOG_INFO("DEBUG: health_format_agent_health_json() - declaring timestamp_str on stack");
     char timestamp_str[32];
+    LOG_INFO("DEBUG: health_format_agent_health_json() - calling format_iso8601()");
     format_iso8601(now, timestamp_str);
+    LOG_INFO("DEBUG: health_format_agent_health_json() - format_iso8601() returned, timestamp_str='%s'", timestamp_str);
 
     // Start building JSON - ONLY 2 int fields from g_service_metrics
+    LOG_INFO("DEBUG: health_format_agent_health_json() - initializing offset=0");
     size_t offset = 0;
 
     // Header
+    LOG_INFO("DEBUG: health_format_agent_health_json() - calling health_reason_to_string()");
+    const char *reason_str = health_reason_to_string(reason);
+    LOG_INFO("DEBUG: health_format_agent_health_json() - reason_str='%s'", reason_str);
+
+    LOG_INFO("DEBUG: health_format_agent_health_json() - first snprintf (header) - node='%s', now=%ld, timestamp='%s', reason='%s'",
+             node_name, (long)now, timestamp_str, reason_str);
     offset += snprintf(buffer + offset, buffer_size - offset,
         "{\n"
         "  \"schema\": \"meshmon.v2\",\n"
@@ -90,25 +118,37 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         node_name,
         now,
         timestamp_str,
-        health_reason_to_string(reason));
+        reason_str);
+    LOG_INFO("DEBUG: health_format_agent_health_json() - first snprintf done, offset=%zu", offset);
 
     // MIPS FIX v2.10.27: Test DATA section - structures now initialized (not BSS)
     // Hypothesis: DATA section might allow direct reads (BSS was toxic)
     // If this works, proves the problem was BSS address range, not global access
+    LOG_INFO("DEBUG: health_format_agent_health_json() - reading g_service_metrics fields");
+    int reg_users = g_service_metrics->registered_users_count;
+    int dir_entries = g_service_metrics->directory_entries_count;
+    LOG_INFO("DEBUG: health_format_agent_health_json() - reg_users=%d, dir_entries=%d", reg_users, dir_entries);
+
+    LOG_INFO("DEBUG: health_format_agent_health_json() - second snprintf (data)");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "  \"registered_users\": %d,\n"
         "  \"directory_entries\": %d\n",
-        g_service_metrics->registered_users_count,
-        g_service_metrics->directory_entries_count);
+        reg_users,
+        dir_entries);
+    LOG_INFO("DEBUG: health_format_agent_health_json() - second snprintf done, offset=%zu", offset);
 
     // Close JSON
+    LOG_INFO("DEBUG: health_format_agent_health_json() - third snprintf (close JSON)");
     offset += snprintf(buffer + offset, buffer_size - offset, "}\n");
+    LOG_INFO("DEBUG: health_format_agent_health_json() - third snprintf done, offset=%zu", offset);
 
+    LOG_INFO("DEBUG: health_format_agent_health_json() - checking buffer overflow");
     if (offset >= buffer_size - 1) {
         LOG_ERROR("Health JSON buffer overflow (needed %zu, have %zu)", offset, buffer_size);
         return -1;
     }
 
+    LOG_INFO("DEBUG: health_format_agent_health_json() - SUCCESS, returning 0");
     return 0;
 }
 
