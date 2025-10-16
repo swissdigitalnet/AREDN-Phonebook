@@ -57,10 +57,8 @@ float health_get_cpu_usage(void) {
 
     // Calculate CPU percentage
     // Need previous values for delta calculation
+    // NOTE: Caller MUST hold g_health_mutex when calling this function
     extern cpu_metrics_t g_cpu_metrics;
-    extern pthread_mutex_t g_health_mutex;
-
-    pthread_mutex_lock(&g_health_mutex);
 
     unsigned long long last_process_time = g_cpu_metrics.last_process_time;
     unsigned long long last_total_time = g_cpu_metrics.last_total_time;
@@ -68,8 +66,6 @@ float health_get_cpu_usage(void) {
     // Store current values for next calculation
     g_cpu_metrics.last_process_time = process_time_ms;
     g_cpu_metrics.last_total_time = current_time_ms;
-
-    pthread_mutex_unlock(&g_health_mutex);
 
     // First call - no previous data
     if (last_total_time == 0) {
@@ -136,23 +132,20 @@ size_t health_get_memory_usage(void) {
 /**
  * Update memory statistics and detect leaks
  * Call periodically to track memory growth
+ * NOTE: Caller MUST hold g_health_mutex when calling this function
  */
 void health_update_memory_stats(void) {
     extern memory_health_t g_memory_health;
-    extern pthread_mutex_t g_health_mutex;
 
     size_t current_rss = health_get_memory_usage();
     if (current_rss == 0) {
         return;
     }
 
-    pthread_mutex_lock(&g_health_mutex);
-
     time_t now = time(NULL);
     time_t elapsed = now - g_memory_health.last_check_time;
 
     if (elapsed < 1) {
-        pthread_mutex_unlock(&g_health_mutex);
         return; // Too soon
     }
 
@@ -185,8 +178,6 @@ void health_update_memory_stats(void) {
     }
 
     g_memory_health.last_check_time = now;
-
-    pthread_mutex_unlock(&g_health_mutex);
 }
 
 /**
