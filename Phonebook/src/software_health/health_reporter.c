@@ -236,32 +236,40 @@ void* health_reporter_thread(void *arg) {
             fclose(debug_fp);
         }
 
-        // Always write to local file (for AREDNmon dashboard)
-        if (g_health_local_reporting) {
-            health_report_reason_t local_reason = REASON_SCHEDULED;
-            if (health_write_status_file(local_reason) != 0) {
-                LOG_ERROR("Failed to write health status file");
-            }
-        }
+        // MIPS FIX v2.10.25: DISABLE ALL health reporting functions!
+        // Testing minimal thread loop with ONLY heap operations to isolate BSS issue
+        // Root cause investigation: Are health_write_status_file() or health_should_report_now()
+        // accessing OTHER BSS structures?
 
-        // Check if remote reporting is needed (event-driven)
-        if (g_collector_enabled) {
-            health_report_reason_t remote_reason;
-            if (health_should_report_now(&remote_reason)) {
-                // Send to remote collector
-                if (health_send_to_collector(remote_reason) == 0) {
-                    // Update baseline timestamp if this was a baseline report
-                    if (remote_reason == REASON_SCHEDULED) {
-                        g_reporter_state->last_baseline_report = time(NULL);
-                    }
+        // DISABLED - may access BSS structures:
+        // if (g_health_local_reporting) {
+        //     health_report_reason_t local_reason = REASON_SCHEDULED;
+        //     if (health_write_status_file(local_reason) != 0) {
+        //         LOG_ERROR("Failed to write health status file");
+        //     }
+        // }
 
-                    // Update state after successful report
-                    update_reporter_state();
-                } else {
-                    LOG_WARN("Failed to send health report to collector");
-                    // Continue anyway - will retry next cycle or next event
-                }
-            }
+        // DISABLED - reads from BSS (g_cpu_metrics, g_memory_health, g_health_checks):
+        // if (g_collector_enabled) {
+        //     health_report_reason_t remote_reason;
+        //     if (health_should_report_now(&remote_reason)) {
+        //         if (health_send_to_collector(remote_reason) == 0) {
+        //             if (remote_reason == REASON_SCHEDULED) {
+        //                 g_reporter_state->last_baseline_report = time(NULL);
+        //             }
+        //             update_reporter_state();
+        //         } else {
+        //             LOG_WARN("Failed to send health report to collector");
+        //         }
+        //     }
+        // }
+
+        // Minimal test: Just write a heartbeat marker to /tmp
+        debug_fp = fopen("/tmp/health_thread_alive.flag", "w");
+        if (debug_fp) {
+            fprintf(debug_fp, "Thread alive at %ld, g_reporter_state=%p\n",
+                    time(NULL), (void*)g_reporter_state);
+            fclose(debug_fp);
         }
 
         // Sleep for configured interval (default: 60 seconds for local updates)
