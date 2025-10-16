@@ -31,7 +31,18 @@ This project uses GitHub Actions for all official builds. Do NOT build locally u
    ```bash
    curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/runs?event=push | grep -A 5 "v{VERSION}"
    ```
-2. Download artifacts from the workflow run (requires GitHub token or manual download)
+2. Download artifacts from the workflow run using GitHub token:
+   ```bash
+   # GitHub token (extract from git remote URL: git config --get remote.origin.url)
+   TOKEN=$(git config --get remote.origin.url | grep -oP 'https://\K[^@]+')
+
+   # Download artifact
+   curl -L -H "Authorization: token $TOKEN" -o /tmp/AREDN-Phonebook-ath79.zip \
+     "https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/actions/artifacts/{ARTIFACT_ID}/zip"
+
+   # Extract
+   unzip -o /tmp/AREDN-Phonebook-ath79.zip -d /tmp/
+   ```
 3. Alternatively, if releases exist (created by workflow), download from:
    ```bash
    curl -sL https://api.github.com/repos/swissdigitalnet/AREDN-Phonebook/releases/tags/v{VERSION} | grep browser_download_url
@@ -39,7 +50,10 @@ This project uses GitHub Actions for all official builds. Do NOT build locally u
 
 **Installation Process:**
 1. Detect architecture: `ssh {NODE} "uname -m"`
-2. Transfer package: `scp /tmp/AREDN-Phonebook.ipk {NODE}:/tmp/`
+2. Transfer package (use cat since scp/sftp may not be available):
+   ```bash
+   cat /tmp/AREDN-Phonebook.ipk | ssh {NODE} "cat > /tmp/AREDN-Phonebook.ipk"
+   ```
 3. Install: `ssh {NODE} "opkg install /tmp/AREDN-Phonebook.ipk"`
 4. Restart service: `ssh {NODE} "/etc/init.d/AREDN-Phonebook restart"`
 
