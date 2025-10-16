@@ -143,17 +143,17 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    // v2.10.38 - Test SECOND operation: memset()
-    // v2.10.37 (malloc only) was STABLE for 34+ minutes ✓
-    // malloc() is NOT toxic - moving to memset()
-    // If v2.10.38 crashes → memset() is toxic
-    // If v2.10.38 works → move to next operation (struct field writes)
+    // v2.10.39 - Test THIRD+FOURTH operations: struct field writes
+    // v2.10.38 (malloc + memset) was STABLE 30+ sec ✓
+    // memset() is NOT toxic - moving to struct field writes
+    // If v2.10.39 crashes → struct writes or time(NULL) is toxic
+    // If v2.10.39 works → move to next operation (health_register_thread)
 
-    LOG_INFO("Health reporter thread started - v2.10.38 testing malloc() + memset()");
+    LOG_INFO("Health reporter thread started - v2.10.39 testing struct field writes");
 
-    // Test malloc() + memset() - the FIRST TWO operations
+    // Test malloc() + memset() + struct field writes
     if (!g_reporter_state) {
-        LOG_INFO("Attempting malloc(sizeof(reporter_state_t))...");
+        LOG_INFO("Attempting malloc...");
         g_reporter_state = malloc(sizeof(reporter_state_t));
         if (!g_reporter_state) {
             LOG_ERROR("Failed to allocate reporter state on heap!");
@@ -161,13 +161,21 @@ void* health_reporter_thread(void *arg) {
         }
         LOG_INFO("malloc() SUCCESS");
 
-        // Add memset() - SECOND operation
-        LOG_INFO("Attempting memset(g_reporter_state, 0, sizeof(reporter_state_t))...");
+        LOG_INFO("Attempting memset...");
         memset(g_reporter_state, 0, sizeof(reporter_state_t));
-        LOG_INFO("memset() SUCCESS - reporter state zeroed");
+        LOG_INFO("memset() SUCCESS");
+
+        // Add struct field writes - THIRD and FOURTH operations
+        LOG_INFO("Attempting g_reporter_state->is_first_report = true...");
+        g_reporter_state->is_first_report = true;
+        LOG_INFO("is_first_report = true SUCCESS");
+
+        LOG_INFO("Attempting g_reporter_state->last_baseline_report = time(NULL)...");
+        g_reporter_state->last_baseline_report = time(NULL);
+        LOG_INFO("time(NULL) SUCCESS - struct initialized");
     }
 
-    // Just sleep - NO struct field writes, NO function calls yet
+    // Just sleep - NO health_register_thread() call yet
     LOG_INFO("Entering sleep loop - monitoring for crashes...");
     while (1) {
         sleep(60);
