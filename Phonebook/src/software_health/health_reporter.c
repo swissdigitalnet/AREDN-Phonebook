@@ -143,94 +143,15 @@ static void update_reporter_state(void) {
 void* health_reporter_thread(void *arg) {
     (void)arg;
 
-    LOG_INFO("Health reporter thread started - v2.10.35 testing as 4th thread");
+    // v2.10.36 - MINIMAL TEST: NO malloc, NO function calls, NOTHING
+    // Testing if pthread_create itself or minimal thread execution causes corruption
+    // If this works, we'll add code back line by line to find the toxic instruction
 
-    // MIPS FIX v2.10.22: Allocate state on HEAP at thread start (if not already allocated)
-    // BSS structures cause crashes on MIPS - heap is safe!
-    if (!g_reporter_state) {
-        g_reporter_state = malloc(sizeof(reporter_state_t));
-        if (!g_reporter_state) {
-            LOG_ERROR("Failed to allocate reporter state on heap!");
-            return NULL;
-        }
-        // Now safe to memset - this is HEAP memory, not BSS!
-        memset(g_reporter_state, 0, sizeof(reporter_state_t));
-        LOG_INFO("Reporter state allocated on heap");
-    }
+    LOG_INFO("Health reporter thread started - v2.10.36 MINIMAL TEST (just sleep)");
 
-    g_reporter_state->is_first_report = true;
-    g_reporter_state->last_baseline_report = time(NULL);
-
-    // Register this thread for health monitoring
-    int thread_index = health_register_thread(pthread_self(), "health_reporter");
-    if (thread_index < 0) {
-        LOG_ERROR("Failed to register health reporter thread");
-        return NULL;
-    }
-
+    // Just sleep forever - NO heap allocations, NO BSS access, NO function calls
     while (1) {
-        // Update heartbeat
-        // MIPS FIX v2.10.14: DISABLE heartbeat - writing to g_thread_health array causes BSS corruption!
-        // Root cause: ANY access (read OR write) to g_thread_health array corrupts BSS on MIPS
-        // health_update_heartbeat(thread_index);
-
-        // Update all health metrics
-        // MIPS FIX v2.10.11: DISABLE health_update_metrics() - it accesses ALL BSS structures
-        // This is the root cause of corruption, not the JSON formatter!
-        // health_update_metrics();
-
-        // Update service metrics (from global state)
-        // MIPS FIX v2.10.24: DISABLE ALL WRITES to g_service_metrics (BSS structure)!
-        // Root cause: ANY write to BSS structures causes corruption on MIPS, not just mutex ops
-        // Even "atomic" int writes to BSS are TOXIC on MIPS ath79!
-        // extern service_metrics_t g_service_metrics;
-        // extern int num_registered_users;
-        // extern int num_directory_entries;
-        // extern CallSession call_sessions[MAX_CALL_SESSIONS];
-
-        // DISABLED - writing to BSS crashes on MIPS:
-        // g_service_metrics.registered_users_count = num_registered_users;
-        // g_service_metrics.directory_entries_count = num_directory_entries;
-
-        // Count active calls - DISABLED
-        // int active_calls = 0;
-        // for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
-        //     if (call_sessions[i].in_use) {
-        //         active_calls++;
-        //     }
-        // }
-        // g_service_metrics.active_calls_count = active_calls;
-
-        // MIPS FIX v2.10.26: RE-ENABLE health reporting!
-        // Root cause FOUND: json_formatter.c was passing BSS struct fields directly to snprintf
-        // Solution: Copy BSS values to stack variables first (see json_formatter.c:98-99)
-
-        // Always write to local file (for AREDNmon dashboard)
-        if (g_health_local_reporting) {
-            health_report_reason_t local_reason = REASON_SCHEDULED;
-            if (health_write_status_file(local_reason) != 0) {
-                LOG_ERROR("Failed to write health status file");
-            }
-        }
-
-        // Check if remote reporting is needed (event-driven)
-        // DISABLED for now - health_should_report_now() still reads from BSS
-        // if (g_collector_enabled) {
-        //     health_report_reason_t remote_reason;
-        //     if (health_should_report_now(&remote_reason)) {
-        //         if (health_send_to_collector(remote_reason) == 0) {
-        //             if (remote_reason == REASON_SCHEDULED) {
-        //                 g_reporter_state->last_baseline_report = time(NULL);
-        //             }
-        //             update_reporter_state();
-        //         } else {
-        //             LOG_WARN("Failed to send health report to collector");
-        //         }
-        //     }
-        // }
-
-        // Sleep for configured interval (default: 60 seconds for local updates)
-        sleep(g_health_local_update_seconds);
+        sleep(60);
     }
 
     return NULL;
