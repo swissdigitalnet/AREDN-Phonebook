@@ -130,10 +130,17 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     time_t now = time(NULL);
     LOG_DEBUG("[JSON_FMT:106] metrics calculated: score=%.0f, mem_mb=%.1f, uptime=%ld", health_score, mem_mb, uptime);
 
-    // Format timestamps
+    // Format timestamps - use heap allocation (stack-safe)
     LOG_DEBUG("[JSON_FMT:107] formatting timestamps");
-    char timestamp_str[32];
-    char phonebook_updated_str[32];
+    char *timestamp_str = malloc(32);
+    char *phonebook_updated_str = malloc(32);
+    if (!timestamp_str || !phonebook_updated_str) {
+        LOG_ERROR("Failed to allocate memory for timestamp strings");
+        if (timestamp_str) free(timestamp_str);
+        if (phonebook_updated_str) free(phonebook_updated_str);
+        pthread_mutex_unlock(&g_health_mutex);
+        return -1;
+    }
     LOG_DEBUG("[JSON_FMT:108] calling format_iso8601 for now=%ld", now);
     format_iso8601(now, timestamp_str);
     LOG_DEBUG("[JSON_FMT:109] calling format_iso8601 for phonebook_last_updated=%ld", g_service_metrics.phonebook_last_updated);
@@ -202,12 +209,20 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         g_health_checks.all_threads_responsive ? "true" : "false");
     LOG_DEBUG("[JSON_FMT:117] threads header done, offset=%zu", offset);
 
-    // Individual threads
+    // Individual threads - allocate heartbeat string buffer once (reused in loop)
+    char *thread_heartbeat_str = malloc(32);
+    if (!thread_heartbeat_str) {
+        LOG_ERROR("Failed to allocate memory for thread heartbeat string");
+        free(timestamp_str);
+        free(phonebook_updated_str);
+        pthread_mutex_unlock(&g_health_mutex);
+        return -1;
+    }
+
     LOG_DEBUG("[JSON_FMT:118] iterating through %d threads", HEALTH_MAX_THREADS);
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
         if (g_thread_health[i].is_active) {
             LOG_DEBUG("[JSON_FMT:119] processing active thread %d: %s", i, g_thread_health[i].name);
-            char thread_heartbeat_str[32];
             LOG_DEBUG("[JSON_FMT:120] calling format_iso8601 for thread %d heartbeat", i);
             format_iso8601(g_thread_health[i].last_heartbeat, thread_heartbeat_str);
             LOG_DEBUG("[JSON_FMT:121] thread %d heartbeat formatted", i);
@@ -230,6 +245,9 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     }
     LOG_DEBUG("[JSON_FMT:124] threads loop complete");
 
+    // Free thread heartbeat string buffer
+    free(thread_heartbeat_str);
+
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
     LOG_DEBUG("[JSON_FMT:125] threads section closed, offset=%zu", offset);
 
@@ -246,11 +264,18 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         g_service_metrics.active_calls_count);
     LOG_DEBUG("[JSON_FMT:127] SIP service metrics complete, offset=%zu", offset);
 
-    // Phonebook status
+    // Phonebook status - use heap allocation (stack-safe)
     LOG_DEBUG("[JSON_FMT:128] building phonebook status");
-    char csv_hash_escaped[64];
+    char *csv_hash_escaped = malloc(64);
+    if (!csv_hash_escaped) {
+        LOG_ERROR("Failed to allocate memory for csv_hash_escaped");
+        free(timestamp_str);
+        free(phonebook_updated_str);
+        pthread_mutex_unlock(&g_health_mutex);
+        return -1;
+    }
     LOG_DEBUG("[JSON_FMT:129] calling json_escape for csv_hash='%s'", g_service_metrics.phonebook_csv_hash);
-    json_escape(g_service_metrics.phonebook_csv_hash, csv_hash_escaped, sizeof(csv_hash_escaped));
+    json_escape(g_service_metrics.phonebook_csv_hash, csv_hash_escaped, 64);
     LOG_DEBUG("[JSON_FMT:130] json_escape complete, csv_hash_escaped='%s'", csv_hash_escaped);
 
     offset += snprintf(buffer + offset, buffer_size - offset,
@@ -291,6 +316,11 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     LOG_DEBUG("[JSON_FMT:136] before mutex_unlock");
     pthread_mutex_unlock(&g_health_mutex);
     LOG_DEBUG("[JSON_FMT:137] after mutex_unlock");
+
+    // Free all heap-allocated strings
+    free(timestamp_str);
+    free(phonebook_updated_str);
+    free(csv_hash_escaped);
 
     if (offset >= buffer_size - 1) {
         LOG_ERROR("Health JSON buffer overflow (needed %zu, have %zu)", offset, buffer_size);
