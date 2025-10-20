@@ -63,8 +63,10 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/uac/uac_sip_parser.c \
 		$(PKG_BUILD_DIR)/software_health/software_health.c \
 		$(PKG_BUILD_DIR)/software_health/health_metrics.c \
-		$(PKG_BUILD_DIR)/software_health/health_checks.c \
+		$(PKG_BUILD_DIR)/software_health/health_scorer.c \
 		$(PKG_BUILD_DIR)/software_health/health_reporter.c \
+		$(PKG_BUILD_DIR)/software_health/json_formatter.c \
+		$(PKG_BUILD_DIR)/software_health/http_client.c \
 		$(PKG_BUILD_DIR)/software_health/crash_handler.c \
 		-lpthread -lm -lrt
 
