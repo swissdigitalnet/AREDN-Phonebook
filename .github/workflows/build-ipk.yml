@@ -12,7 +12,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write   # needed to create releases
+  contents: read    # Only need read access (no releases created)
   packages: write
 
 jobs:
@@ -179,34 +179,6 @@ jobs:
           path: ${{ steps.find_ipk.outputs.ipk_path }}
           retention-days: 30
 
-      # Upload IPK file to release (only for tags)
-      - name: Upload IPK to Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: ${{ steps.find_ipk.outputs.ipk_path }}
-          name: AREDN Phonebook ${{ github.ref_name }}
-          body: |
-            AREDN Phonebook Release ${{ github.ref_name }}
-
-            ## Architecture Support
-            - ath79/generic (MikroTik devices)
-            - x86/64 (Intel devices, VMs)
-            - ipq40xx/generic (AREDN mesh devices)
-
-            ## Features
-            - SIP phonebook server with web interface
-            - AREDNmon network monitoring dashboard
-            - Automated bulk testing (ping + SIP OPTIONS)
-            - Real-time status display with auto-refresh
-            - Shared memory database for high performance
-            - Smart phonebook caching
-            - Minimal resource footprint
-
-            ## Installation
-            ```bash
-            # Download appropriate IPK for your architecture
-            opkg install AREDN-Phonebook-*.ipk
-            ```
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # NOTE: Release creation disabled per user preference
+      # Tags are used only to trigger builds
+      # Download built packages from workflow artifacts instead
