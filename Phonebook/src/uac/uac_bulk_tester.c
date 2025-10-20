@@ -408,10 +408,11 @@ void *uac_bulk_tester_thread(void *arg) {
                      rtt_count, overall_avg_rtt);
         }
 
-        // Update database header with actual testable phone count (phones with working DNS)
+        // Update database header with reachable phone count (phones that are online/reachable)
+        // User wants to see "X of X phones tested (all reachable telephones only)"
         int total_results = phones_online + phones_offline;
-        uac_test_db_update_header(total_results, dns_resolved, g_uac_test_interval_seconds);
-        LOG_DEBUG("Updated database header: %d results, %d testable phones", total_results, dns_resolved);
+        uac_test_db_update_header(total_results, phones_online, g_uac_test_interval_seconds);
+        LOG_DEBUG("Updated database header: %d results, %d reachable phones", total_results, phones_online);
 
         // Save dns_resolved for next cycle's UI display during testing
         prev_dns_resolved = dns_resolved;
