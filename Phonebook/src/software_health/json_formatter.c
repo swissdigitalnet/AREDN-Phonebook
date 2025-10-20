@@ -163,6 +163,14 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
 
     void *stack_before_snprintf = get_stack_pointer();
     LOG_INFO("[STACK] BEFORE snprintf: stack_ptr=%p", stack_before_snprintf);
+    LOG_INFO("[STACK] snprintf args: buffer=%p offset=%zu size=%zu", (void*)buffer, offset, buffer_size);
+    LOG_INFO("[STACK] snprintf args: node_name=%p", (void*)node_name);
+    LOG_INFO("[STACK] snprintf args: now=%ld", now);
+    LOG_INFO("[STACK] snprintf args: timestamp_str=%p", (void*)timestamp_str);
+    LOG_INFO("[STACK] snprintf args: reason_str=%p", (void*)reason_str);
+    LOG_INFO("[STACK] Attempting to read node_name[0]='%c'", node_name ? node_name[0] : '?');
+    LOG_INFO("[STACK] Attempting to read timestamp_str[0]='%c'", timestamp_str ? timestamp_str[0] : '?');
+    LOG_INFO("[STACK] Attempting to read reason_str[0]='%c'", reason_str ? reason_str[0] : '?');
 
     LOG_DEBUG("[JSON_FMT:112f] About to call snprintf...");
     offset += snprintf(buffer + offset, buffer_size - offset,
