@@ -44,6 +44,7 @@ void *uac_bulk_tester_thread(void *arg) {
     // Track previous cycle's dns_resolved count for UI display during testing
     // Persist across restarts for accurate display on first cycle
     static int prev_dns_resolved = 0;
+    static int prev_phones_online = 48;  // Default to reasonable value
 
     // Try to load previous dns_resolved count from file
     FILE *dns_file = fopen("/tmp/uac_last_dns_resolved.txt", "r");
@@ -51,6 +52,14 @@ void *uac_bulk_tester_thread(void *arg) {
         fscanf(dns_file, "%d", &prev_dns_resolved);
         fclose(dns_file);
         LOG_INFO("Loaded previous testable phone count: %d", prev_dns_resolved);
+    }
+
+    // Try to load previous phones_online count from file
+    FILE *online_file = fopen("/tmp/uac_last_phones_online.txt", "r");
+    if (online_file) {
+        fscanf(online_file, "%d", &prev_phones_online);
+        fclose(online_file);
+        LOG_INFO("Loaded previous online phone count: %d", prev_phones_online);
     }
 
     while (1) {
@@ -91,10 +100,10 @@ void *uac_bulk_tester_thread(void *arg) {
 
         pthread_mutex_unlock(&registered_users_mutex);
 
-        // Initialize header with current total_users count (upper bound estimate)
-        // This prevents "46 of 45" mismatch when phone count changes between cycles
-        uac_test_db_update_header(0, total_users, g_uac_test_interval_seconds);
-        LOG_DEBUG("Initialized header with %d total users (upper bound estimate)", total_users);
+        // Initialize header with previous cycle's online phone count for accurate display
+        // This shows correct "X of Y" during the test cycle
+        uac_test_db_update_header(0, prev_phones_online, g_uac_test_interval_seconds);
+        LOG_DEBUG("Initialized header with %d reachable phones (from previous cycle)", prev_phones_online);
 
         // Reset counters and lock for main testing loop
         total_users = 0;
@@ -414,14 +423,21 @@ void *uac_bulk_tester_thread(void *arg) {
         uac_test_db_update_header(total_results, phones_online, g_uac_test_interval_seconds);
         LOG_DEBUG("Updated database header: %d results, %d reachable phones", total_results, phones_online);
 
-        // Save dns_resolved for next cycle's UI display during testing
+        // Save counts for next cycle's UI display during testing
         prev_dns_resolved = dns_resolved;
+        prev_phones_online = phones_online;
 
         // Persist to file for accuracy across restarts
         FILE *dns_save = fopen("/tmp/uac_last_dns_resolved.txt", "w");
         if (dns_save) {
             fprintf(dns_save, "%d\n", dns_resolved);
             fclose(dns_save);
+        }
+
+        FILE *online_save = fopen("/tmp/uac_last_phones_online.txt", "w");
+        if (online_save) {
+            fprintf(online_save, "%d\n", phones_online);
+            fclose(online_save);
         }
 
         // Wait for next cycle
