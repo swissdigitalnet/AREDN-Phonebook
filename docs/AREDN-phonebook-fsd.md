@@ -988,48 +988,60 @@ Health Monitoring Thread
 {
   "schema": "meshmon.v2",
   "type": "agent_health",
-  "node": "node-A",
-  "timestamp": 1697234567,
+  "node": "HB9BLA-HAP-2",
+  "timestamp": 1760979845,
+  "sent_at": "2025-10-20T17:04:05Z",
   "reporting_reason": "scheduled",
-  "cpu_pct": 3.2,
-  "mem_mb": 5.8,
-  "uptime_seconds": 86400,
+  "cpu_pct": 0.5,
+  "mem_mb": 0.3,
+  "uptime_seconds": 120,
   "restart_count": 0,
-  "health_score": 98,
+  "health_score": 100,
   "threads": {
     "all_responsive": true,
-    "phonebook_fetcher": {
-      "responsive": true,
-      "last_heartbeat": "2025-10-13T11:55:00Z",
-      "heartbeat_age_seconds": 45
-    },
     "status_updater": {
       "responsive": true,
-      "last_heartbeat": "2025-10-13T11:58:00Z",
-      "heartbeat_age_seconds": 120
+      "last_heartbeat": "2025-10-20T16:49:39Z",
+      "heartbeat_age_seconds": 34
+    },
+    "passive_safety": {
+      "responsive": true,
+      "last_heartbeat": "2025-10-20T17:03:51Z",
+      "heartbeat_age_seconds": 44
     },
     "uac_bulk_tester": {
       "responsive": true,
-      "last_heartbeat": "2025-10-13T11:59:45Z",
-      "heartbeat_age_seconds": 15
+      "last_heartbeat": "2025-10-20T17:04:05Z",
+      "heartbeat_age_seconds": 0
+    },
+    "health_reporter": {
+      "responsive": true,
+      "last_heartbeat": "2025-10-20T17:04:05Z",
+      "heartbeat_age_seconds": 0
+    },
+    "phonebook_fetcher": {
+      "responsive": true,
+      "last_heartbeat": "2025-10-20T16:47:52Z",
+      "heartbeat_age_seconds": 973
     }
   },
   "sip_service": {
-    "registered_users": 3,
-    "directory_entries": 224,
+    "registered_users": 0,
+    "directory_entries": 226,
     "active_calls": 0
   },
   "phonebook": {
-    "last_updated": "2025-10-13T11:00:00Z",
-    "fetch_status": "SUCCESS",
-    "csv_hash": "11A8204BF5C4180A",
-    "entries_loaded": 224
+    "last_updated": "2025-10-20T16:47:51Z",
+    "fetch_status": "BOOT",
+    "csv_hash": "00000000F5C4180A",
+    "entries_loaded": 226
   },
   "checks": {
     "memory_stable": true,
     "no_recent_crashes": true,
     "sip_service_ok": true,
     "phonebook_current": true,
+    "cpu_normal": true,
     "all_threads_responsive": true
   }
 }
@@ -1071,10 +1083,12 @@ The existing AREDNmon dashboard (`/cgi-bin/arednmon`) is enhanced with a **Softw
 ├──────────────────────────────────────────────────────┤
 │                                                       │
 │ ┌─────────────────────────────────────────────────┐ │
-│ │ Software Health                    Score: 98/100│ │ ← NEW
+│ │ Software Health Status                          │ │ ← NEW
 │ │ ─────────────────────────────────────────────── │ │
-│ │ CPU: 3.2% │ Memory: 5.8 MB │ Uptime: 1d 0h    │ │
-│ │ ✓ Fetcher  ✓ Updater  ✓ Tester                │ │
+│ │ CPU: 0.5% │ Memory: 0.3 MB │ Uptime: 2h 15m  │ │
+│ │ SIP: 0 users, 0 calls                          │ │
+│ │ ✓ Memory  ✓ No Crashes  ✓ SIP  ✓ Phonebook    │ │
+│ │ ✓ CPU  ✓ All threads responsive                │ │
 │ └─────────────────────────────────────────────────┘ │
 │                                                       │
 │ Phone Monitoring (existing table)                    │
@@ -1089,23 +1103,33 @@ The existing AREDNmon dashboard (`/cgi-bin/arednmon`) is enhanced with a **Softw
 ```html
 <!-- Added before phone monitoring table -->
 <div class="health-panel">
-    <h2>Software Health <span id="healthScore" class="score">--</span></h2>
+    <div class="health-header">
+        <div class="health-title">Software Health Status</div>
+    </div>
     <div class="health-metrics">
-        <div class="metric">
-            <span class="label">CPU:</span>
-            <span id="cpuUsage">--</span>
+        <div class="health-metric">
+            <div class="health-metric-label">CPU Usage</div>
+            <div class="health-metric-value" id="healthCpu">-</div>
         </div>
-        <div class="metric">
-            <span class="label">Memory:</span>
-            <span id="memUsage">--</span>
+        <div class="health-metric">
+            <div class="health-metric-label">Memory Usage</div>
+            <div class="health-metric-value" id="healthMemory">-</div>
         </div>
-        <div class="metric">
-            <span class="label">Uptime:</span>
-            <span id="uptime">--</span>
+        <div class="health-metric">
+            <div class="health-metric-label">Uptime</div>
+            <div class="health-metric-value" id="healthUptime">-</div>
+        </div>
+        <div class="health-metric">
+            <div class="health-metric-label">SIP Service</div>
+            <div class="health-metric-value" id="healthSipUsers">-</div>
         </div>
     </div>
-    <div id="threadStatus" class="thread-indicators"></div>
-    <div id="healthAlerts"></div>
+    <div class="health-checks" id="healthChecks">
+        <!-- Health checks populated by JavaScript -->
+    </div>
+    <div class="thread-status" id="threadStatus">
+        <!-- Thread status populated by JavaScript -->
+    </div>
 </div>
 ```
 
@@ -1118,54 +1142,62 @@ async function loadHealthStatus() {
         const data = await response.json();
 
         if (data.error) {
-            // Health monitoring not available yet
             return;
         }
 
-        // Update health score with color coding
-        const scoreElement = document.getElementById('healthScore');
-        scoreElement.textContent = data.health_score + '/100';
-        scoreElement.className = getHealthScoreClass(data.health_score);
-
         // Update metrics
-        document.getElementById('cpuUsage').textContent = data.cpu_pct.toFixed(1) + '%';
-        document.getElementById('memUsage').textContent = data.mem_mb.toFixed(1) + ' MB';
-        document.getElementById('uptime').textContent = formatUptime(data.uptime_seconds);
+        document.getElementById('healthCpu').textContent =
+            (data.cpu_pct || 0).toFixed(1) + '%';
+        document.getElementById('healthMemory').textContent =
+            (data.mem_mb || 0).toFixed(1) + ' MB';
 
-        // Update thread status indicators
-        updateThreadStatus(data.threads);
+        // Format uptime
+        const uptimeSeconds = data.uptime_seconds || 0;
+        const hours = Math.floor(uptimeSeconds / 3600);
+        const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+        document.getElementById('healthUptime').textContent =
+            hours + 'h ' + minutes + 'm';
 
-        // Show alerts if health degraded
-        if (data.health_score < 80) {
-            showHealthAlerts(data.checks);
+        // SIP service metrics
+        const users = data.sip_service?.registered_users || 0;
+        const calls = data.sip_service?.active_calls || 0;
+        document.getElementById('healthSipUsers').textContent =
+            users + ' users, ' + calls + ' calls';
+
+        // Update health checks
+        const checks = data.checks || {};
+        const checksHtml = [
+            { label: 'Memory', pass: checks.memory_stable },
+            { label: 'No Crashes', pass: checks.no_recent_crashes },
+            { label: 'SIP Service', pass: checks.sip_service_ok },
+            { label: 'Phonebook', pass: checks.phonebook_current },
+            { label: 'CPU', pass: checks.cpu_normal }
+        ].map(check =>
+            '<span class="health-check ' + (check.pass ? 'pass' : 'fail') + '">' +
+            check.label + ': ' + (check.pass ? '✓' : '✗') + '</span>'
+        ).join('');
+        document.getElementById('healthChecks').innerHTML = checksHtml;
+
+        // Update thread status
+        const threads = data.threads || {};
+        const allResponsive = threads.all_responsive;
+        let threadHtml = '';
+
+        if (allResponsive) {
+            threadHtml = '<span class="thread-status responsive">All threads responsive ✓</span>';
+        } else {
+            // Show individual unresponsive threads
+            const threadNames = ['phonebook_fetcher', 'status_updater', 'passive_safety',
+                               'uac_bulk_tester', 'health_reporter'];
+            threadHtml = threadNames
+                .filter(name => threads[name] && !threads[name].responsive)
+                .map(name => '<span class="thread-status unresponsive">' + name + ' ✗</span>')
+                .join('');
         }
+        document.getElementById('threadStatus').innerHTML = threadHtml;
+
     } catch (error) {
         console.error('Failed to load health status:', error);
-    }
-}
-
-// Health score color coding
-function getHealthScoreClass(score) {
-    if (score >= 90) return 'health-excellent';  // Green
-    if (score >= 70) return 'health-good';       // Yellow
-    if (score >= 50) return 'health-degraded';   // Orange
-    return 'health-critical';                     // Red
-}
-
-// Thread status indicators
-function updateThreadStatus(threads) {
-    const container = document.getElementById('threadStatus');
-    container.innerHTML = '';
-
-    for (const [name, status] of Object.entries(threads)) {
-        if (name === 'all_responsive') continue;
-
-        const indicator = document.createElement('span');
-        indicator.className = 'thread-indicator';
-        indicator.textContent = status.responsive ? '✓' : '✗';
-        indicator.className += status.responsive ? ' responsive' : ' unresponsive';
-        indicator.title = `${name}: ${status.responsive ? 'OK' : 'HUNG'}`;
-        container.appendChild(indicator);
     }
 }
 ```
@@ -1394,7 +1426,46 @@ CRASH_BACKTRACE_DEPTH=5
 - `COLLECTOR_URL`: Must be reachable mesh address
 - Thresholds: Validated at runtime, warnings logged if invalid
 
-### 5.9 File Paths Summary
+### 5.9 Implementation Notes
+
+**Stack Safety (v2.4.5)**:
+- Large `snprintf()` calls with multi-line format strings were split into multiple small calls to prevent stack overflow on embedded systems with limited thread stacks (OpenWrt/musl libc)
+- All temporary string buffers (timestamps, escaped strings) moved to heap allocation via `malloc()` instead of stack arrays
+- JSON output buffer (`2048 bytes`) allocated on heap to reduce stack pressure
+
+**Type Safety (v2.4.5)**:
+- All `time_t` values use `%lld` format specifier with explicit `(long long)` cast for cross-platform compatibility
+- Fixes timestamp and uptime displaying incorrect values (showed `44` instead of Unix timestamp)
+
+**Phonebook Metrics (v2.4.3)**:
+- Phonebook fetcher thread now updates `g_service_metrics.phonebook_*` fields on:
+  - Emergency boot: `fetch_status="BOOT"` when loading existing CSV
+  - Successful fetch: `fetch_status="SUCCESS"` after downloading new CSV
+  - Failed download: `fetch_status="FAILED"` when download fails
+- Metrics include: `last_updated`, `csv_hash`, `entries_loaded`
+
+**Health Checks (v2.4.6)**:
+- Added `cpu_normal` field to JSON output (checks if CPU < 50%)
+- Required by AREDNmon dashboard to display CPU health indicator correctly
+- All health checks: `memory_stable`, `no_recent_crashes`, `sip_service_ok`, `phonebook_current`, `cpu_normal`, `all_threads_responsive`
+
+**Dashboard UI (v2.4.7, v2.4.9)**:
+- Removed health score number and colored box from display
+- Dashboard shows only metrics (CPU, Memory, Uptime, SIP Service) and pass/fail health checks
+- Simplified UI reduces visual clutter while maintaining full monitoring capability
+
+**UAC Test Progress (v2.4.4, v2.4.8)**:
+- Test progress denominator changed from `dns_resolved` (all phones with DNS) to `phones_online` (only reachable phones)
+- Display shows "48 of 48 phones tested (all reachable telephones only)" instead of "48 of 226 phones tested"
+- Previous cycle's `phones_online` count persisted to `/tmp/uac_last_phones_online.txt` (RAM, no flash writes)
+- Ensures accurate progress display even during active 10-minute test cycle
+
+**Memory Management**:
+- All health monitoring files written to `/tmp/` (RAM/tmpfs) to avoid flash wear
+- UAC persistence files in RAM: `/tmp/uac_last_phones_online.txt`, `/tmp/uac_last_dns_resolved.txt`
+- Updated every 10 minutes (once per test cycle) - minimal RAM overhead
+
+### 5.10 File Paths Summary
 
 **Health monitoring files**:
 
