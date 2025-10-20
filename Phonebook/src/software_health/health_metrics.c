@@ -100,20 +100,16 @@ float health_get_cpu_usage(void) {
  * @return RSS in bytes, or 0 on error
  */
 size_t health_get_memory_usage(void) {
-    LOG_INFO("[DEBUG] health_get_memory_usage: START");
 
-    LOG_INFO("[DEBUG] health_get_memory_usage: Opening /proc/self/status");
     FILE *fp = fopen("/proc/self/status", "r");
     if (!fp) {
         LOG_ERROR("Failed to open /proc/self/status");
         return 0;
     }
-    LOG_INFO("[DEBUG] health_get_memory_usage: File opened successfully");
 
     size_t rss_kb = 0;
     char line[256];
 
-    LOG_INFO("[DEBUG] health_get_memory_usage: Starting to read lines");
     // Find VmRSS line
     // Format: VmRSS:    1234 kB
     int line_count = 0;
@@ -121,14 +117,11 @@ size_t health_get_memory_usage(void) {
         line_count++;
         if (strncmp(line, "VmRSS:", 6) == 0) {
             sscanf(line + 6, "%zu", &rss_kb);
-            LOG_INFO("[DEBUG] health_get_memory_usage: Found VmRSS at line %d: %zu kB", line_count, rss_kb);
             break;
         }
     }
-    LOG_INFO("[DEBUG] health_get_memory_usage: Read %d lines total", line_count);
 
     fclose(fp);
-    LOG_INFO("[DEBUG] health_get_memory_usage: File closed");
 
     if (rss_kb == 0) {
         LOG_WARN("Could not read VmRSS from /proc/self/status");
@@ -136,7 +129,6 @@ size_t health_get_memory_usage(void) {
     }
 
     // Convert to bytes
-    LOG_INFO("[DEBUG] health_get_memory_usage: Returning %zu bytes", rss_kb * 1024);
     return rss_kb * 1024;
 }
 
