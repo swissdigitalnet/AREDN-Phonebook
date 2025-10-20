@@ -214,7 +214,6 @@ cat <<'EOF'
     <div class="health-panel" id="healthPanel">
         <div class="health-header">
             <div class="health-title">Software Health Status</div>
-            <div class="health-score" id="healthScore">Loading...</div>
         </div>
         <div class="health-metrics">
             <div class="health-metric">
@@ -286,25 +285,7 @@ cat <<EOF
                 const data = await response.json();
 
                 if (data.error) {
-                    document.getElementById('healthScore').textContent = 'N/A';
-                    document.getElementById('healthScore').className = 'health-score';
                     return;
-                }
-
-                // Update health score
-                const score = data.health_score || 0;
-                const scoreElement = document.getElementById('healthScore');
-                scoreElement.textContent = Math.round(score);
-
-                // Set score color based on thresholds
-                if (score >= 85) {
-                    scoreElement.className = 'health-score excellent';
-                } else if (score >= 70) {
-                    scoreElement.className = 'health-score good';
-                } else if (score >= 50) {
-                    scoreElement.className = 'health-score degraded';
-                } else {
-                    scoreElement.className = 'health-score critical';
                 }
 
                 // Update metrics
@@ -366,8 +347,6 @@ cat <<EOF
 
             } catch (error) {
                 console.error('Failed to load health status:', error);
-                document.getElementById('healthScore').textContent = 'Error';
-                document.getElementById('healthScore').className = 'health-score';
             }
         }
 
