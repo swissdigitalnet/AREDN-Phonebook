@@ -294,7 +294,7 @@ cat <<EOF
                 // Update health score
                 const score = data.health_score || 0;
                 const scoreElement = document.getElementById('healthScore');
-                scoreElement.textContent = Math.round(score) + '/100';
+                scoreElement.textContent = Math.round(score);
 
                 // Set score color based on thresholds
                 if (score >= 85) {
