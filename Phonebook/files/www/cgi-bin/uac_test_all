@@ -1,0 +1,119 @@
+#!/bin/sh
+# UAC Bulk Test Results CGI Script
+# Reads and displays results from /tmp/uac_bulk_results.txt
+
+RESULTS_FILE="/tmp/uac_bulk_results.txt"
+
+# Output HTTP headers
+echo "Content-type: text/html"
+echo ""
+
+# HTML header
+cat <<'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>UAC Bulk Test Results</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .online { color: green; font-weight: bold; }
+        .offline { color: red; font-weight: bold; }
+        .disabled { color: gray; }
+        .unknown { color: orange; }
+        .stats { background-color: #e7f3fe; padding: 10px; margin: 10px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>UAC Bulk Test Results</h1>
+EOF
+
+# Check if results file exists
+if [ ! -f "$RESULTS_FILE" ]; then
+    echo "<p>No test results available yet. The bulk tester may not have completed its first cycle.</p>"
+    echo "<p>Results file: <code>$RESULTS_FILE</code> not found.</p>"
+    echo "</body></html>"
+    exit 0
+fi
+
+# Get file timestamp
+FILE_TIME=$(date -r "$RESULTS_FILE" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "Unknown")
+
+# Count results
+TOTAL_PHONES=$(wc -l < "$RESULTS_FILE" 2>/dev/null || echo 0)
+PING_ONLINE=$(grep -c "|ONLINE|" "$RESULTS_FILE" 2>/dev/null || echo 0)
+OPTIONS_ONLINE=$(awk -F'|' '$6=="ONLINE"' "$RESULTS_FILE" 2>/dev/null | wc -l || echo 0)
+
+# Display statistics
+cat <<EOF
+    <div class="stats">
+        <strong>Last Update:</strong> $FILE_TIME<br>
+        <strong>Total Phones Tested:</strong> $TOTAL_PHONES<br>
+        <strong>Ping Online:</strong> $PING_ONLINE<br>
+        <strong>SIP Options Online:</strong> $OPTIONS_ONLINE
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Phone Number</th>
+                <th>Display Name</th>
+                <th>Ping Status</th>
+                <th>Ping RTT (ms)</th>
+                <th>Ping Jitter (ms)</th>
+                <th>SIP Options Status</th>
+                <th>Options RTT (ms)</th>
+                <th>Options Jitter (ms)</th>
+            </tr>
+        </thead>
+        <tbody>
+EOF
+
+# Read and display results
+while IFS='|' read -r phone_num display_name ping_status ping_rtt ping_jitter options_status options_rtt options_jitter; do
+    # Determine CSS class for status
+    case "$ping_status" in
+        ONLINE) ping_class="online" ;;
+        OFFLINE) ping_class="offline" ;;
+        DISABLED) ping_class="disabled" ;;
+        *) ping_class="unknown" ;;
+    esac
+
+    case "$options_status" in
+        ONLINE) options_class="online" ;;
+        OFFLINE) options_class="offline" ;;
+        DISABLED) options_class="disabled" ;;
+        *) options_class="unknown" ;;
+    esac
+
+    # Format RTT/Jitter to 2 decimal places (or show N/A for 0)
+    [ "$ping_rtt" = "0.00" ] && ping_rtt="N/A"
+    [ "$ping_jitter" = "0.00" ] && ping_jitter="N/A"
+    [ "$options_rtt" = "0.00" ] && options_rtt="N/A"
+    [ "$options_jitter" = "0.00" ] && options_jitter="N/A"
+
+    cat <<EOF
+            <tr>
+                <td>$phone_num</td>
+                <td>$display_name</td>
+                <td class="$ping_class">$ping_status</td>
+                <td>$ping_rtt</td>
+                <td>$ping_jitter</td>
+                <td class="$options_class">$options_status</td>
+                <td>$options_rtt</td>
+                <td>$options_jitter</td>
+            </tr>
+EOF
+done < "$RESULTS_FILE"
+
+# HTML footer
+cat <<'EOF'
+        </tbody>
+    </table>
+</body>
+</html>
+EOF
