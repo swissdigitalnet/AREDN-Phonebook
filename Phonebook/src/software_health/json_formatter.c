@@ -172,26 +172,14 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     LOG_INFO("[STACK] Attempting to read timestamp_str[0]='%c'", timestamp_str ? timestamp_str[0] : '?');
     LOG_INFO("[STACK] Attempting to read reason_str[0]='%c'", reason_str ? reason_str[0] : '?');
 
-    LOG_DEBUG("[JSON_FMT:112f] About to call snprintf...");
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "{\n"
-        "  \"schema\": \"meshmon.v2\",\n"
-        "  \"type\": \"agent_health\",\n"
-        "  \"node\": \"%s\",\n"
-        "  \"timestamp\": %ld,\n"
-        "  \"sent_at\": \"%s\",\n"
-        "  \"reporting_reason\": \"%s\",\n",
-        node_name,
-        now,
-        timestamp_str,
-        reason_str);
+    LOG_INFO("[STACK] All pointer reads successful - snprintf DISABLED for testing");
+    LOG_INFO("[STACK] Returning early to test if crash is from string pointer reads");
 
-    void *stack_after_snprintf = get_stack_pointer();
-    LOG_INFO("[STACK] AFTER snprintf: stack_ptr=%p (used %ld bytes)",
-             stack_after_snprintf,
-             (long)(stack_before_snprintf - stack_after_snprintf));
-
-    LOG_INFO("DEBUG: health_format_agent_health_json() - first snprintf done, offset=%zu", offset);
+    // TESTING: Return early to confirm crash point
+    free(timestamp_str);
+    free(phonebook_updated_str);
+    pthread_mutex_unlock(&g_health_mutex);
+    return -1; // Temporary test return
     LOG_DEBUG("[JSON_FMT:113] header complete, offset=%zu", offset);
 
     // Process metrics
