@@ -97,7 +97,6 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     size_t offset = 0;
 
     // Header
-              (void*)buffer, offset, buffer_size);
     const char *reason_str = health_reason_to_string(reason);
 
 

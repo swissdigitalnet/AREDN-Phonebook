@@ -56,7 +56,6 @@ int software_health_init(void) {
     // Initialize memory health
     memset(&g_memory_health, 0, sizeof(g_memory_health));
     g_memory_health.initial_rss_bytes = health_get_memory_usage();
-             g_memory_health.initial_rss_bytes);
     g_memory_health.current_rss_bytes = g_memory_health.initial_rss_bytes;
     g_memory_health.peak_rss_bytes = g_memory_health.initial_rss_bytes;
     g_memory_health.last_check_time = time(NULL);
