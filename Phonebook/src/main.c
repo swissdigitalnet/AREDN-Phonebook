@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     LOG_INFO("Software health monitoring system initialized");
-    LOG_INFO("=== BUILD VERIFICATION: v2.3.3 (health monitoring with instrumentation - fixed build) ===");
+    LOG_INFO("=== BUILD VERIFICATION: v2.3.4 (health monitoring + reporter enabled) ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
@@ -292,14 +292,13 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     // Phase 4.5: Health Reporter Thread Creation
-    // TEMPORARILY DISABLED: Health monitoring disabled
-    // LOG_INFO("Creating health reporter thread...");
-    // if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
-    //     LOG_ERROR("Failed to create health reporter thread.");
-    //     return EXIT_FAILURE;
-    // }
-    // LOG_INFO("Health reporter thread launched.");
-    // LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
+    LOG_INFO("Creating health reporter thread...");
+    if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create health reporter thread.");
+        return EXIT_FAILURE;
+    }
+    LOG_INFO("Health reporter thread launched.");
+    LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
