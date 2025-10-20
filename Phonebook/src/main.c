@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     LOG_INFO("Software health monitoring system initialized");
-    LOG_INFO("=== BUILD VERIFICATION: v2.4.4 (phonebook metrics + UAC progress fix) ===");
+    LOG_INFO("=== BUILD VERIFICATION: v2.4.5 (fix timestamp/uptime type mismatch) ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);

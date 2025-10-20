@@ -107,14 +107,14 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"schema\": \"meshmon.v2\",\n");
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"type\": \"agent_health\",\n");
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"node\": \"%s\",\n", node_name);
-    offset += snprintf(buffer + offset, buffer_size - offset, "  \"timestamp\": %ld,\n", now);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"timestamp\": %lld,\n", (long long)now);
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"sent_at\": \"%s\",\n", timestamp_str);
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"reporting_reason\": \"%s\",\n", reason_str);
 
     // Process metrics - break into smaller calls
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"cpu_pct\": %.1f,\n", g_cpu_metrics.current_cpu_pct);
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"mem_mb\": %.1f,\n", mem_mb);
-    offset += snprintf(buffer + offset, buffer_size - offset, "  \"uptime_seconds\": %ld,\n", uptime);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"uptime_seconds\": %lld,\n", (long long)uptime);
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"restart_count\": %d,\n", g_process_health.restart_count_24h);
     offset += snprintf(buffer + offset, buffer_size - offset, "  \"health_score\": %.0f,\n", health_score);
 
@@ -144,7 +144,7 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
             offset += snprintf(buffer + offset, buffer_size - offset, "      \"responsive\": %s,\n",
                               g_thread_health[i].is_responsive ? "true" : "false");
             offset += snprintf(buffer + offset, buffer_size - offset, "      \"last_heartbeat\": \"%s\",\n", thread_heartbeat_str);
-            offset += snprintf(buffer + offset, buffer_size - offset, "      \"heartbeat_age_seconds\": %ld\n", heartbeat_age);
+            offset += snprintf(buffer + offset, buffer_size - offset, "      \"heartbeat_age_seconds\": %lld\n", (long long)heartbeat_age);
             offset += snprintf(buffer + offset, buffer_size - offset, "    }");
         }
     }
