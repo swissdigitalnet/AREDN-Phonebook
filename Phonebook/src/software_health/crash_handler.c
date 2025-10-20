@@ -186,7 +186,7 @@ void health_crash_signal_handler(int sig) {
     g_crash_context.crash_count_24h = g_process_health.crash_count_24h + 1;
 
     // Save crash state to file
-    // DISABLED: health_save_crash_state(&g_crash_context);
+    health_save_crash_state(&g_crash_context);
 
     // Log backtrace to syslog (disabled - not available in musl libc)
     // Backtrace functionality removed for musl compatibility
@@ -214,41 +214,36 @@ void health_crash_signal_handler(int sig) {
 void health_setup_crash_handlers(void) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    // DISABLED: sa.sa_handler = health_crash_signal_handler;
+    sa.sa_handler = health_crash_signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
 
     // Install handlers for crash signals
-    // DISABLED: if (sigaction(SIGSEGV, &sa, NULL) != 0) {
-    if (0) {
+    if (sigaction(SIGSEGV, &sa, NULL) != 0) {
         LOG_ERROR("Failed to install SIGSEGV handler");
     } else {
         LOG_DEBUG("Installed SIGSEGV crash handler");
     }
 
-    // DISABLED: if (sigaction(SIGBUS, &sa, NULL) != 0) {
-    if (0) {
+    if (sigaction(SIGBUS, &sa, NULL) != 0) {
         LOG_ERROR("Failed to install SIGBUS handler");
     } else {
         LOG_DEBUG("Installed SIGBUS crash handler");
     }
 
-    // DISABLED: if (sigaction(SIGFPE, &sa, NULL) != 0) {
-    if (0) {
+    if (sigaction(SIGFPE, &sa, NULL) != 0) {
         LOG_ERROR("Failed to install SIGFPE handler");
     } else {
         LOG_DEBUG("Installed SIGFPE crash handler");
     }
 
-    // DISABLED: if (sigaction(SIGABRT, &sa, NULL) != 0) {
-    if (0) {
+    if (sigaction(SIGABRT, &sa, NULL) != 0) {
         LOG_ERROR("Failed to install SIGABRT handler");
     } else {
         LOG_DEBUG("Installed SIGABRT crash handler");
     }
 
-    // DISABLED: if (sigaction(SIGILL, &sa, NULL) != 0) {
-    if (0) {
+    if (sigaction(SIGILL, &sa, NULL) != 0) {
         LOG_ERROR("Failed to install SIGILL handler");
     } else {
         LOG_DEBUG("Installed SIGILL crash handler");

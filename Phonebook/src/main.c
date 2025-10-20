@@ -27,8 +27,9 @@
 #include "uac/uac.h"                    // For UAC load testing module
 #include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
 #include "uac/uac_ping.h"               // For UAC ping/options testing
-// TEMPORARILY DISABLED: Health monitoring causing segfault
-// #include "software_health/software_health.h" // For health monitoring system
+// Full health monitoring temporarily disabled due to segfault
+// Using minimal crash detection instead
+#include "software_health/crash_detection_minimal.h" // For crash signal handlers
 
 // Define MODULE_NAME specific to main.c
 #define MODULE_NAME "MAIN"
@@ -173,16 +174,16 @@ int main(int argc, char *argv[]) {
     // --- Passive Safety: Self-correct configuration ---
     validate_and_correct_config(); // Fix common config errors automatically
 
-    // --- Initialize health monitoring system ---
-    // TEMPORARILY DISABLED: Health monitoring causing segfault
-    // TODO: Debug and re-enable health monitoring
-    // LOG_INFO("Initializing software health monitoring...");
-    // if (software_health_init() != 0) {
-    //     LOG_ERROR("Failed to initialize health monitoring system");
-    //     return EXIT_FAILURE;
-    // }
-    // LOG_INFO("Health monitoring system initialized");
-    LOG_INFO("=== BUILD VERIFICATION: v2.3.0 (health monitoring disabled) ===");
+    // --- Initialize crash detection system ---
+    // Full health monitoring disabled due to segfault
+    // Using minimal crash detection for signal handlers and crash logging
+    LOG_INFO("Initializing crash detection system...");
+    if (crash_detection_init() != 0) {
+        LOG_ERROR("Failed to initialize crash detection system");
+        return EXIT_FAILURE;
+    }
+    LOG_INFO("Crash detection system initialized");
+    LOG_INFO("=== BUILD VERIFICATION: v2.3.1 (crash detection enabled) ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
