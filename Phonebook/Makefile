@@ -39,8 +39,7 @@ endef
 
 define Build/Compile
 	# Build main AREDN-Phonebook server with UAC support
-	# Note: Health monitoring temporarily disabled due to segfault
-	#       Using minimal crash detection instead
+	# Note: Health monitoring re-enabled with instrumentation for crash debugging
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \
 		-static \
 		-I$(PKG_BUILD_DIR) \
@@ -62,8 +61,10 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/uac/uac_test_db.c \
 		$(PKG_BUILD_DIR)/uac/uac_sip_builder.c \
 		$(PKG_BUILD_DIR)/uac/uac_sip_parser.c \
-		$(PKG_BUILD_DIR)/software_health/health_stubs.c \
-		$(PKG_BUILD_DIR)/software_health/crash_detection_minimal.c \
+		$(PKG_BUILD_DIR)/software_health/software_health.c \
+		$(PKG_BUILD_DIR)/software_health/health_metrics.c \
+		$(PKG_BUILD_DIR)/software_health/health_checks.c \
+		$(PKG_BUILD_DIR)/software_health/health_reporter.c \
 		$(PKG_BUILD_DIR)/software_health/crash_handler.c \
 		-lpthread -lm -lrt
 

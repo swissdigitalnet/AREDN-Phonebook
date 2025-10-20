@@ -31,68 +31,99 @@ static char g_node_name[HEALTH_MAX_NODE_NAME_LEN] = "unknown";
 // ============================================================================
 
 int software_health_init(void) {
+    LOG_INFO("[DEBUG] software_health_init: ENTRY POINT");
+
     if (g_health_initialized) {
         LOG_WARN("Health monitoring already initialized");
         return 0;
     }
 
+    LOG_INFO("[DEBUG] software_health_init: Starting initialization");
     LOG_INFO("Initializing software health monitoring system");
 
+    LOG_INFO("[DEBUG] software_health_init: Attempting to lock mutex");
     pthread_mutex_lock(&g_health_mutex);
+    LOG_INFO("[DEBUG] software_health_init: Mutex locked successfully");
 
     // Initialize process health
+    LOG_INFO("[DEBUG] software_health_init: Clearing process_health struct");
     memset(&g_process_health, 0, sizeof(g_process_health));
+    LOG_INFO("[DEBUG] software_health_init: Setting process start time");
     g_process_health.process_start_time = time(NULL);
     g_process_health.last_restart_time = time(NULL);
+    LOG_INFO("[DEBUG] software_health_init: Process health initialized");
 
     // Initialize thread health slots
+    LOG_INFO("[DEBUG] software_health_init: Initializing %d thread health slots", HEALTH_MAX_THREADS);
     for (int i = 0; i < HEALTH_MAX_THREADS; i++) {
         memset(&g_thread_health[i], 0, sizeof(thread_health_t));
         g_thread_health[i].is_active = false;
     }
+    LOG_INFO("[DEBUG] software_health_init: Thread health slots initialized");
 
     // Initialize memory health
+    LOG_INFO("[DEBUG] software_health_init: Clearing memory_health struct");
     memset(&g_memory_health, 0, sizeof(g_memory_health));
+    LOG_INFO("[DEBUG] software_health_init: About to call health_get_memory_usage()");
     g_memory_health.initial_rss_bytes = health_get_memory_usage();
+    LOG_INFO("[DEBUG] software_health_init: health_get_memory_usage() returned: %zu bytes",
+             g_memory_health.initial_rss_bytes);
     g_memory_health.current_rss_bytes = g_memory_health.initial_rss_bytes;
     g_memory_health.peak_rss_bytes = g_memory_health.initial_rss_bytes;
     g_memory_health.last_check_time = time(NULL);
+    LOG_INFO("[DEBUG] software_health_init: Memory health initialized");
 
     // Initialize CPU metrics
+    LOG_INFO("[DEBUG] software_health_init: Clearing cpu_metrics struct");
     memset(&g_cpu_metrics, 0, sizeof(g_cpu_metrics));
     g_cpu_metrics.last_check_time = time(NULL);
     g_cpu_metrics.current_cpu_pct = 0.0f;
+    LOG_INFO("[DEBUG] software_health_init: CPU metrics initialized");
 
     // Initialize service metrics
+    LOG_INFO("[DEBUG] software_health_init: Clearing service_metrics struct");
     memset(&g_service_metrics, 0, sizeof(g_service_metrics));
     strncpy(g_service_metrics.phonebook_fetch_status, "UNKNOWN",
             sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+    LOG_INFO("[DEBUG] software_health_init: Service metrics initialized");
 
     // Initialize health checks
+    LOG_INFO("[DEBUG] software_health_init: Clearing health_checks struct");
     memset(&g_health_checks, 0, sizeof(g_health_checks));
     g_health_checks.memory_stable = true;
     g_health_checks.no_recent_crashes = true;
     g_health_checks.all_threads_responsive = true;
+    LOG_INFO("[DEBUG] software_health_init: Health checks initialized");
 
     // Get node name from hostname
+    LOG_INFO("[DEBUG] software_health_init: Getting hostname");
     char hostname[HEALTH_MAX_NODE_NAME_LEN];
     if (gethostname(hostname, sizeof(hostname)) == 0) {
         strncpy(g_node_name, hostname, sizeof(g_node_name) - 1);
         g_node_name[sizeof(g_node_name) - 1] = '\0';
+        LOG_INFO("[DEBUG] software_health_init: Hostname retrieved: %s", g_node_name);
+    } else {
+        LOG_INFO("[DEBUG] software_health_init: gethostname() failed");
     }
 
     g_health_initialized = true;
+    LOG_INFO("[DEBUG] software_health_init: Marked as initialized");
 
+    LOG_INFO("[DEBUG] software_health_init: Unlocking mutex");
     pthread_mutex_unlock(&g_health_mutex);
+    LOG_INFO("[DEBUG] software_health_init: Mutex unlocked");
 
     LOG_INFO("Software health monitoring initialized (node: %s)", g_node_name);
 
     // Check for previous crash
+    LOG_INFO("[DEBUG] software_health_init: Checking for previous crash");
     if (health_load_crash_state()) {
         LOG_WARN("Previous crash detected - crash report will be sent");
         g_process_health.restart_count_24h++;
     }
+    LOG_INFO("[DEBUG] software_health_init: Previous crash check completed");
 
+    LOG_INFO("[DEBUG] software_health_init: RETURNING SUCCESS");
     return 0;
 }
 
@@ -338,26 +369,42 @@ void health_record_crash(int signal, const char *reason) {
 }
 
 bool health_load_crash_state(void) {
+    LOG_INFO("[DEBUG] health_load_crash_state: ENTRY POINT");
+
+    LOG_INFO("[DEBUG] health_load_crash_state: Allocating crash_context_t struct");
     crash_context_t ctx;
+    LOG_INFO("[DEBUG] health_load_crash_state: Calling health_load_crash_state_from_file()");
     int result = health_load_crash_state_from_file(&ctx);
+    LOG_INFO("[DEBUG] health_load_crash_state: health_load_crash_state_from_file() returned %d", result);
 
     if (result == 0) {
+        LOG_INFO("[DEBUG] health_load_crash_state: Previous crash found, formatting JSON report");
         // Crash state found - save as JSON for dashboard
+        LOG_INFO("[DEBUG] health_load_crash_state: Allocating 4KB JSON buffer");
         char json_buffer[4096];
+        LOG_INFO("[DEBUG] health_load_crash_state: Calling health_format_crash_report_json()");
         health_format_crash_report_json(json_buffer, sizeof(json_buffer), &ctx);
+        LOG_INFO("[DEBUG] health_load_crash_state: health_format_crash_report_json() completed");
 
+        LOG_INFO("[DEBUG] health_load_crash_state: Opening crash report JSON file");
         FILE *fp = fopen(CRASH_REPORT_JSON_PATH, "w");
         if (fp) {
+            LOG_INFO("[DEBUG] health_load_crash_state: File opened, writing %zu bytes", strlen(json_buffer));
             fwrite(json_buffer, 1, strlen(json_buffer), fp);
             fclose(fp);
+            LOG_INFO("[DEBUG] health_load_crash_state: File written and closed");
+        } else {
+            LOG_WARN("[DEBUG] health_load_crash_state: Failed to open crash report file");
         }
 
         // Send to collector if enabled
         // DISABLED: health_send_to_collector(REASON_CRASH); // Only testing JSON formatter, not collector
 
+        LOG_INFO("[DEBUG] health_load_crash_state: Returning true (crash found)");
         return true;
     }
 
+    LOG_INFO("[DEBUG] health_load_crash_state: No previous crash found, returning false");
     return false;
 }
 
