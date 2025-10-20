@@ -8,6 +8,7 @@
 #include "../common.h"
 #include "../log_manager/log_manager.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -167,9 +168,16 @@ int health_http_post_json(const char *url, const char *json_data, int timeout_se
 
     // Build HTTP POST request
     size_t content_length = strlen(json_data);
-    char http_request[8192];
 
-    int request_len = snprintf(http_request, sizeof(http_request),
+    // Allocate HTTP request buffer on heap (8KB is too large for stack)
+    char *http_request = malloc(8192);
+    if (!http_request) {
+        LOG_ERROR("Failed to allocate memory for HTTP request buffer");
+        close(sockfd);
+        return -1;
+    }
+
+    int request_len = snprintf(http_request, 8192,
         "POST %s HTTP/1.1\r\n"
         "Host: %s:%d\r\n"
         "Content-Type: application/json\r\n"
@@ -184,8 +192,9 @@ int health_http_post_json(const char *url, const char *json_data, int timeout_se
         content_length,
         json_data);
 
-    if (request_len >= sizeof(http_request)) {
+    if (request_len >= 8192) {
         LOG_ERROR("HTTP request too large");
+        free(http_request);
         close(sockfd);
         return -1;
     }
@@ -196,23 +205,35 @@ int health_http_post_json(const char *url, const char *json_data, int timeout_se
     ssize_t sent = send(sockfd, http_request, request_len, 0);
     if (sent < 0) {
         LOG_ERROR("Failed to send HTTP request: %s", strerror(errno));
+        free(http_request);
         close(sockfd);
         return -1;
     }
 
     if (sent != request_len) {
         LOG_ERROR("Incomplete send: %zd of %d bytes", sent, request_len);
+        free(http_request);
         close(sockfd);
         return -1;
     }
 
-    // Read response
-    char response[4096];
-    ssize_t received = recv(sockfd, response, sizeof(response) - 1, 0);
+    // Request sent successfully, can free now
+    free(http_request);
+
+    // Allocate response buffer on heap (4KB is too large for stack)
+    char *response = malloc(4096);
+    if (!response) {
+        LOG_ERROR("Failed to allocate memory for HTTP response buffer");
+        close(sockfd);
+        return -1;
+    }
+
+    ssize_t received = recv(sockfd, response, 4096 - 1, 0);
     close(sockfd);
 
     if (received < 0) {
         LOG_ERROR("Failed to receive HTTP response: %s", strerror(errno));
+        free(response);
         return -1;
     }
 
@@ -224,20 +245,24 @@ int health_http_post_json(const char *url, const char *json_data, int timeout_se
     // Format: HTTP/1.1 200 OK
     if (received < 12) {
         LOG_ERROR("HTTP response too short");
+        free(response);
         return -1;
     }
 
     int status_code = 0;
     if (sscanf(response, "HTTP/1.%*d %d", &status_code) != 1) {
         LOG_ERROR("Failed to parse HTTP status code");
+        free(response);
         return -1;
     }
 
     if (status_code == 200) {
         LOG_DEBUG("HTTP POST successful (200 OK)");
+        free(response);
         return 0;
     } else {
         LOG_WARN("HTTP POST failed with status %d", status_code);
+        free(response);
         return -1;
     }
 }

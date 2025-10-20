@@ -7,6 +7,7 @@
 #include "../common.h"
 #include "../log_manager/log_manager.h"
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
 
@@ -277,27 +278,69 @@ void health_update_metrics(void) {
 // REPORTING
 // ============================================================================
 
+// Stack monitoring helper (same as in json_formatter.c)
+static inline void* get_stack_pointer(void) {
+    void *sp;
+    #if defined(__x86_64__) || defined(__amd64__)
+        __asm__ volatile ("movq %%rsp, %0" : "=r"(sp));
+    #elif defined(__i386__)
+        __asm__ volatile ("movl %%esp, %0" : "=r"(sp));
+    #elif defined(__arm__)
+        __asm__ volatile ("mov %0, sp" : "=r"(sp));
+    #elif defined(__aarch64__)
+        __asm__ volatile ("mov %0, sp" : "=r"(sp));
+    #elif defined(__mips__)
+        __asm__ volatile ("move %0, $sp" : "=r"(sp));
+    #else
+        sp = &sp;  // Fallback
+    #endif
+    return sp;
+}
+
 int health_write_status_file(health_report_reason_t reason) {
+    void *stack_entry = get_stack_pointer();
+    LOG_INFO("[STACK] health_write_status_file ENTRY: stack_ptr=%p", stack_entry);
+
     LOG_INFO("[HEALTH_WRITE] Function called, reason=%d", reason);
     if (!g_health_initialized) {
         LOG_WARN("[HEALTH_WRITE] Not initialized, returning -1");
         return -1;
     }
 
-    LOG_INFO("[HEALTH_WRITE] Allocating 2KB buffer for JSON (stack-safe for embedded)");
-    char json_buffer[2048];  // 2KB is sufficient for exception-based reporting
-    LOG_INFO("[HEALTH_WRITE] Buffer allocated at %p, size=%zu", (void*)json_buffer, sizeof(json_buffer));
+    void *stack_before_malloc = get_stack_pointer();
+    LOG_INFO("[STACK] BEFORE malloc: stack_ptr=%p", stack_before_malloc);
+
+    LOG_INFO("[HEALTH_WRITE] Allocating 2KB buffer on HEAP (stack-safe)");
+    char *json_buffer = malloc(2048);
+    if (!json_buffer) {
+        LOG_ERROR("Failed to allocate memory for JSON buffer");
+        return -1;
+    }
+
+    void *stack_after_malloc = get_stack_pointer();
+    LOG_INFO("[STACK] AFTER malloc: stack_ptr=%p (heap alloc, stack unchanged)", stack_after_malloc);
+    LOG_INFO("[HEALTH_WRITE] Buffer allocated at %p, size=%zu", (void*)json_buffer, 2048UL);
+
+    void *stack_before_format = get_stack_pointer();
+    LOG_INFO("[STACK] BEFORE health_format_agent_health_json: stack_ptr=%p", stack_before_format);
+
     LOG_INFO("[HEALTH_WRITE] Calling health_format_agent_health_json...");
-    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
+    int result = health_format_agent_health_json(json_buffer, 2048, reason);
+
+    void *stack_after_format = get_stack_pointer();
+    LOG_INFO("[STACK] AFTER health_format_agent_health_json: stack_ptr=%p (returned from call)", stack_after_format);
+
     LOG_INFO("[HEALTH_WRITE] health_format_agent_health_json returned %d", result);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON");
+        free(json_buffer);
         return -1;
     }
 
     FILE *fp = fopen(HEALTH_STATUS_JSON_PATH, "w");
     if (!fp) {
         LOG_ERROR("Failed to open health status file: %s", HEALTH_STATUS_JSON_PATH);
+        free(json_buffer);
         return -1;
     }
 
@@ -306,10 +349,12 @@ int health_write_status_file(health_report_reason_t reason) {
 
     if (written != strlen(json_buffer)) {
         LOG_ERROR("Failed to write complete health status file");
+        free(json_buffer);
         return -1;
     }
 
     LOG_DEBUG("Wrote health status to %s (%zu bytes)", HEALTH_STATUS_JSON_PATH, written);
+    free(json_buffer);
     return 0;
 }
 
@@ -327,10 +372,16 @@ int health_send_to_collector(health_report_reason_t reason) {
         return 0; // Not an error, just disabled
     }
 
-    char json_buffer[2048];  // 2KB is sufficient for exception-based reporting
-    int result = health_format_agent_health_json(json_buffer, sizeof(json_buffer), reason);
+    char *json_buffer = malloc(2048);
+    if (!json_buffer) {
+        LOG_ERROR("Failed to allocate memory for JSON buffer");
+        return -1;
+    }
+
+    int result = health_format_agent_health_json(json_buffer, 2048, reason);
     if (result != 0) {
         LOG_ERROR("Failed to format health JSON for collector");
+        free(json_buffer);
         return -1;
     }
 
@@ -339,11 +390,13 @@ int health_send_to_collector(health_report_reason_t reason) {
     if (result != 0) {
         LOG_WARN("Failed to send health data to collector (reason: %s)",
                  health_reason_to_string(reason));
+        free(json_buffer);
         return -1;
     }
 
     LOG_INFO("Sent health report to collector (reason: %s)",
              health_reason_to_string(reason));
+    free(json_buffer);
     return 0;
 }
 
@@ -369,6 +422,8 @@ void health_record_crash(int signal, const char *reason) {
 }
 
 bool health_load_crash_state(void) {
+    void *stack_entry = get_stack_pointer();
+    LOG_INFO("[STACK] health_load_crash_state ENTRY: stack_ptr=%p", stack_entry);
     LOG_INFO("[DEBUG] health_load_crash_state: ENTRY POINT");
 
     LOG_INFO("[DEBUG] health_load_crash_state: Allocating crash_context_t struct");
@@ -379,11 +434,23 @@ bool health_load_crash_state(void) {
 
     if (result == 0) {
         LOG_INFO("[DEBUG] health_load_crash_state: Previous crash found, formatting JSON report");
+
+        void *stack_before_malloc = get_stack_pointer();
+        LOG_INFO("[STACK] BEFORE malloc: stack_ptr=%p", stack_before_malloc);
+
         // Crash state found - save as JSON for dashboard
-        LOG_INFO("[DEBUG] health_load_crash_state: Allocating 4KB JSON buffer");
-        char json_buffer[4096];
+        LOG_INFO("[DEBUG] health_load_crash_state: Allocating 2KB JSON buffer on HEAP (was 4KB stack)");
+        char *json_buffer = malloc(2048);
+        if (!json_buffer) {
+            LOG_ERROR("Failed to allocate memory for crash report JSON buffer");
+            return false;
+        }
+
+        void *stack_after_malloc = get_stack_pointer();
+        LOG_INFO("[STACK] AFTER malloc: stack_ptr=%p (heap alloc, stack unchanged)", stack_after_malloc);
+
         LOG_INFO("[DEBUG] health_load_crash_state: Calling health_format_crash_report_json()");
-        health_format_crash_report_json(json_buffer, sizeof(json_buffer), &ctx);
+        health_format_crash_report_json(json_buffer, 2048, &ctx);
         LOG_INFO("[DEBUG] health_load_crash_state: health_format_crash_report_json() completed");
 
         LOG_INFO("[DEBUG] health_load_crash_state: Opening crash report JSON file");
@@ -396,6 +463,8 @@ bool health_load_crash_state(void) {
         } else {
             LOG_WARN("[DEBUG] health_load_crash_state: Failed to open crash report file");
         }
+
+        free(json_buffer);  // Free heap allocation
 
         // Send to collector if enabled
         // DISABLED: health_send_to_collector(REASON_CRASH); // Only testing JSON formatter, not collector

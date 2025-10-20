@@ -13,6 +13,32 @@
 // execinfo.h not available in musl libc (OpenWrt) - backtrace disabled
 
 // ============================================================================
+// STACK MONITORING HELPERS
+// ============================================================================
+
+/**
+ * Get current stack pointer address (for debugging stack usage)
+ */
+static inline void* get_stack_pointer(void) {
+    void *sp;
+    #if defined(__x86_64__) || defined(__amd64__)
+        __asm__ volatile ("movq %%rsp, %0" : "=r"(sp));
+    #elif defined(__i386__)
+        __asm__ volatile ("movl %%esp, %0" : "=r"(sp));
+    #elif defined(__arm__)
+        __asm__ volatile ("mov %0, sp" : "=r"(sp));
+    #elif defined(__aarch64__)
+        __asm__ volatile ("mov %0, sp" : "=r"(sp));
+    #elif defined(__mips__)
+        __asm__ volatile ("move %0, $sp" : "=r"(sp));
+    #else
+        // Fallback: get approximate stack location via local variable address
+        sp = &sp;
+    #endif
+    return sp;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -66,6 +92,9 @@ static void json_escape(const char *input, char *output, size_t output_size) {
  */
 int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
+    void *stack_start = get_stack_pointer();
+    LOG_INFO("[STACK] health_format_agent_health_json ENTRY: stack_ptr=%p", stack_start);
+
     LOG_DEBUG("[JSON_FMT:100] health_format_agent_health_json START, buffer_size=%zu, reason=%d", buffer_size, reason);
     LOG_DEBUG("[JSON_FMT:100a] About to declare extern variables");
     extern process_health_t g_process_health;
@@ -124,6 +153,10 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     LOG_DEBUG("[JSON_FMT:112d] timestamp_str=%p (%s)", (void*)timestamp_str, timestamp_str);
     const char *reason_str = health_reason_to_string(reason);
     LOG_DEBUG("[JSON_FMT:112e] reason_str=%p (%s)", (void*)reason_str, reason_str ? reason_str : "NULL");
+
+    void *stack_before_snprintf = get_stack_pointer();
+    LOG_INFO("[STACK] BEFORE snprintf: stack_ptr=%p", stack_before_snprintf);
+
     LOG_DEBUG("[JSON_FMT:112f] About to call snprintf...");
     offset += snprintf(buffer + offset, buffer_size - offset,
         "{\n"
@@ -137,6 +170,12 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
         now,
         timestamp_str,
         reason_str);
+
+    void *stack_after_snprintf = get_stack_pointer();
+    LOG_INFO("[STACK] AFTER snprintf: stack_ptr=%p (used %ld bytes)",
+             stack_after_snprintf,
+             (long)(stack_before_snprintf - stack_after_snprintf));
+
     LOG_INFO("DEBUG: health_format_agent_health_json() - first snprintf done, offset=%zu", offset);
     LOG_DEBUG("[JSON_FMT:113] header complete, offset=%zu", offset);
 
