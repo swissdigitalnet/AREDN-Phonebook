@@ -172,37 +172,33 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     LOG_INFO("[STACK] Attempting to read timestamp_str[0]='%c'", timestamp_str ? timestamp_str[0] : '?');
     LOG_INFO("[STACK] Attempting to read reason_str[0]='%c'", reason_str ? reason_str[0] : '?');
 
-    LOG_INFO("[STACK] All pointer reads successful - snprintf DISABLED for testing");
-    LOG_INFO("[STACK] Returning early to test if crash is from string pointer reads");
+    LOG_INFO("[STACK] All pointer reads successful");
 
-    // TESTING: Return early to confirm crash point
-    free(timestamp_str);
-    free(phonebook_updated_str);
-    pthread_mutex_unlock(&g_health_mutex);
-    return -1; // Temporary test return
+    // SOLUTION: Break large snprintf into multiple small calls to reduce stack usage
+    // Each snprintf uses less internal working memory
+    offset += snprintf(buffer + offset, buffer_size - offset, "{\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"schema\": \"meshmon.v2\",\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"type\": \"agent_health\",\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"node\": \"%s\",\n", node_name);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"timestamp\": %ld,\n", now);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"sent_at\": \"%s\",\n", timestamp_str);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"reporting_reason\": \"%s\",\n", reason_str);
     LOG_DEBUG("[JSON_FMT:113] header complete, offset=%zu", offset);
 
-    // Process metrics
+    // Process metrics - break into smaller calls
     LOG_DEBUG("[JSON_FMT:114] building process metrics");
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"cpu_pct\": %.1f,\n"
-        "  \"mem_mb\": %.1f,\n"
-        "  \"uptime_seconds\": %ld,\n"
-        "  \"restart_count\": %d,\n"
-        "  \"health_score\": %.0f,\n",
-        g_cpu_metrics.current_cpu_pct,
-        mem_mb,
-        uptime,
-        g_process_health.restart_count_24h,
-        health_score);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"cpu_pct\": %.1f,\n", g_cpu_metrics.current_cpu_pct);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"mem_mb\": %.1f,\n", mem_mb);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"uptime_seconds\": %ld,\n", uptime);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"restart_count\": %d,\n", g_process_health.restart_count_24h);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"health_score\": %.0f,\n", health_score);
     LOG_DEBUG("[JSON_FMT:115] process metrics complete, offset=%zu", offset);
 
-    // Threads section
+    // Threads section - break into smaller calls
     LOG_DEBUG("[JSON_FMT:116] building threads section");
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"threads\": {\n"
-        "    \"all_responsive\": %s",
-        g_health_checks.all_threads_responsive ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"threads\": {\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"all_responsive\": %s",
+                      g_health_checks.all_threads_responsive ? "true" : "false");
     LOG_DEBUG("[JSON_FMT:117] threads header done, offset=%zu", offset);
 
     // Individual threads - allocate heartbeat string buffer once (reused in loop)
@@ -226,16 +222,13 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
             time_t heartbeat_age = now - g_thread_health[i].last_heartbeat;
             LOG_DEBUG("[JSON_FMT:122] thread %d heartbeat_age=%ld", i, heartbeat_age);
 
-            offset += snprintf(buffer + offset, buffer_size - offset,
-                ",\n    \"%s\": {\n"
-                "      \"responsive\": %s,\n"
-                "      \"last_heartbeat\": \"%s\",\n"
-                "      \"heartbeat_age_seconds\": %ld\n"
-                "    }",
-                g_thread_health[i].name,
-                g_thread_health[i].is_responsive ? "true" : "false",
-                thread_heartbeat_str,
-                heartbeat_age);
+            // Break thread info into smaller snprintf calls
+            offset += snprintf(buffer + offset, buffer_size - offset, ",\n    \"%s\": {\n", g_thread_health[i].name);
+            offset += snprintf(buffer + offset, buffer_size - offset, "      \"responsive\": %s,\n",
+                              g_thread_health[i].is_responsive ? "true" : "false");
+            offset += snprintf(buffer + offset, buffer_size - offset, "      \"last_heartbeat\": \"%s\",\n", thread_heartbeat_str);
+            offset += snprintf(buffer + offset, buffer_size - offset, "      \"heartbeat_age_seconds\": %ld\n", heartbeat_age);
+            offset += snprintf(buffer + offset, buffer_size - offset, "    }");
             LOG_DEBUG("[JSON_FMT:123] thread %d data appended, offset=%zu", i, offset);
         }
     }
@@ -247,17 +240,16 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     offset += snprintf(buffer + offset, buffer_size - offset, "\n  },\n");
     LOG_DEBUG("[JSON_FMT:125] threads section closed, offset=%zu", offset);
 
-    // SIP service metrics
+    // SIP service metrics - break into smaller calls
     LOG_DEBUG("[JSON_FMT:126] building SIP service metrics");
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"sip_service\": {\n"
-        "    \"registered_users\": %d,\n"
-        "    \"directory_entries\": %d,\n"
-        "    \"active_calls\": %d\n"
-        "  },\n",
-        g_service_metrics.registered_users_count,
-        g_service_metrics.directory_entries_count,
-        g_service_metrics.active_calls_count);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"sip_service\": {\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"registered_users\": %d,\n",
+                      g_service_metrics.registered_users_count);
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"directory_entries\": %d,\n",
+                      g_service_metrics.directory_entries_count);
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"active_calls\": %d\n",
+                      g_service_metrics.active_calls_count);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  },\n");
     LOG_DEBUG("[JSON_FMT:127] SIP service metrics complete, offset=%zu", offset);
 
     // Phonebook status - use heap allocation (stack-safe)
@@ -274,34 +266,31 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
     json_escape(g_service_metrics.phonebook_csv_hash, csv_hash_escaped, 64);
     LOG_DEBUG("[JSON_FMT:130] json_escape complete, csv_hash_escaped='%s'", csv_hash_escaped);
 
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"phonebook\": {\n"
-        "    \"last_updated\": \"%s\",\n"
-        "    \"fetch_status\": \"%s\",\n"
-        "    \"csv_hash\": \"%s\",\n"
-        "    \"entries_loaded\": %d\n"
-        "  },\n",
-        phonebook_updated_str,
-        g_service_metrics.phonebook_fetch_status,
-        csv_hash_escaped,
-        g_service_metrics.phonebook_entries_loaded);
+    // Break phonebook section into smaller calls
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"phonebook\": {\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"last_updated\": \"%s\",\n", phonebook_updated_str);
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"fetch_status\": \"%s\",\n",
+                      g_service_metrics.phonebook_fetch_status);
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"csv_hash\": \"%s\",\n", csv_hash_escaped);
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"entries_loaded\": %d\n",
+                      g_service_metrics.phonebook_entries_loaded);
+    offset += snprintf(buffer + offset, buffer_size - offset, "  },\n");
     LOG_DEBUG("[JSON_FMT:131] phonebook status complete, offset=%zu", offset);
 
-    // Health checks
+    // Health checks - break into smaller calls
     LOG_DEBUG("[JSON_FMT:132] building health checks");
-    offset += snprintf(buffer + offset, buffer_size - offset,
-        "  \"checks\": {\n"
-        "    \"memory_stable\": %s,\n"
-        "    \"no_recent_crashes\": %s,\n"
-        "    \"sip_service_ok\": %s,\n"
-        "    \"phonebook_current\": %s,\n"
-        "    \"all_threads_responsive\": %s\n"
-        "  }\n",
-        g_health_checks.memory_stable ? "true" : "false",
-        g_health_checks.no_recent_crashes ? "true" : "false",
-        g_health_checks.sip_service_ok ? "true" : "false",
-        g_health_checks.phonebook_current ? "true" : "false",
-        g_health_checks.all_threads_responsive ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "  \"checks\": {\n");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"memory_stable\": %s,\n",
+                      g_health_checks.memory_stable ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"no_recent_crashes\": %s,\n",
+                      g_health_checks.no_recent_crashes ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"sip_service_ok\": %s,\n",
+                      g_health_checks.sip_service_ok ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"phonebook_current\": %s,\n",
+                      g_health_checks.phonebook_current ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"all_threads_responsive\": %s\n",
+                      g_health_checks.all_threads_responsive ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "  }\n");
     LOG_DEBUG("[JSON_FMT:133] health checks complete, offset=%zu", offset);
 
     // Close JSON
