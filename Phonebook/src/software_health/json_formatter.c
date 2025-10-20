@@ -67,13 +67,21 @@ static void json_escape(const char *input, char *output, size_t output_size) {
 int health_format_agent_health_json(char *buffer, size_t buffer_size,
                                      health_report_reason_t reason) {
     LOG_DEBUG("[JSON_FMT:100] health_format_agent_health_json START, buffer_size=%zu, reason=%d", buffer_size, reason);
+    LOG_DEBUG("[JSON_FMT:100a] About to declare extern variables");
     extern process_health_t g_process_health;
+    LOG_DEBUG("[JSON_FMT:100b] Declared g_process_health");
     extern thread_health_t g_thread_health[HEALTH_MAX_THREADS];
+    LOG_DEBUG("[JSON_FMT:100c] Declared g_thread_health array");
     extern memory_health_t g_memory_health;
+    LOG_DEBUG("[JSON_FMT:100d] Declared g_memory_health");
     extern cpu_metrics_t g_cpu_metrics;
+    LOG_DEBUG("[JSON_FMT:100e] Declared g_cpu_metrics");
     extern service_metrics_t g_service_metrics;
+    LOG_DEBUG("[JSON_FMT:100f] Declared g_service_metrics");
     extern health_checks_t g_health_checks;
+    LOG_DEBUG("[JSON_FMT:100g] Declared g_health_checks");
     extern pthread_mutex_t g_health_mutex;
+    LOG_DEBUG("[JSON_FMT:100h] Declared g_health_mutex");
 
     LOG_DEBUG("[JSON_FMT:101] before mutex_lock");
     pthread_mutex_lock(&g_health_mutex);

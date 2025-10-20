@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     LOG_INFO("Software health monitoring system initialized");
-    LOG_INFO("=== BUILD VERIFICATION: v2.3.4 (health monitoring + reporter enabled) ===");
+    LOG_INFO("=== BUILD VERIFICATION: v2.3.5 (debug JSON formatter crash location) ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);
