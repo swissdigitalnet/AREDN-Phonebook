@@ -84,6 +84,32 @@ void *phonebook_fetcher_thread(void *arg) {
         LOG_INFO("Emergency boot: SIP user database loaded from persistent storage. Directory entries: %d.", num_directory_entries);
         initial_population_done = true;
 
+        // Load existing hash if available
+        char existing_hash[HASH_LENGTH + 1] = "";
+        FILE *hash_fp = fopen(PB_LAST_GOOD_CSV_HASH_PATH, "r");
+        if (hash_fp) {
+            if (fgets(existing_hash, sizeof(existing_hash), hash_fp) != NULL) {
+                existing_hash[strcspn(existing_hash, "\r\n")] = '\0';
+            }
+            fclose(hash_fp);
+        }
+
+        // Update health metrics: emergency boot with existing data
+        extern service_metrics_t g_service_metrics;
+        extern pthread_mutex_t g_health_mutex;
+        pthread_mutex_lock(&g_health_mutex);
+        g_service_metrics.phonebook_last_updated = time(NULL);  // Use current time for boot
+        strncpy(g_service_metrics.phonebook_fetch_status, "BOOT",
+                sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+        if (existing_hash[0] != '\0') {
+            strncpy(g_service_metrics.phonebook_csv_hash, existing_hash,
+                    sizeof(g_service_metrics.phonebook_csv_hash) - 1);
+        }
+        g_service_metrics.phonebook_entries_loaded = num_directory_entries;
+        pthread_mutex_unlock(&g_health_mutex);
+
+        LOG_INFO("Health metrics updated: emergency boot with %d entries", num_directory_entries);
+
         // Convert to XML for web interface
         char existing_xml_temp_path[MAX_CONFIG_PATH_LEN];
         if (csv_processor_convert_csv_to_xml_and_get_path(existing_xml_temp_path, sizeof(existing_xml_temp_path)) == 0) {
@@ -110,6 +136,15 @@ void *phonebook_fetcher_thread(void *arg) {
 
         if (csv_processor_download_csv() != 0) {
             LOG_ERROR("CSV download failed. Skipping this cycle.");
+
+            // Update health metrics: mark fetch as failed
+            extern service_metrics_t g_service_metrics;
+            extern pthread_mutex_t g_health_mutex;
+            pthread_mutex_lock(&g_health_mutex);
+            strncpy(g_service_metrics.phonebook_fetch_status, "FAILED",
+                    sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+            pthread_mutex_unlock(&g_health_mutex);
+
             goto end_fetcher_cycle;
         }
 
@@ -197,6 +232,21 @@ void *phonebook_fetcher_thread(void *arg) {
                 } else {
                     LOG_DEBUG("Hash unchanged, skipping flash write for hash file.");
                 }
+
+                // Update health metrics: successful fetch
+                extern service_metrics_t g_service_metrics;
+                extern pthread_mutex_t g_health_mutex;
+                pthread_mutex_lock(&g_health_mutex);
+                g_service_metrics.phonebook_last_updated = time(NULL);
+                strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
+                        sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+                strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
+                        sizeof(g_service_metrics.phonebook_csv_hash) - 1);
+                g_service_metrics.phonebook_entries_loaded = num_directory_entries;
+                pthread_mutex_unlock(&g_health_mutex);
+
+                LOG_INFO("Health metrics updated: phonebook fetch SUCCESS, %d entries, hash %s",
+                         num_directory_entries, new_csv_hash);
             } else {
                 LOG_WARN("XML publish failed, not updating hash file.");
             }
