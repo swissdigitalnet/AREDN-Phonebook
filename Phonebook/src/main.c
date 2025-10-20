@@ -293,13 +293,14 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     // Phase 4.5: Health Reporter Thread Creation
-    LOG_INFO("Creating health reporter thread...");
-    if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
-        LOG_ERROR("Failed to create health reporter thread.");
-        return EXIT_FAILURE;
-    }
-    LOG_INFO("Health reporter thread launched.");
-    LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
+    // TEMPORARILY DISABLED: Health monitoring disabled
+    // LOG_INFO("Creating health reporter thread...");
+    // if (pthread_create(&health_reporter_tid, NULL, health_reporter_thread, NULL) != 0) {
+    //     LOG_ERROR("Failed to create health reporter thread.");
+    //     return EXIT_FAILURE;
+    // }
+    // LOG_INFO("Health reporter thread launched.");
+    // LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();
