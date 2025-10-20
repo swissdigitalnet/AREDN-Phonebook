@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     LOG_INFO("Software health monitoring system initialized");
-    LOG_INFO("=== BUILD VERIFICATION: v2.4.5 (fix timestamp/uptime type mismatch) ===");
+    LOG_INFO("=== BUILD VERIFICATION: v2.4.6 (add cpu_normal to health checks) ===");
 
     // --- Register signal handlers ---
     signal(SIGUSR1, phonebook_reload_signal_handler);

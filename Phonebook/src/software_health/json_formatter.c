@@ -195,6 +195,8 @@ int health_format_agent_health_json(char *buffer, size_t buffer_size,
                       g_health_checks.sip_service_ok ? "true" : "false");
     offset += snprintf(buffer + offset, buffer_size - offset, "    \"phonebook_current\": %s,\n",
                       g_health_checks.phonebook_current ? "true" : "false");
+    offset += snprintf(buffer + offset, buffer_size - offset, "    \"cpu_normal\": %s,\n",
+                      g_health_checks.cpu_normal ? "true" : "false");
     offset += snprintf(buffer + offset, buffer_size - offset, "    \"all_threads_responsive\": %s\n",
                       g_health_checks.all_threads_responsive ? "true" : "false");
     offset += snprintf(buffer + offset, buffer_size - offset, "  }\n");
