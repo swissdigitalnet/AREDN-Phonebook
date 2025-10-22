@@ -300,12 +300,17 @@ cat <<'EOF'
             <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
         </div>
         <div class="map-legend">
-            <strong>Map Legend:</strong><br>
-            <span style="color: #2196F3;">● Server</span> - This node<br>
-            <span style="color: #4CAF50;">● Phone</span> - SIP phone<br>
+            <strong>Node Types:</strong><br>
+            <span style="color: #2196F3;">● Server</span> - This node (source)<br>
+            <span style="color: #4CAF50;">● Phone</span> - SIP phone (destination)<br>
             <span style="color: #FF9800;">● Router</span> - Intermediate hop<br>
-            Lines show network connections with RTT (round-trip time)<br>
-            Click nodes to highlight shortest path from this server
+            <br>
+            <strong>Connection Quality (RTT):</strong><br>
+            <span style="color: #4CAF50;">━━━ Green</span> - Excellent (&lt;100ms)<br>
+            <span style="color: #FF9800;">━━━ Orange</span> - Medium (100-200ms)<br>
+            <span style="color: #f44336;">━━━ Red</span> - Poor (&gt;200ms)<br>
+            <br>
+            <strong>Interaction:</strong> Click any node to highlight the route from this server
         </div>
     </div>
 EOF
@@ -686,28 +691,55 @@ cat <<EOF
                 nodeMarkers[node.ip] = marker;
             });
 
-            // Add connections
+            // Get color for RTT (same as table color coding)
+            function getRttColor(rtt) {
+                if (rtt > 200) return '#f44336';  // Red - poor
+                if (rtt > 100) return '#FF9800';  // Orange - medium
+                return '#4CAF50';                  // Green - good
+            }
+
+            // Add connections with color coding and labels
             data.connections.forEach(conn => {
                 const fromMarker = nodeMarkers[conn.from];
                 const toMarker = nodeMarkers[conn.to];
 
                 if (fromMarker && toMarker) {
+                    const color = getRttColor(conn.rtt_avg_ms);
+
                     const line = L.polyline([
                         fromMarker.getLatLng(),
                         toMarker.getLatLng()
                     ], {
-                        color: '#666',
-                        weight: 2,
-                        opacity: 0.5
+                        color: color,
+                        weight: 3,
+                        opacity: 0.7
                     }).addTo(topologyMap);
 
                     // Add tooltip with RTT info
                     line.bindTooltip(
-                        'RTT: ' + conn.rtt_avg_ms.toFixed(2) + ' ms' +
-                        ' (min: ' + conn.rtt_min_ms.toFixed(2) +
-                        ', max: ' + conn.rtt_max_ms.toFixed(2) + ')',
-                        { sticky: true }
+                        'RTT: ' + conn.rtt_avg_ms.toFixed(1) + ' ms' +
+                        ' (min: ' + conn.rtt_min_ms.toFixed(1) +
+                        ', max: ' + conn.rtt_max_ms.toFixed(1) + ')',
+                        { sticky: true, permanent: false }
                     );
+
+                    // Add permanent label at midpoint showing RTT
+                    const midpoint = [
+                        (fromMarker.getLatLng().lat + toMarker.getLatLng().lat) / 2,
+                        (fromMarker.getLatLng().lng + toMarker.getLatLng().lng) / 2
+                    ];
+
+                    L.marker(midpoint, {
+                        icon: L.divIcon({
+                            className: 'rtt-label',
+                            html: '<div style="background-color: white; padding: 2px 4px; border-radius: 3px; ' +
+                                  'font-size: 10px; font-weight: bold; color: ' + color + '; ' +
+                                  'border: 1px solid ' + color + ';">' +
+                                  conn.rtt_avg_ms.toFixed(1) + 'ms</div>',
+                            iconSize: [40, 20],
+                            iconAnchor: [20, 10]
+                        })
+                    }).addTo(topologyMap);
 
                     connectionLines.push(line);
                 }
