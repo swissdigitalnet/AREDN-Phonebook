@@ -342,13 +342,34 @@ void topology_db_fetch_all_locations(void) {
                     if (strcmp(router->ip, conn->from_ip) == 0) {
                         // Check if this router has location data
                         if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
-                            // Copy router location to phone
-                            strncpy(phone->lat, router->lat, sizeof(phone->lat) - 1);
-                            strncpy(phone->lon, router->lon, sizeof(phone->lon) - 1);
+                            // Copy router location to phone with random offset
+                            // Offset by ~100m in a random direction for visibility on map
+                            // 0.001 degrees ≈ 111 meters latitude, ~100m longitude at mid-latitudes
+
+                            double router_lat = atof(router->lat);
+                            double router_lon = atof(router->lon);
+
+                            // Generate random offset: -0.001 to +0.001 degrees
+                            // Use phone IP as seed for consistency across test cycles
+                            unsigned int seed = 0;
+                            for (const char *p = phone->ip; *p; p++) {
+                                seed = seed * 31 + *p;
+                            }
+                            srand(seed);
+
+                            double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+                            double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+
+                            double phone_lat = router_lat + lat_offset;
+                            double phone_lon = router_lon + lon_offset;
+
+                            snprintf(phone->lat, sizeof(phone->lat), "%.7f", phone_lat);
+                            snprintf(phone->lon, sizeof(phone->lon), "%.7f", phone_lon);
+
                             propagated++;
-                            LOG_DEBUG("Propagated location from %s (%s) to phone %s: %s, %s",
+                            LOG_DEBUG("Propagated location from %s (%s) to phone %s: %s, %s (offset: %.4f, %.4f)",
                                      router->ip, router->name, phone->name,
-                                     phone->lat, phone->lon);
+                                     phone->lat, phone->lon, lat_offset, lon_offset);
                             goto next_phone;  // Done with this phone
                         }
                     }
