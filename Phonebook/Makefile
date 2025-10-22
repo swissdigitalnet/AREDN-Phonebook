@@ -61,6 +61,9 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/uac/uac_test_db.c \
 		$(PKG_BUILD_DIR)/uac/uac_sip_builder.c \
 		$(PKG_BUILD_DIR)/uac/uac_sip_parser.c \
+		$(PKG_BUILD_DIR)/uac/uac_traceroute.c \
+		$(PKG_BUILD_DIR)/uac/topology_db.c \
+		$(PKG_BUILD_DIR)/uac/uac_http_client.c \
 		$(PKG_BUILD_DIR)/software_health/software_health.c \
 		$(PKG_BUILD_DIR)/software_health/health_metrics.c \
 		$(PKG_BUILD_DIR)/software_health/health_scorer.c \

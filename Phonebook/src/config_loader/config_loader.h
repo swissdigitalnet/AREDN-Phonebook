@@ -26,6 +26,11 @@ extern float g_health_memory_threshold_mb;  // Memory increase threshold
 extern float g_health_score_threshold;      // Health score drop threshold
 extern int g_crash_reporting_enabled;       // Enable crash detection
 
+// Network topology mapping configuration
+extern int g_uac_traceroute_enabled;        // Enable traceroute-based topology mapping
+extern int g_uac_traceroute_max_hops;       // Maximum hops for traceroute
+extern int g_topology_fetch_locations;      // Fetch location data from sysinfo.json
+
 /**
  * @brief Loads configuration parameters from a specified file.
  *

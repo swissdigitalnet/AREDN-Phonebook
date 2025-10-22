@@ -31,6 +31,11 @@ float g_health_memory_threshold_mb = 10.0f;    // Default: 10 MB memory increase
 float g_health_score_threshold = 15.0f;        // Default: 15 point score drop
 int g_crash_reporting_enabled = 1;             // Default: enabled
 
+// Network topology mapping configuration
+int g_uac_traceroute_enabled = 1;              // Default: enabled
+int g_uac_traceroute_max_hops = 20;            // Default: 20 hops
+int g_topology_fetch_locations = 1;            // Default: enabled
+
 // Helper function to trim leading/trailing whitespace (static to this file)
 static char* trim_whitespace(char *str) {
     char *end;
@@ -222,6 +227,22 @@ int load_configuration(const char *config_filepath) {
             int parsed_value = atoi(value);
             g_crash_reporting_enabled = (parsed_value != 0) ? 1 : 0;
             LOG_DEBUG("Config: CRASH_REPORTING_ENABLED = %d", g_crash_reporting_enabled);
+        } else if (strcmp(key, "UAC_TRACEROUTE_ENABLED") == 0) {
+            int parsed_value = atoi(value);
+            g_uac_traceroute_enabled = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: UAC_TRACEROUTE_ENABLED = %d", g_uac_traceroute_enabled);
+        } else if (strcmp(key, "UAC_TRACEROUTE_MAX_HOPS") == 0) {
+            int parsed_value = atoi(value);
+            if (parsed_value >= 1 && parsed_value <= 30) {
+                g_uac_traceroute_max_hops = parsed_value;
+                LOG_DEBUG("Config: UAC_TRACEROUTE_MAX_HOPS = %d", g_uac_traceroute_max_hops);
+            } else {
+                LOG_WARN("Invalid UAC_TRACEROUTE_MAX_HOPS value '%s'. Using default %d.", value, g_uac_traceroute_max_hops);
+            }
+        } else if (strcmp(key, "TOPOLOGY_FETCH_LOCATIONS") == 0) {
+            int parsed_value = atoi(value);
+            g_topology_fetch_locations = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: TOPOLOGY_FETCH_LOCATIONS = %d", g_topology_fetch_locations);
         } else {
             LOG_WARN("Unknown configuration key: '%s'. Skipping.", key);
         }

@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <libgen.h>
 
 // Global topology database
 static TopologyNode g_nodes[MAX_TOPOLOGY_NODES];
@@ -350,6 +353,32 @@ void topology_db_calculate_aggregate_stats(void) {
 }
 
 /**
+ * Create directory recursively (helper function)
+ */
+static int create_directory(const char *path) {
+    char temp_path[512];
+    strncpy(temp_path, path, sizeof(temp_path) - 1);
+    temp_path[sizeof(temp_path) - 1] = '\0';
+
+    // Extract directory from filepath
+    char *dir = dirname(temp_path);
+
+    // Try to create directory (mkdir -p equivalent)
+    struct stat st = {0};
+    if (stat(dir, &st) == -1) {
+        if (mkdir(dir, 0755) == -1) {
+            if (errno != EEXIST) {
+                LOG_ERROR("Failed to create directory %s: %s", dir, strerror(errno));
+                return -1;
+            }
+        }
+        LOG_DEBUG("Created directory: %s", dir);
+    }
+
+    return 0;
+}
+
+/**
  * Write topology database to JSON file
  */
 int topology_db_write_to_file(const char *filepath) {
@@ -359,6 +388,12 @@ int topology_db_write_to_file(const char *filepath) {
     }
 
     LOG_INFO("Writing topology to %s...", filepath);
+
+    // Ensure directory exists
+    if (create_directory(filepath) != 0) {
+        LOG_ERROR("Failed to create directory for %s", filepath);
+        return -1;
+    }
 
     FILE *fp = fopen(filepath, "w");
     if (!fp) {

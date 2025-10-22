@@ -2,6 +2,8 @@
 
 #include "uac_bulk_tester.h"
 #include "uac_test_db.h"
+#include "uac_traceroute.h"
+#include "topology_db.h"
 #include "../common.h"
 #include "../config_loader/config_loader.h"
 #include "../passive_safety/passive_safety.h"
@@ -72,6 +74,13 @@ void *uac_bulk_tester_thread(void *arg) {
         }
 
         LOG_INFO("=== Starting UAC bulk test cycle ===");
+
+        // Initialize topology database for this cycle
+        if (g_uac_traceroute_enabled) {
+            topology_db_init();
+            topology_db_reset();
+            LOG_INFO("Topology database initialized for scan cycle");
+        }
 
         // Open results file for writing (truncate existing)
         FILE *results_file = fopen("/tmp/uac_bulk_results.txt", "w");
@@ -286,6 +295,71 @@ void *uac_bulk_tester_thread(void *arg) {
                 }
 
                 // ====================================================
+                // PHASE 2.5: Traceroute Test (NEW - Network Topology Discovery)
+                // ====================================================
+                if (g_uac_traceroute_enabled) {
+                    LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
+
+                    TracerouteHop hops[30];
+                    int hop_count = 0;
+
+                    if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
+                        LOG_DEBUG("Traced %d hops to %s", hop_count, user->user_id);
+
+                        // Get source IP for this route
+                        char source_ip[INET_ADDRSTRLEN];
+                        if (get_source_ip_for_target(ip_str, source_ip) == 0) {
+                            // Add source node (this server)
+                            topology_db_add_node(source_ip, "server", "this-node",
+                                               NULL, NULL, "ONLINE");
+
+                            // Add destination node (the phone)
+                            topology_db_add_node(ip_str, "phone", user->display_name,
+                                               NULL, NULL, "ONLINE");
+
+                            // Process hops and build topology
+                            char prev_ip[INET_ADDRSTRLEN];
+                            strncpy(prev_ip, source_ip, sizeof(prev_ip));
+
+                            for (int h = 0; h < hop_count; h++) {
+                                if (hops[h].timeout) {
+                                    // Timeout hop - break connection chain
+                                    prev_ip[0] = '\0';
+                                    continue;
+                                }
+
+                                // Determine node type
+                                const char *node_type;
+                                if (strcmp(hops[h].ip_address, ip_str) == 0) {
+                                    node_type = "phone"; // Destination
+                                } else {
+                                    node_type = "router"; // Intermediate hop
+                                }
+
+                                // Add this hop as a node
+                                topology_db_add_node(hops[h].ip_address, node_type,
+                                                   hops[h].hostname, NULL, NULL, "ONLINE");
+
+                                // Add connection from previous hop to this hop
+                                if (prev_ip[0] != '\0') {
+                                    topology_db_add_connection(prev_ip, hops[h].ip_address,
+                                                             hops[h].rtt_ms);
+                                }
+
+                                strncpy(prev_ip, hops[h].ip_address, sizeof(prev_ip));
+                            }
+
+                            LOG_INFO("Topology updated: %d hops added for %s",
+                                   hop_count, user->user_id);
+                        } else {
+                            LOG_WARN("Failed to determine source IP for %s", user->user_id);
+                        }
+                    } else {
+                        LOG_WARN("Traceroute to %s failed", user->user_id);
+                    }
+                }
+
+                // ====================================================
                 // PHASE 3: SIP INVITE Test (Optional - only if enabled)
                 // ====================================================
                 if (g_uac_call_test_enabled) {
@@ -422,6 +496,38 @@ void *uac_bulk_tester_thread(void *arg) {
         int total_results = phones_online + phones_offline;
         uac_test_db_update_header(total_results, phones_online, g_uac_test_interval_seconds);
         LOG_DEBUG("Updated database header: %d results, %d reachable phones", total_results, phones_online);
+
+        // ====================================================
+        // POST-CYCLE TOPOLOGY PROCESSING
+        // ====================================================
+        if (g_uac_traceroute_enabled) {
+            int node_count = topology_db_get_node_count();
+            int connection_count = topology_db_get_connection_count();
+
+            if (node_count > 0 || connection_count > 0) {
+                LOG_INFO("Processing topology data: %d nodes, %d connections",
+                         node_count, connection_count);
+
+                // Fetch location data for all discovered nodes (if enabled)
+                if (g_topology_fetch_locations) {
+                    LOG_INFO("Fetching location data for %d unique nodes...", node_count);
+                    topology_db_fetch_all_locations();
+                }
+
+                // Calculate aggregate statistics for all connections
+                LOG_INFO("Calculating aggregate statistics for %d connections...", connection_count);
+                topology_db_calculate_aggregate_stats();
+
+                // Write topology to JSON file
+                LOG_INFO("Writing topology to /tmp/arednmon/network_topology.json...");
+                topology_db_write_to_file("/tmp/arednmon/network_topology.json");
+
+                LOG_INFO("Topology mapping complete: %d nodes, %d connections",
+                         node_count, connection_count);
+            } else {
+                LOG_WARN("No topology data collected this cycle (0 nodes, 0 connections)");
+            }
+        }
 
         // Save counts for next cycle's UI display during testing
         prev_dns_resolved = dns_resolved;
