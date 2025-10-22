@@ -841,6 +841,738 @@ curl "http://localnode.local.mesh/cgi-bin/uac_test?target=441530"
 - Passive safety monitors for hung UAC thread (30-minute timeout)
 - Automatic thread restart if heartbeat stops
 
+### 4.12 Network Topology Mapping
+
+The topology mapping subsystem automatically discovers and visualizes the mesh network topology by performing ICMP traceroute to each tested phone and aggregating the results into a geographic map display. This provides network operators with real-time visibility into mesh routing paths, connection quality, and node locations.
+
+#### 4.12.1 Overview
+
+**Key Capabilities:**
+- **ICMP Traceroute**: Discovers intermediate hops between server and phones
+- **Topology Database**: In-memory graph of nodes and connections
+- **Geographic Visualization**: Leaflet.js map with node positions
+- **Two-Phase Location Fetching**: Fetches router coordinates, propagates to phones
+- **HTTP Client**: Retrieves location data from AREDN sysinfo.json endpoints
+- **Color-Coded Routes**: Visual quality indicators based on RTT
+- **RTT Information**: Permanent labels showing round-trip times on connections
+
+**Module Structure:**
+```
+Phonebook/src/uac/
+├── uac_traceroute.h         // ICMP traceroute API
+├── uac_traceroute.c         // TTL-based path discovery
+├── topology_db.h            // Topology graph API
+├── topology_db.c            // Node/connection storage + location fetching
+├── uac_http_client.h        // HTTP GET client API
+└── uac_http_client.c        // Location data retrieval
+```
+
+**CGI Endpoints:**
+- `/cgi-bin/topology_json`: Serves topology data as JSON
+- `/cgi-bin/arednmon`: Enhanced dashboard with topology map
+
+#### 4.12.2 ICMP Traceroute
+
+**Implementation:** `uac_traceroute.c`
+
+**Algorithm:**
+```c
+// TTL-based path discovery (similar to traceroute command)
+for (ttl = 1; ttl <= max_hops; ttl++) {
+    // Send ICMP Echo Request with TTL = ttl
+    send_icmp_probe(target_ip, ttl, sequence);
+
+    // Wait for ICMP Time Exceeded or Echo Reply
+    response = wait_for_icmp_response(timeout_ms);
+
+    if (response == ECHO_REPLY) {
+        // Reached destination
+        break;
+    } else if (response == TIME_EXCEEDED) {
+        // Record intermediate hop
+        hops[hop_count++] = {ip, hostname, rtt_ms};
+    } else {
+        // Timeout - record as "*" hop
+        hops[hop_count++] = {timeout: true};
+    }
+}
+```
+
+**Key Functions:**
+
+- `uac_traceroute_to_phone()`: Performs traceroute to target phone
+  - **Parameters**: `target_phone_number`, `max_hops`, `hops[]`, `hop_count`
+  - **Returns**: 0 on success, -1 on failure
+  - **Timeout**: 2 seconds per hop
+  - **Socket**: Raw ICMP socket (requires root/CAP_NET_RAW)
+
+- `send_icmp_probe()`: Sends ICMP Echo Request with specific TTL
+  - Sets IP_TTL socket option
+  - Includes sequence number for matching responses
+
+- `wait_for_icmp_response()`: Receives and parses ICMP response
+  - Handles both Time Exceeded and Echo Reply
+  - Extracts source IP of intermediate router
+  - Measures RTT (send_time → recv_time)
+
+**Hop Data Structure:**
+```c
+typedef struct {
+    char ip_address[INET_ADDRSTRLEN];  // 10.47.245.209
+    char hostname[256];                // router-1.local.mesh
+    double rtt_ms;                     // 1.234
+    bool timeout;                      // true if hop didn't respond
+} TracerouteHop;
+```
+
+**Example Traceroute Output** (logs):
+```
+UAC: Tracing route to 441530 (10.197.143.20)...
+UAC: Hop 1: 10.167.247.74 (router-1.local.mesh) - RTT: 1.450 ms
+UAC: Hop 2: 10.197.143.20 (441530.local.mesh) - RTT: 2.100 ms (destination reached)
+UAC: Traceroute completed: 2 hops discovered
+```
+
+#### 4.12.3 Topology Database
+
+**Implementation:** `topology_db.c`
+
+**Purpose**: In-memory graph storage for network nodes and connections.
+
+**Data Structures:**
+
+**TopologyNode:**
+```c
+typedef struct {
+    char ip[INET_ADDRSTRLEN];        // 10.47.245.209
+    char type[16];                   // "server", "router", "phone"
+    char name[256];                  // "441530" or "router-1.local.mesh"
+    char lat[32];                    // "47.47446" (decimal degrees)
+    char lon[32];                    // "7.76728" (decimal degrees)
+    char status[16];                 // "ONLINE", "OFFLINE"
+    time_t last_seen;                // Unix timestamp
+} TopologyNode;
+```
+
+**TopologyConnection:**
+```c
+typedef struct {
+    char from_ip[INET_ADDRSTRLEN];   // 10.47.245.209
+    char to_ip[INET_ADDRSTRLEN];     // 10.167.247.74
+    double rtt_avg_ms;               // 1.450 (average)
+    double rtt_min_ms;               // 0.370 (minimum)
+    double rtt_max_ms;               // 2.100 (maximum)
+    int sample_count;                // 10 (number of measurements)
+    time_t last_seen;                // Unix timestamp
+} TopologyConnection;
+```
+
+**Storage Capacity:**
+```c
+#define TOPOLOGY_MAX_NODES 500
+#define TOPOLOGY_MAX_CONNECTIONS 2000
+
+static TopologyNode g_nodes[TOPOLOGY_MAX_NODES];
+static TopologyConnection g_connections[TOPOLOGY_MAX_CONNECTIONS];
+static pthread_mutex_t g_topology_mutex;  // Thread-safe access
+```
+
+**Key Functions:**
+
+- `topology_db_add_node()`: Adds or updates a node
+  - Deduplicates by IP address
+  - Updates status and last_seen timestamp
+  - Mutex-protected for thread safety
+
+- `topology_db_add_connection()`: Adds or updates a connection
+  - Deduplicates by (from_ip, to_ip) pair
+  - Calculates min/avg/max RTT statistics
+  - Increments sample_count for statistical accuracy
+
+- `topology_db_export_json()`: Exports entire topology as JSON
+  - Writes to `/tmp/arednmon/network_topology.json`
+  - Includes version, timestamp, nodes, connections, statistics
+  - Consumed by map visualization
+
+**Example JSON Output:**
+```json
+{
+  "version": "2.0",
+  "generated_at": "2025-10-22T22:01:00Z",
+  "source_node": {
+    "ip": "10.47.245.209",
+    "name": "this-node",
+    "type": "server"
+  },
+  "nodes": [
+    {
+      "ip": "10.47.245.209",
+      "type": "server",
+      "name": "this-node",
+      "lat": "47.47446",
+      "lon": "7.76728",
+      "status": "ONLINE",
+      "last_seen": 1761170453
+    },
+    {
+      "ip": "10.197.143.20",
+      "type": "phone",
+      "name": "441530",
+      "lat": "47.47456",
+      "lon": "7.76718",
+      "status": "ONLINE",
+      "last_seen": 1761170212
+    }
+  ],
+  "connections": [
+    {
+      "from": "10.47.245.209",
+      "to": "10.167.247.74",
+      "rtt_avg_ms": 1.450,
+      "rtt_min_ms": 0.370,
+      "rtt_max_ms": 2.100,
+      "sample_count": 10
+    }
+  ],
+  "statistics": {
+    "total_nodes": 56,
+    "total_connections": 28
+  }
+}
+```
+
+#### 4.12.4 Two-Phase Location Fetching
+
+**Problem**: Phones don't have sysinfo.json endpoints - only routers and servers do.
+
+**Solution**: Two-phase approach implemented in `topology_db_fetch_all_locations()`:
+
+**Phase 1: Fetch Router Locations** (HTTP GET to sysinfo.json)
+```c
+for each node in topology:
+    if node.type == "router" OR node.type == "server":
+        url = "http://{node.ip}/cgi-bin/sysinfo.json"
+        if uac_http_get_location(url, &lat, &lon) == 0:
+            node.lat = lat
+            node.lon = lon
+            fetched++
+```
+
+**Phase 2: Propagate to Phones** (via topology connections)
+```c
+for each phone in topology:
+    if phone.lat is empty:
+        // Find connection where phone is destination
+        connection = find_connection_to(phone.ip)
+        router = find_node_by_ip(connection.from_ip)
+
+        if router.lat is valid:
+            // Copy router location with random offset (~100m)
+            phone.lat = router.lat + random_offset_lat()
+            phone.lon = router.lon + random_offset_lon()
+            propagated++
+```
+
+**Random Offset for Phone Visibility** (v2.5.21):
+```c
+// Offset by ~100m in random direction for map visibility
+// 0.001 degrees ≈ 111 meters latitude, ~100m longitude at mid-latitudes
+
+double router_lat = atof(router->lat);
+double router_lon = atof(router->lon);
+
+// Generate random offset: -0.001 to +0.001 degrees
+// Use phone IP as seed for consistency across test cycles
+unsigned int seed = 0;
+for (const char *p = phone->ip; *p; p++) {
+    seed = seed * 31 + *p;  // Simple hash of IP string
+}
+srand(seed);
+
+double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+
+double phone_lat = router_lat + lat_offset;
+double phone_lon = router_lon + lon_offset;
+
+snprintf(phone->lat, sizeof(phone->lat), "%.7f", phone_lat);
+snprintf(phone->lon, sizeof(phone->lon), "%.7f", phone_lon);
+```
+
+**Rationale**:
+- Phones near same router would stack on same coordinates
+- Random offset makes phones visible when zooming in
+- Consistent seed ensures same phone always has same offset
+- ~100m is large enough for visibility, small enough to stay "near" router
+
+**Log Output:**
+```
+TOPOLOGY_DB: Phase 1: Fetching locations for routers and servers...
+TOPOLOGY_DB: Fetched location for 10.107.42.189 (router): 46.81671, 7.15121
+TOPOLOGY_DB: Phase 2: Propagating router locations to phones...
+TOPOLOGY_DB: Location fetch complete: 13 routers fetched, 3 failed, 16 phones propagated
+```
+
+#### 4.12.5 HTTP Client for Location Data
+
+**Implementation:** `uac_http_client.c`
+
+**Purpose**: Fetch geographic coordinates from AREDN node sysinfo.json endpoints.
+
+**Key Functions:**
+
+- `uac_http_get_location()`: Fetches lat/lon from URL
+  - **URL Format**: `http://10.107.42.189/cgi-bin/sysinfo.json`
+  - **Timeout**: 2 seconds (configurable)
+  - **Returns**: 0 on success, -1 on failure
+
+**Implementation Details:**
+
+1. **URL Parsing** (`parse_url()`):
+   - Supports `http://host:port/path` format
+   - Extracts host, port (default: 80), path
+   - HTTPS not supported (unnecessary for mesh networks)
+
+2. **HTTP GET Request** (`http_get()`):
+   - Creates TCP socket
+   - Sets SO_SNDTIMEO and SO_RCVTIMEO (2 seconds)
+   - Sends HTTP/1.0 GET request
+   - Receives response and strips HTTP headers
+   - Returns JSON body only
+
+3. **JSON Parsing** (`extract_json_string()`):
+   - Looks for `"key": "value"` pattern
+   - **Handles optional whitespace** after key and colon (v2.5.19 fix)
+   - Extracts lat and lon fields
+   - Simple string-based parsing (no external dependencies)
+
+**Critical Bug Fix (v2.5.19):**
+
+**Before** (broken):
+```c
+// Looked for "lat":"value" (no space)
+char pattern[128];
+snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+const char *start = strstr(json, pattern);
+```
+
+**After** (fixed):
+```c
+// Looks for "lat" then skips optional whitespace before/after colon
+char pattern[128];
+snprintf(pattern, sizeof(pattern), "\"%s\"", key);  // Match key only
+
+const char *start = strstr(json, pattern);
+start += strlen(pattern);
+
+// Skip optional whitespace and colon
+while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') {
+    start++;
+}
+if (*start != ':') return -1;
+start++;  // Skip colon
+
+// Skip optional whitespace after colon
+while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') {
+    start++;
+}
+
+// Now expect opening quote
+if (*start != '"') return -1;
+start++;
+```
+
+**AREDN sysinfo.json Format:**
+```json
+{
+  "node": "router-1",
+  "lat": "46.81671",
+  "lon": "7.15121",
+  "grid_square": "JN36",
+  "band": "5.8GHz"
+}
+```
+
+**Why This Matters**: All 57 location fetches failed before this fix because AREDN's JSON includes spaces: `"lat": "value"` instead of `"lat":"value"`.
+
+#### 4.12.6 Bulk Tester Integration
+
+**Traceroute Placement Bug (v2.5.18):**
+
+**Before** (broken):
+```c
+if (options_result.online) {
+    // Write results
+    uac_test_db_write_result(&db_result);
+    pthread_mutex_lock(&registered_users_mutex);
+    continue;  // ← TRACEROUTE CODE WAS AFTER THIS!
+}
+
+// Traceroute code here - NEVER REACHED for online phones
+if (g_uac_traceroute_enabled) {
+    uac_traceroute_to_phone(...);
+}
+```
+
+**After** (fixed):
+```c
+if (options_result.online) {
+    // Track RTT stats
+    if (g_uac_ping_count <= 0) {
+        total_avg_rtt += options_result.avg_rtt_ms;
+        rtt_count++;
+    }
+
+    // PHASE 2.5: Traceroute Test (MOVED BEFORE continue!)
+    if (g_uac_traceroute_enabled) {
+        LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
+
+        TracerouteHop hops[30];
+        int hop_count = 0;
+
+        if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
+            // Get source IP for this route
+            char source_ip[INET_ADDRSTRLEN];
+            if (get_source_ip_for_target(ip_str, source_ip) == 0) {
+                // Add source node (this server)
+                topology_db_add_node(source_ip, "server", "this-node", NULL, NULL, "ONLINE");
+
+                // Add destination node (phone)
+                topology_db_add_node(ip_str, "phone", user->display_name, NULL, NULL, "ONLINE");
+
+                // Add intermediate hops and connections
+                char prev_ip[INET_ADDRSTRLEN];
+                strncpy(prev_ip, source_ip, sizeof(prev_ip));
+
+                for (int h = 0; h < hop_count; h++) {
+                    if (!hops[h].timeout) {
+                        // Determine node type
+                        const char *node_type = (strcmp(hops[h].ip_address, ip_str) == 0) ?
+                                              "phone" : "router";
+
+                        // Add node to topology
+                        topology_db_add_node(hops[h].ip_address, node_type,
+                                           hops[h].hostname, NULL, NULL, "ONLINE");
+
+                        // Add connection from previous hop
+                        if (prev_ip[0] != '\0') {
+                            topology_db_add_connection(prev_ip, hops[h].ip_address,
+                                                     hops[h].rtt_ms);
+                        }
+
+                        strncpy(prev_ip, hops[h].ip_address, sizeof(prev_ip));
+                    }
+                }
+
+                LOG_INFO("Topology updated: %d hops added for %s", hop_count, user->user_id);
+            }
+        }
+    }
+
+    // NOW write results and continue
+    uac_test_db_write_result(&db_result);
+    pthread_mutex_lock(&registered_users_mutex);
+    continue;
+}
+```
+
+**Impact**: Before fix, traceroute only ran for offline phones. After fix, traceroute runs for all online phones, building complete topology.
+
+**Topology Export:**
+
+After each bulk test cycle:
+```c
+// Export topology to JSON for map visualization
+topology_db_export_json("/tmp/arednmon/network_topology.json");
+LOG_INFO("Topology mapping complete: %d nodes, %d connections",
+         g_node_count, g_connection_count);
+```
+
+#### 4.12.7 Map Visualization
+
+**Implementation:** `arednmon` CGI script (JavaScript + Leaflet.js)
+
+**Features:**
+
+1. **Interactive Map Display**
+   - OpenStreetMap tile layer
+   - Auto-zoom to fit all nodes
+   - Click nodes to highlight route from server
+   - Tooltips with node information
+
+2. **Color-Coded Routes** (v2.5.20)
+   - **Green** (<100ms RTT): Excellent connection quality
+   - **Orange** (100-200ms RTT): Medium connection quality
+   - **Red** (>200ms RTT): Poor connection quality
+
+   ```javascript
+   function getRttColor(rtt) {
+       if (rtt > 200) return '#f44336';  // Red - poor
+       if (rtt > 100) return '#FF9800';  // Orange - medium
+       return '#4CAF50';                  // Green - good
+   }
+   ```
+
+3. **RTT Information Labels** (v2.5.20)
+   - Permanent labels at connection midpoints
+   - Show average RTT in milliseconds
+   - Colored border matching connection quality
+
+   ```javascript
+   L.marker(midpoint, {
+       icon: L.divIcon({
+           html: '<div style="background-color: white; padding: 2px 4px; ' +
+                 'border-radius: 3px; font-size: 10px; font-weight: bold; ' +
+                 'color: ' + color + '; border: 1px solid ' + color + ';">' +
+                 conn.rtt_avg_ms.toFixed(1) + 'ms</div>',
+           iconSize: [40, 20],
+           iconAnchor: [20, 10]
+       })
+   }).addTo(topologyMap);
+   ```
+
+4. **Node Markers**
+   - **Blue** (●): Server (this node)
+   - **Green** (●): Phone (destination)
+   - **Orange** (●): Router (intermediate hop)
+
+5. **Map Legend**
+   ```
+   Node Types:
+   ● Server - This node (source)
+   ● Phone - SIP phone (destination)
+   ● Router - Intermediate hop
+
+   Connection Quality (RTT):
+   ━━━ Green - Excellent (<100ms)
+   ━━━ Orange - Medium (100-200ms)
+   ━━━ Red - Poor (>200ms)
+
+   Interaction: Click any node to highlight the route from this server
+   ```
+
+**Data Loading:**
+```javascript
+async function loadTopology() {
+    const response = await fetch('/cgi-bin/topology_json');
+    const data = await response.json();
+
+    if (data.error) {
+        console.warn('No topology data available yet');
+        return;
+    }
+
+    // Add node markers
+    data.nodes.forEach(node => {
+        if (node.lat && node.lon) {
+            const color = getNodeColor(node.type);
+            const marker = L.circleMarker([node.lat, node.lon], {
+                color: color,
+                radius: 8
+            }).addTo(topologyMap);
+
+            marker.bindTooltip(node.name + ' (' + node.type + ')');
+            nodeMarkers[node.ip] = marker;
+        }
+    });
+
+    // Add connections with color coding
+    data.connections.forEach(conn => {
+        const fromMarker = nodeMarkers[conn.from];
+        const toMarker = nodeMarkers[conn.to];
+
+        if (fromMarker && toMarker) {
+            const color = getRttColor(conn.rtt_avg_ms);
+
+            const line = L.polyline([
+                fromMarker.getLatLng(),
+                toMarker.getLatLng()
+            ], {
+                color: color,
+                weight: 3,
+                opacity: 0.7
+            }).addTo(topologyMap);
+
+            // Add RTT label at midpoint
+            const midpoint = [
+                (fromMarker.getLatLng().lat + toMarker.getLatLng().lat) / 2,
+                (fromMarker.getLatLng().lng + toMarker.getLatLng().lng) / 2
+            ];
+
+            L.marker(midpoint, {
+                icon: L.divIcon({
+                    className: 'rtt-label',
+                    html: '<div style="...">' +
+                          conn.rtt_avg_ms.toFixed(1) + 'ms</div>',
+                    iconSize: [40, 20],
+                    iconAnchor: [20, 10]
+                })
+            }).addTo(topologyMap);
+
+            connectionLines.push(line);
+        }
+    });
+}
+```
+
+**Auto-Refresh:**
+```javascript
+// Reload topology every 60 seconds
+setInterval(loadTopology, 60000);
+```
+
+#### 4.12.8 Configuration
+
+Topology mapping configuration in `/etc/phonebook.conf`:
+
+```ini
+# ============================================================================
+# TOPOLOGY MAPPING SETTINGS
+# ============================================================================
+
+# Enable ICMP traceroute to discover network paths
+# 0 = disabled, 1 = enabled
+UAC_TRACEROUTE_ENABLED=1
+
+# Maximum hops for traceroute (default: 30)
+UAC_TRACEROUTE_MAX_HOPS=30
+```
+
+**Performance Impact:**
+- Traceroute adds ~2-3 seconds per phone test
+- For 45 phones: +90-135 seconds per test cycle
+- Total cycle time: ~10-12 minutes (vs 8-10 without traceroute)
+- Minimal CPU/network impact (ICMP probes are lightweight)
+
+#### 4.12.9 CGI Endpoints
+
+**Topology JSON Endpoint:**
+
+**File:** `/www/cgi-bin/topology_json` (shell script)
+
+```bash
+#!/bin/sh
+# topology_json - Network Topology JSON Endpoint
+
+TOPOLOGY_FILE="/tmp/arednmon/network_topology.json"
+
+echo "Content-Type: application/json; charset=utf-8"
+echo ""
+
+if [ ! -f "$TOPOLOGY_FILE" ]; then
+    # Return empty topology with error
+    cat <<'EOF'
+{
+  "version": "2.0",
+  "generated_at": "",
+  "error": "No topology data available yet",
+  "source_node": {"ip": "0.0.0.0", "name": "unknown", "type": "server"},
+  "nodes": [],
+  "connections": [],
+  "statistics": {"total_nodes": 0, "total_connections": 0}
+}
+EOF
+    exit 0
+fi
+
+cat "$TOPOLOGY_FILE"
+```
+
+**AREDNmon Dashboard:**
+
+Enhanced with topology map section in `/www/cgi-bin/arednmon`:
+- Displays interactive Leaflet.js map above phone monitoring table
+- Loads topology from `/cgi-bin/topology_json` endpoint
+- Shows color-coded routes and RTT labels
+- Refreshes every 60 seconds
+
+#### 4.12.10 Data Flow
+
+**Complete Topology Mapping Flow:**
+
+```
+1. Bulk Test Cycle Starts (every 10 minutes)
+   ↓
+2. For each online phone:
+   ├─ OPTIONS test succeeds
+   ├─ ICMP traceroute to phone
+   │  └─ Discovers 1-5 intermediate hops
+   ├─ Add nodes to topology database
+   │  └─ Server, routers, phone
+   ├─ Add connections to topology database
+   │  └─ Hop-to-hop with RTT measurements
+   └─ Continue to next phone
+   ↓
+3. After all phones tested:
+   ├─ Phase 1: Fetch router locations
+   │  └─ HTTP GET to sysinfo.json for each router
+   │     └─ Extract lat/lon from JSON
+   ├─ Phase 2: Propagate to phones
+   │  └─ Find router connection, copy coordinates with offset
+   ├─ Export to JSON
+   │  └─ Write /tmp/arednmon/network_topology.json
+   └─ Log summary (nodes, connections, locations)
+   ↓
+4. Browser requests /cgi-bin/arednmon
+   ↓
+5. JavaScript fetches /cgi-bin/topology_json
+   ↓
+6. Map renders with Leaflet.js
+   └─ Nodes plotted by lat/lon
+   └─ Connections drawn with color-coded lines
+   └─ RTT labels displayed at midpoints
+```
+
+#### 4.12.11 Error Handling
+
+**Network Failures:**
+- DNS resolution failure: Skip phone, continue to next
+- Traceroute timeout: Record hop as timeout, continue
+- HTTP GET timeout (2s): Mark location fetch as failed, continue
+- JSON parse failure: Mark location fetch as failed, continue
+
+**Data Validation:**
+- Empty coordinates: Skip node on map (don't crash)
+- Invalid RTT values: Use default color (gray)
+- Missing topology file: Return empty topology with error message
+
+**Graceful Degradation:**
+- No location data: Map shows nodes without positions (table still works)
+- Traceroute disabled: No topology map (phone monitoring still works)
+- HTTP client failure: Phase 1 fails, Phase 2 continues with available data
+
+#### 4.12.12 Implementation Notes
+
+**Traceroute Placement Bug (v2.5.18)**:
+- Critical control flow bug: traceroute was unreachable for online phones
+- Fix: Moved traceroute code from after `continue` to before it
+- Impact: Changed from "0 nodes, 0 connections" to "57 nodes, 29 connections"
+
+**JSON Parser Whitespace Fix (v2.5.19)**:
+- AREDN returns `"lat": "value"` (with space) not `"lat":"value"`
+- Updated parser to skip optional whitespace after key and colon
+- Impact: Changed from "0 locations fetched" to "13 locations fetched"
+
+**Phone Location Offset (v2.5.21)**:
+- Phones stacked on router coordinates were invisible when zoomed out
+- Added random offset of ~100m using IP-seeded random for consistency
+- Impact: Phones now visible when zooming in on map
+
+**Color-Coded Routes (v2.5.20)**:
+- Added visual quality indicators: green (<100ms), orange (100-200ms), red (>200ms)
+- Added permanent RTT labels on connection midpoints
+- Updated map legend to explain color coding
+
+**Thread Safety:**
+- Topology database protected by `g_topology_mutex`
+- Bulk tester is only writer (single-threaded)
+- Map endpoint is reader (read-only access)
+
+**Memory Usage:**
+- Topology database: ~100 KB (500 nodes × 200 bytes each)
+- JSON export: ~50 KB (typical mesh with 50 nodes, 30 connections)
+- Total RAM impact: <200 KB
+
 ## 5. Health Reporting
 
 The Health Reporting subsystem monitors the operational health of the AREDN-Phonebook service itself, tracking CPU, memory, thread responsiveness, and crash diagnostics. This provides visibility into software stability and enables proactive maintenance.
