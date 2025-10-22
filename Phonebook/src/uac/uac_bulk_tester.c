@@ -263,6 +263,72 @@ void *uac_bulk_tester_thread(void *arg) {
                             rtt_count++;
                         }
 
+                        // ====================================================
+                        // PHASE 2.5: Traceroute Test (NEW - Network Topology Discovery)
+                        // Run traceroute for online phones to map network topology
+                        // ====================================================
+                        if (g_uac_traceroute_enabled) {
+                            LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
+
+                            TracerouteHop hops[30];
+                            int hop_count = 0;
+
+                            if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
+                                LOG_DEBUG("Traced %d hops to %s", hop_count, user->user_id);
+
+                                // Get source IP for this route
+                                char source_ip[INET_ADDRSTRLEN];
+                                if (get_source_ip_for_target(ip_str, source_ip) == 0) {
+                                    // Add source node (this server)
+                                    topology_db_add_node(source_ip, "server", "this-node",
+                                                       NULL, NULL, "ONLINE");
+
+                                    // Add destination node (the phone)
+                                    topology_db_add_node(ip_str, "phone", user->display_name,
+                                                       NULL, NULL, "ONLINE");
+
+                                    // Process hops and build topology
+                                    char prev_ip[INET_ADDRSTRLEN];
+                                    strncpy(prev_ip, source_ip, sizeof(prev_ip));
+
+                                    for (int h = 0; h < hop_count; h++) {
+                                        if (hops[h].timeout) {
+                                            // Timeout hop - break connection chain
+                                            prev_ip[0] = '\0';
+                                            continue;
+                                        }
+
+                                        // Determine node type
+                                        const char *node_type;
+                                        if (strcmp(hops[h].ip_address, ip_str) == 0) {
+                                            node_type = "phone"; // Destination
+                                        } else {
+                                            node_type = "router"; // Intermediate hop
+                                        }
+
+                                        // Add this hop as a node
+                                        topology_db_add_node(hops[h].ip_address, node_type,
+                                                           hops[h].hostname, NULL, NULL, "ONLINE");
+
+                                        // Add connection from previous hop to this hop
+                                        if (prev_ip[0] != '\0') {
+                                            topology_db_add_connection(prev_ip, hops[h].ip_address,
+                                                                     hops[h].rtt_ms);
+                                        }
+
+                                        strncpy(prev_ip, hops[h].ip_address, sizeof(prev_ip));
+                                    }
+
+                                    LOG_INFO("Topology updated: %d hops added for %s",
+                                           hop_count, user->user_id);
+                                } else {
+                                    LOG_WARN("Failed to determine source IP for %s", user->user_id);
+                                }
+                            } else {
+                                LOG_WARN("Traceroute to %s failed", user->user_id);
+                            }
+                        }
+
                         // Write results to shared memory database
                         uac_test_result_t db_result = {0};
                         strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
@@ -292,71 +358,6 @@ void *uac_bulk_tester_thread(void *arg) {
                     }
                 } else {
                     snprintf(options_status, sizeof(options_status), "DISABLED");
-                }
-
-                // ====================================================
-                // PHASE 2.5: Traceroute Test (NEW - Network Topology Discovery)
-                // ====================================================
-                if (g_uac_traceroute_enabled) {
-                    LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
-
-                    TracerouteHop hops[30];
-                    int hop_count = 0;
-
-                    if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
-                        LOG_DEBUG("Traced %d hops to %s", hop_count, user->user_id);
-
-                        // Get source IP for this route
-                        char source_ip[INET_ADDRSTRLEN];
-                        if (get_source_ip_for_target(ip_str, source_ip) == 0) {
-                            // Add source node (this server)
-                            topology_db_add_node(source_ip, "server", "this-node",
-                                               NULL, NULL, "ONLINE");
-
-                            // Add destination node (the phone)
-                            topology_db_add_node(ip_str, "phone", user->display_name,
-                                               NULL, NULL, "ONLINE");
-
-                            // Process hops and build topology
-                            char prev_ip[INET_ADDRSTRLEN];
-                            strncpy(prev_ip, source_ip, sizeof(prev_ip));
-
-                            for (int h = 0; h < hop_count; h++) {
-                                if (hops[h].timeout) {
-                                    // Timeout hop - break connection chain
-                                    prev_ip[0] = '\0';
-                                    continue;
-                                }
-
-                                // Determine node type
-                                const char *node_type;
-                                if (strcmp(hops[h].ip_address, ip_str) == 0) {
-                                    node_type = "phone"; // Destination
-                                } else {
-                                    node_type = "router"; // Intermediate hop
-                                }
-
-                                // Add this hop as a node
-                                topology_db_add_node(hops[h].ip_address, node_type,
-                                                   hops[h].hostname, NULL, NULL, "ONLINE");
-
-                                // Add connection from previous hop to this hop
-                                if (prev_ip[0] != '\0') {
-                                    topology_db_add_connection(prev_ip, hops[h].ip_address,
-                                                             hops[h].rtt_ms);
-                                }
-
-                                strncpy(prev_ip, hops[h].ip_address, sizeof(prev_ip));
-                            }
-
-                            LOG_INFO("Topology updated: %d hops added for %s",
-                                   hop_count, user->user_id);
-                        } else {
-                            LOG_WARN("Failed to determine source IP for %s", user->user_id);
-                        }
-                    } else {
-                        LOG_WARN("Traceroute to %s failed", user->user_id);
-                    }
                 }
 
                 // ====================================================
