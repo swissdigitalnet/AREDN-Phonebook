@@ -19,6 +19,8 @@ cat <<'EOF'
 <head>
     <title>AREDNmon - Network Monitor</title>
     <meta http-equiv="refresh" content="30">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -203,6 +205,53 @@ cat <<'EOF'
             background-color: #FFCDD2;
             color: #C62828;
         }
+        /* Map Panel Styles */
+        .map-panel {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .map-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        #topologyMap {
+            width: 100%;
+            height: 600px;
+            border-radius: 4px;
+        }
+        .map-controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .map-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .map-btn:hover {
+            background-color: #45a049;
+        }
+        .map-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .map-legend {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
@@ -238,6 +287,25 @@ cat <<'EOF'
         </div>
         <div class="health-threads" id="healthThreads">
             <strong>Thread Status:</strong> <span id="threadStatus">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Network Topology Map -->
+    <div class="map-panel" id="mapPanel">
+        <div class="map-title">Network Topology Map</div>
+        <div id="topologyMap"></div>
+        <div class="map-controls">
+            <button class="map-btn" id="resetViewBtn">Reset View</button>
+            <button class="map-btn" id="refreshMapBtn">Refresh Topology</button>
+            <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
+        </div>
+        <div class="map-legend">
+            <strong>Map Legend:</strong><br>
+            <span style="color: #2196F3;">● Server</span> - This node<br>
+            <span style="color: #4CAF50;">● Phone</span> - SIP phone<br>
+            <span style="color: #FF9800;">● Router</span> - Intermediate hop<br>
+            Lines show network connections with RTT (round-trip time)<br>
+            Click nodes to highlight shortest path from this server
         </div>
     </div>
 EOF
@@ -492,6 +560,276 @@ cat <<EOF
             document.getElementById('progressBar').style.width = progressPct + '%';
         }
 
+        // ============================================================
+        // TOPOLOGY MAP FUNCTIONALITY
+        // ============================================================
+
+        let topologyMap = null;
+        let topologyData = null;
+        let nodeMarkers = {};
+        let connectionLines = [];
+        let highlightedPath = [];
+
+        // Initialize Leaflet map
+        function initMap() {
+            // Create map centered on a default location (will be adjusted after loading topology)
+            topologyMap = L.map('topologyMap').setView([0, 0], 2);
+
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18,
+                minZoom: 2
+            }).addTo(topologyMap);
+
+            console.log('Topology map initialized');
+        }
+
+        // Load topology data from server
+        async function loadTopologyData() {
+            try {
+                const response = await fetch('/cgi-bin/topology_json');
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('mapStatus').textContent = data.error;
+                    console.log('No topology data available yet');
+                    return null;
+                }
+
+                topologyData = data;
+                document.getElementById('mapStatus').textContent =
+                    data.statistics.total_nodes + ' nodes, ' +
+                    data.statistics.total_connections + ' connections';
+
+                console.log('Loaded topology:', data.statistics);
+                return data;
+            } catch (error) {
+                console.error('Failed to load topology data:', error);
+                document.getElementById('mapStatus').textContent = 'Error loading topology';
+                return null;
+            }
+        }
+
+        // Get color for node type
+        function getNodeColor(type) {
+            switch (type) {
+                case 'server': return '#2196F3'; // Blue
+                case 'phone': return '#4CAF50';  // Green
+                case 'router': return '#FF9800'; // Orange
+                default: return '#9E9E9E';       // Gray
+            }
+        }
+
+        // Get icon for node type
+        function getNodeIcon(type) {
+            const color = getNodeColor(type);
+            return L.divIcon({
+                className: 'custom-div-icon',
+                html: '<div style="background-color:' + color + '; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+        }
+
+        // Render topology on map
+        function renderTopology(data) {
+            if (!topologyMap || !data) {
+                return;
+            }
+
+            // Clear existing markers and lines
+            Object.values(nodeMarkers).forEach(marker => topologyMap.removeLayer(marker));
+            connectionLines.forEach(line => topologyMap.removeLayer(line));
+            nodeMarkers = {};
+            connectionLines = [];
+
+            // Find map bounds
+            let bounds = [];
+
+            // Add nodes
+            data.nodes.forEach(node => {
+                // Skip nodes without location
+                if (!node.lat || !node.lon || node.lat === '' || node.lon === '') {
+                    return;
+                }
+
+                const lat = parseFloat(node.lat);
+                const lon = parseFloat(node.lon);
+
+                if (isNaN(lat) || isNaN(lon)) {
+                    return;
+                }
+
+                bounds.push([lat, lon]);
+
+                // Create marker
+                const marker = L.marker([lat, lon], {
+                    icon: getNodeIcon(node.type),
+                    title: node.name
+                }).addTo(topologyMap);
+
+                // Add popup
+                const popupContent =
+                    '<strong>' + node.name + '</strong><br>' +
+                    'IP: ' + node.ip + '<br>' +
+                    'Type: ' + node.type + '<br>' +
+                    'Status: ' + node.status;
+
+                marker.bindPopup(popupContent);
+
+                // Add click handler for route highlighting
+                marker.on('click', function() {
+                    highlightPathToNode(data, node.ip);
+                });
+
+                nodeMarkers[node.ip] = marker;
+            });
+
+            // Add connections
+            data.connections.forEach(conn => {
+                const fromMarker = nodeMarkers[conn.from];
+                const toMarker = nodeMarkers[conn.to];
+
+                if (fromMarker && toMarker) {
+                    const line = L.polyline([
+                        fromMarker.getLatLng(),
+                        toMarker.getLatLng()
+                    ], {
+                        color: '#666',
+                        weight: 2,
+                        opacity: 0.5
+                    }).addTo(topologyMap);
+
+                    // Add tooltip with RTT info
+                    line.bindTooltip(
+                        'RTT: ' + conn.rtt_avg_ms.toFixed(2) + ' ms' +
+                        ' (min: ' + conn.rtt_min_ms.toFixed(2) +
+                        ', max: ' + conn.rtt_max_ms.toFixed(2) + ')',
+                        { sticky: true }
+                    );
+
+                    connectionLines.push(line);
+                }
+            });
+
+            // Fit map to show all nodes
+            if (bounds.length > 0) {
+                topologyMap.fitBounds(bounds, { padding: [50, 50] });
+            }
+
+            console.log('Rendered', Object.keys(nodeMarkers).length, 'nodes and',
+                       connectionLines.length, 'connections');
+        }
+
+        // BFS to find shortest path
+        function findShortestPath(data, targetIp) {
+            if (!data || !data.source_node) {
+                return [];
+            }
+
+            const sourceIp = data.source_node.ip;
+
+            // Build adjacency list
+            const graph = {};
+            data.connections.forEach(conn => {
+                if (!graph[conn.from]) graph[conn.from] = [];
+                if (!graph[conn.to]) graph[conn.to] = [];
+                graph[conn.from].push(conn.to);
+                graph[conn.to].push(conn.from); // Bidirectional
+            });
+
+            // BFS
+            const queue = [[sourceIp]];
+            const visited = new Set([sourceIp]);
+
+            while (queue.length > 0) {
+                const path = queue.shift();
+                const node = path[path.length - 1];
+
+                if (node === targetIp) {
+                    return path;
+                }
+
+                if (graph[node]) {
+                    graph[node].forEach(neighbor => {
+                        if (!visited.has(neighbor)) {
+                            visited.add(neighbor);
+                            queue.push([...path, neighbor]);
+                        }
+                    });
+                }
+            }
+
+            return []; // No path found
+        }
+
+        // Highlight path to specific node
+        function highlightPathToNode(data, targetIp) {
+            // Clear previous highlights
+            highlightedPath.forEach(line => topologyMap.removeLayer(line));
+            highlightedPath = [];
+
+            // Find shortest path
+            const path = findShortestPath(data, targetIp);
+
+            if (path.length === 0) {
+                console.log('No path found to', targetIp);
+                return;
+            }
+
+            console.log('Path to', targetIp, ':', path);
+
+            // Draw highlighted path
+            for (let i = 0; i < path.length - 1; i++) {
+                const fromMarker = nodeMarkers[path[i]];
+                const toMarker = nodeMarkers[path[i + 1]];
+
+                if (fromMarker && toMarker) {
+                    const line = L.polyline([
+                        fromMarker.getLatLng(),
+                        toMarker.getLatLng()
+                    ], {
+                        color: '#f44336',
+                        weight: 4,
+                        opacity: 0.8
+                    }).addTo(topologyMap);
+
+                    highlightedPath.push(line);
+                }
+            }
+        }
+
+        // Reset map view
+        function resetMapView() {
+            if (topologyData) {
+                renderTopology(topologyData);
+            }
+        }
+
+        // Refresh topology data
+        async function refreshTopology() {
+            document.getElementById('mapStatus').textContent = 'Loading...';
+            const data = await loadTopologyData();
+            if (data) {
+                renderTopology(data);
+            }
+        }
+
+        // Initialize topology map
+        async function initTopologyMap() {
+            initMap();
+            await refreshTopology();
+
+            // Set up button event listeners
+            document.getElementById('resetViewBtn').addEventListener('click', resetMapView);
+            document.getElementById('refreshMapBtn').addEventListener('click', refreshTopology);
+        }
+
+        // ============================================================
+        // END TOPOLOGY MAP FUNCTIONALITY
+        // ============================================================
+
         // Initialize page
         async function init() {
             // Load health status first (independent of test data)
@@ -499,6 +837,9 @@ cat <<EOF
 
             // Set up periodic health updates (every 60 seconds)
             setInterval(loadHealthStatus, HEALTH_UPDATE_INTERVAL);
+
+            // Initialize topology map (independent of test data)
+            initTopologyMap();
 
             // Fetch test results data first (don't render yet)
             const response = await fetch('/cgi-bin/uac_test_db_json');

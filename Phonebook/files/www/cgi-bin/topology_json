@@ -1,0 +1,37 @@
+#!/bin/sh
+# topology_json - Network Topology JSON Endpoint
+# Serves network topology data from automated topology mapping
+# Usage: curl "http://node/cgi-bin/topology_json"
+
+TOPOLOGY_FILE="/tmp/arednmon/network_topology.json"
+
+# Set Content-Type header
+echo "Content-Type: application/json; charset=utf-8"
+echo ""
+
+# Check if topology file exists
+if [ ! -f "$TOPOLOGY_FILE" ]; then
+    # Return empty topology with error
+    cat <<'EOF'
+{
+  "version": "2.0",
+  "generated_at": "",
+  "error": "No topology data available yet",
+  "source_node": {
+    "ip": "0.0.0.0",
+    "name": "unknown",
+    "type": "server"
+  },
+  "nodes": [],
+  "connections": [],
+  "statistics": {
+    "total_nodes": 0,
+    "total_connections": 0
+  }
+}
+EOF
+    exit 0
+fi
+
+# Serve the topology JSON file
+cat "$TOPOLOGY_FILE"
