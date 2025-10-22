@@ -1073,7 +1073,7 @@ for each phone in topology:
             propagated++
 ```
 
-**Random Offset for Phone Visibility** (v2.5.21):
+**Random Offset for Phone Visibility:**
 ```c
 // Offset by ~100m in random direction for map visibility
 // 0.001 degrees ≈ 111 meters latitude, ~100m longitude at mid-latitudes
@@ -1142,21 +1142,14 @@ TOPOLOGY_DB: Location fetch complete: 13 routers fetched, 3 failed, 16 phones pr
 
 3. **JSON Parsing** (`extract_json_string()`):
    - Looks for `"key": "value"` pattern
-   - **Handles optional whitespace** after key and colon (v2.5.19 fix)
+   - **Handles optional whitespace** after key and colon
    - Extracts lat and lon fields
    - Simple string-based parsing (no external dependencies)
 
-**Critical Bug Fix (v2.5.19):**
+**JSON Parsing Implementation:**
 
-**Before** (broken):
-```c
-// Looked for "lat":"value" (no space)
-char pattern[128];
-snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-const char *start = strstr(json, pattern);
-```
+The parser handles optional whitespace in JSON formatting:
 
-**After** (fixed):
 ```c
 // Looks for "lat" then skips optional whitespace before/after colon
 char pattern[128];
@@ -1193,28 +1186,10 @@ start++;
 }
 ```
 
-**Why This Matters**: All 57 location fetches failed before this fix because AREDN's JSON includes spaces: `"lat": "value"` instead of `"lat":"value"`.
-
 #### 4.12.6 Bulk Tester Integration
 
-**Traceroute Placement Bug (v2.5.18):**
+The traceroute functionality is integrated into the bulk tester loop to run for all online phones:
 
-**Before** (broken):
-```c
-if (options_result.online) {
-    // Write results
-    uac_test_db_write_result(&db_result);
-    pthread_mutex_lock(&registered_users_mutex);
-    continue;  // ← TRACEROUTE CODE WAS AFTER THIS!
-}
-
-// Traceroute code here - NEVER REACHED for online phones
-if (g_uac_traceroute_enabled) {
-    uac_traceroute_to_phone(...);
-}
-```
-
-**After** (fixed):
 ```c
 if (options_result.online) {
     // Track RTT stats
@@ -1223,7 +1198,7 @@ if (options_result.online) {
         rtt_count++;
     }
 
-    // PHASE 2.5: Traceroute Test (MOVED BEFORE continue!)
+    // PHASE 2.5: Traceroute Test
     if (g_uac_traceroute_enabled) {
         LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
 
@@ -1276,8 +1251,6 @@ if (options_result.online) {
 }
 ```
 
-**Impact**: Before fix, traceroute only ran for offline phones. After fix, traceroute runs for all online phones, building complete topology.
-
 **Topology Export:**
 
 After each bulk test cycle:
@@ -1300,7 +1273,7 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    - Click nodes to highlight route from server
    - Tooltips with node information
 
-2. **Color-Coded Routes** (v2.5.20)
+2. **Color-Coded Routes**
    - **Green** (<100ms RTT): Excellent connection quality
    - **Orange** (100-200ms RTT): Medium connection quality
    - **Red** (>200ms RTT): Poor connection quality
@@ -1313,7 +1286,7 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    }
    ```
 
-3. **RTT Information Labels** (v2.5.20)
+3. **RTT Information Labels**
    - Permanent labels at connection midpoints
    - Show average RTT in milliseconds
    - Colored border matching connection quality
@@ -1541,27 +1514,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 - Traceroute disabled: No topology map (phone monitoring still works)
 - HTTP client failure: Phase 1 fails, Phase 2 continues with available data
 
-#### 4.12.12 Implementation Notes
-
-**Traceroute Placement Bug (v2.5.18)**:
-- Critical control flow bug: traceroute was unreachable for online phones
-- Fix: Moved traceroute code from after `continue` to before it
-- Impact: Changed from "0 nodes, 0 connections" to "57 nodes, 29 connections"
-
-**JSON Parser Whitespace Fix (v2.5.19)**:
-- AREDN returns `"lat": "value"` (with space) not `"lat":"value"`
-- Updated parser to skip optional whitespace after key and colon
-- Impact: Changed from "0 locations fetched" to "13 locations fetched"
-
-**Phone Location Offset (v2.5.21)**:
-- Phones stacked on router coordinates were invisible when zoomed out
-- Added random offset of ~100m using IP-seeded random for consistency
-- Impact: Phones now visible when zooming in on map
-
-**Color-Coded Routes (v2.5.20)**:
-- Added visual quality indicators: green (<100ms), orange (100-200ms), red (>200ms)
-- Added permanent RTT labels on connection midpoints
-- Updated map legend to explain color coding
+#### 4.12.12 Thread Safety and Resource Usage
 
 **Thread Safety:**
 - Topology database protected by `g_topology_mutex`
@@ -2158,46 +2111,7 @@ CRASH_BACKTRACE_DEPTH=5
 - `COLLECTOR_URL`: Must be reachable mesh address
 - Thresholds: Validated at runtime, warnings logged if invalid
 
-### 5.9 Implementation Notes
-
-**Stack Safety (v2.4.5)**:
-- Large `snprintf()` calls with multi-line format strings were split into multiple small calls to prevent stack overflow on embedded systems with limited thread stacks (OpenWrt/musl libc)
-- All temporary string buffers (timestamps, escaped strings) moved to heap allocation via `malloc()` instead of stack arrays
-- JSON output buffer (`2048 bytes`) allocated on heap to reduce stack pressure
-
-**Type Safety (v2.4.5)**:
-- All `time_t` values use `%lld` format specifier with explicit `(long long)` cast for cross-platform compatibility
-- Fixes timestamp and uptime displaying incorrect values (showed `44` instead of Unix timestamp)
-
-**Phonebook Metrics (v2.4.3)**:
-- Phonebook fetcher thread now updates `g_service_metrics.phonebook_*` fields on:
-  - Emergency boot: `fetch_status="BOOT"` when loading existing CSV
-  - Successful fetch: `fetch_status="SUCCESS"` after downloading new CSV
-  - Failed download: `fetch_status="FAILED"` when download fails
-- Metrics include: `last_updated`, `csv_hash`, `entries_loaded`
-
-**Health Checks (v2.4.6)**:
-- Added `cpu_normal` field to JSON output (checks if CPU < 50%)
-- Required by AREDNmon dashboard to display CPU health indicator correctly
-- All health checks: `memory_stable`, `no_recent_crashes`, `sip_service_ok`, `phonebook_current`, `cpu_normal`, `all_threads_responsive`
-
-**Dashboard UI (v2.4.7, v2.4.9)**:
-- Removed health score number and colored box from display
-- Dashboard shows only metrics (CPU, Memory, Uptime, SIP Service) and pass/fail health checks
-- Simplified UI reduces visual clutter while maintaining full monitoring capability
-
-**UAC Test Progress (v2.4.4, v2.4.8)**:
-- Test progress denominator changed from `dns_resolved` (all phones with DNS) to `phones_online` (only reachable phones)
-- Display shows "48 of 48 phones tested (all reachable telephones only)" instead of "48 of 226 phones tested"
-- Previous cycle's `phones_online` count persisted to `/tmp/uac_last_phones_online.txt` (RAM, no flash writes)
-- Ensures accurate progress display even during active 10-minute test cycle
-
-**Memory Management**:
-- All health monitoring files written to `/tmp/` (RAM/tmpfs) to avoid flash wear
-- UAC persistence files in RAM: `/tmp/uac_last_phones_online.txt`, `/tmp/uac_last_dns_resolved.txt`
-- Updated every 10 minutes (once per test cycle) - minimal RAM overhead
-
-### 5.10 File Paths Summary
+### 5.9 File Paths Summary
 
 **Health monitoring files**:
 
