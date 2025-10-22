@@ -267,17 +267,27 @@ int topology_db_get_connection_count(void) {
 
 /**
  * Fetch location data for all nodes
+ * Phase 1: Fetch locations for routers and servers only (phones don't have sysinfo.json)
+ * Phase 2: Propagate router locations to connected phones
  */
 void topology_db_fetch_all_locations(void) {
     LOG_INFO("Fetching location data for %d nodes...", g_node_count);
 
     int fetched = 0;
     int failed = 0;
+    int propagated = 0;
 
     pthread_mutex_lock(&g_topology_mutex);
 
+    // Phase 1: Fetch locations for routers and servers only
+    LOG_INFO("Phase 1: Fetching locations for routers and servers...");
     for (int i = 0; i < g_node_count; i++) {
         TopologyNode *node = &g_nodes[i];
+
+        // Skip phones - they don't have sysinfo.json
+        if (strcmp(node->type, "phone") == 0) {
+            continue;
+        }
 
         // Skip if already has location
         if (strlen(node->lat) > 0 && strlen(node->lon) > 0) {
@@ -296,16 +306,64 @@ void topology_db_fetch_all_locations(void) {
             strncpy(node->lat, lat, sizeof(node->lat) - 1);
             strncpy(node->lon, lon, sizeof(node->lon) - 1);
             fetched++;
-            LOG_DEBUG("Fetched location for %s: %s, %s", node->ip, lat, lon);
+            LOG_DEBUG("Fetched location for %s (%s): %s, %s", node->ip, node->type, lat, lon);
         } else {
             failed++;
-            LOG_DEBUG("Failed to fetch location for %s", node->ip);
+            LOG_DEBUG("Failed to fetch location for %s (%s)", node->ip, node->type);
         }
+    }
+
+    // Phase 2: Propagate router locations to connected phones
+    LOG_INFO("Phase 2: Propagating router locations to phones...");
+    for (int i = 0; i < g_node_count; i++) {
+        TopologyNode *phone = &g_nodes[i];
+
+        // Skip non-phones
+        if (strcmp(phone->type, "phone") != 0) {
+            continue;
+        }
+
+        // Skip if already has location
+        if (strlen(phone->lat) > 0 && strlen(phone->lon) > 0) {
+            continue;
+        }
+
+        // Find a connection where this phone is the destination
+        // The source should be a router with location data
+        for (int c = 0; c < g_connection_count; c++) {
+            TopologyConnection *conn = &g_connections[c];
+
+            // Check if this connection leads to the phone
+            if (strcmp(conn->to_ip, phone->ip) == 0) {
+                // Find the source node (router)
+                for (int j = 0; j < g_node_count; j++) {
+                    TopologyNode *router = &g_nodes[j];
+
+                    if (strcmp(router->ip, conn->from_ip) == 0) {
+                        // Check if this router has location data
+                        if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
+                            // Copy router location to phone
+                            strncpy(phone->lat, router->lat, sizeof(phone->lat) - 1);
+                            strncpy(phone->lon, router->lon, sizeof(phone->lon) - 1);
+                            propagated++;
+                            LOG_DEBUG("Propagated location from %s (%s) to phone %s: %s, %s",
+                                     router->ip, router->name, phone->name,
+                                     phone->lat, phone->lon);
+                            goto next_phone;  // Done with this phone
+                        }
+                    }
+                }
+            }
+        }
+
+        next_phone:
+        continue;
     }
 
     pthread_mutex_unlock(&g_topology_mutex);
 
-    LOG_INFO("Location fetch complete: %d successful, %d failed", fetched, failed);
+    LOG_INFO("Location fetch complete: %d routers fetched, %d failed, %d phones propagated",
+             fetched, failed, propagated);
 }
 
 /**

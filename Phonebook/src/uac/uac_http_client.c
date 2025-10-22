@@ -99,16 +99,16 @@ static int parse_url(const char *url, ParsedURL *parsed) {
 
 /**
  * Extract JSON string value by key
- * Simple implementation - looks for "key":"value" pattern
+ * Simple implementation - looks for "key": "value" pattern (handles optional whitespace)
  */
 static int extract_json_string(const char *json, const char *key, char *value, size_t value_len) {
     if (!json || !key || !value) {
         return -1;
     }
 
-    // Build search pattern: "key":"
+    // Build search pattern: "key"
     char pattern[128];
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
 
     const char *start = strstr(json, pattern);
     if (!start) {
@@ -116,8 +116,30 @@ static int extract_json_string(const char *json, const char *key, char *value, s
         return -1;
     }
 
-    // Move past the pattern
+    // Move past the key
     start += strlen(pattern);
+
+    // Skip optional whitespace and colon
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') {
+        start++;
+    }
+    if (*start != ':') {
+        LOG_DEBUG("Expected ':' after key '%s'", key);
+        return -1;
+    }
+    start++; // Skip colon
+
+    // Skip optional whitespace after colon
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') {
+        start++;
+    }
+
+    // Expect opening quote
+    if (*start != '"') {
+        LOG_DEBUG("Expected '\"' for value of key '%s'", key);
+        return -1;
+    }
+    start++; // Skip opening quote
 
     // Find closing quote
     const char *end = strchr(start, '"');
