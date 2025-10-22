@@ -1,0 +1,442 @@
+// topology_db.c
+// Network Topology Database Implementation
+
+#define MODULE_NAME "TOPOLOGY_DB"
+
+#include "topology_db.h"
+#include "uac_http_client.h"
+#include "../common.h"
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+
+// Global topology database
+static TopologyNode g_nodes[MAX_TOPOLOGY_NODES];
+static int g_node_count = 0;
+static TopologyConnection g_connections[MAX_TOPOLOGY_CONNECTIONS];
+static int g_connection_count = 0;
+static pthread_mutex_t g_topology_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool g_initialized = false;
+
+/**
+ * Initialize topology database
+ */
+void topology_db_init(void) {
+    if (g_initialized) {
+        return;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    memset(g_nodes, 0, sizeof(g_nodes));
+    g_node_count = 0;
+    memset(g_connections, 0, sizeof(g_connections));
+    g_connection_count = 0;
+    g_initialized = true;
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    LOG_INFO("Topology database initialized (capacity: %d nodes, %d connections)",
+             MAX_TOPOLOGY_NODES, MAX_TOPOLOGY_CONNECTIONS);
+}
+
+/**
+ * Reset topology database
+ */
+void topology_db_reset(void) {
+    pthread_mutex_lock(&g_topology_mutex);
+
+    memset(g_nodes, 0, sizeof(g_nodes));
+    g_node_count = 0;
+    memset(g_connections, 0, sizeof(g_connections));
+    g_connection_count = 0;
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    LOG_DEBUG("Topology database reset");
+}
+
+/**
+ * Add or update a node
+ */
+int topology_db_add_node(const char *ip, const char *type, const char *name,
+                         const char *lat, const char *lon, const char *status) {
+    if (!ip || !type || !name || !status) {
+        LOG_ERROR("Invalid parameters for topology_db_add_node");
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    // Check if node already exists
+    TopologyNode *existing = NULL;
+    for (int i = 0; i < g_node_count; i++) {
+        if (strcmp(g_nodes[i].ip, ip) == 0) {
+            existing = &g_nodes[i];
+            break;
+        }
+    }
+
+    if (existing) {
+        // Update existing node
+        strncpy(existing->type, type, sizeof(existing->type) - 1);
+        strncpy(existing->name, name, sizeof(existing->name) - 1);
+        if (lat) {
+            strncpy(existing->lat, lat, sizeof(existing->lat) - 1);
+        }
+        if (lon) {
+            strncpy(existing->lon, lon, sizeof(existing->lon) - 1);
+        }
+        strncpy(existing->status, status, sizeof(existing->status) - 1);
+        existing->last_seen = time(NULL);
+
+        pthread_mutex_unlock(&g_topology_mutex);
+        LOG_DEBUG("Updated node: %s (%s)", ip, name);
+        return 0;
+    }
+
+    // Add new node
+    if (g_node_count >= MAX_TOPOLOGY_NODES) {
+        pthread_mutex_unlock(&g_topology_mutex);
+        LOG_WARN("Topology database full (nodes): cannot add %s", ip);
+        return -1;
+    }
+
+    TopologyNode *node = &g_nodes[g_node_count];
+    strncpy(node->ip, ip, sizeof(node->ip) - 1);
+    strncpy(node->type, type, sizeof(node->type) - 1);
+    strncpy(node->name, name, sizeof(node->name) - 1);
+    if (lat) {
+        strncpy(node->lat, lat, sizeof(node->lat) - 1);
+    } else {
+        node->lat[0] = '\0';
+    }
+    if (lon) {
+        strncpy(node->lon, lon, sizeof(node->lon) - 1);
+    } else {
+        node->lon[0] = '\0';
+    }
+    strncpy(node->status, status, sizeof(node->status) - 1);
+    node->last_seen = time(NULL);
+
+    g_node_count++;
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    LOG_DEBUG("Added node: %s (%s) - type=%s, status=%s",
+             ip, name, type, status);
+    return 0;
+}
+
+/**
+ * Find a node by IP
+ */
+TopologyNode* topology_db_find_node(const char *ip) {
+    if (!ip) {
+        return NULL;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    for (int i = 0; i < g_node_count; i++) {
+        if (strcmp(g_nodes[i].ip, ip) == 0) {
+            pthread_mutex_unlock(&g_topology_mutex);
+            return &g_nodes[i];
+        }
+    }
+
+    pthread_mutex_unlock(&g_topology_mutex);
+    return NULL;
+}
+
+/**
+ * Get node count
+ */
+int topology_db_get_node_count(void) {
+    pthread_mutex_lock(&g_topology_mutex);
+    int count = g_node_count;
+    pthread_mutex_unlock(&g_topology_mutex);
+    return count;
+}
+
+/**
+ * Add RTT sample to connection
+ */
+int topology_db_add_connection(const char *from_ip, const char *to_ip, float rtt_ms) {
+    if (!from_ip || !to_ip || rtt_ms < 0) {
+        LOG_ERROR("Invalid parameters for topology_db_add_connection");
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    // Check if connection already exists
+    TopologyConnection *existing = NULL;
+    for (int i = 0; i < g_connection_count; i++) {
+        if (strcmp(g_connections[i].from_ip, from_ip) == 0 &&
+            strcmp(g_connections[i].to_ip, to_ip) == 0) {
+            existing = &g_connections[i];
+            break;
+        }
+    }
+
+    if (existing) {
+        // Add sample to existing connection (circular buffer)
+        int idx = existing->next_sample_index;
+        existing->samples[idx].rtt_ms = rtt_ms;
+        existing->samples[idx].timestamp = time(NULL);
+        existing->next_sample_index = (idx + 1) % MAX_RTT_SAMPLES;
+
+        if (existing->sample_count < MAX_RTT_SAMPLES) {
+            existing->sample_count++;
+        }
+
+        existing->last_updated = time(NULL);
+
+        pthread_mutex_unlock(&g_topology_mutex);
+        LOG_DEBUG("Added RTT sample to connection %s -> %s: %.2f ms (total samples: %d)",
+                 from_ip, to_ip, rtt_ms, existing->sample_count);
+        return 0;
+    }
+
+    // Create new connection
+    if (g_connection_count >= MAX_TOPOLOGY_CONNECTIONS) {
+        pthread_mutex_unlock(&g_topology_mutex);
+        LOG_WARN("Topology database full (connections): cannot add %s -> %s",
+                from_ip, to_ip);
+        return -1;
+    }
+
+    TopologyConnection *conn = &g_connections[g_connection_count];
+    strncpy(conn->from_ip, from_ip, sizeof(conn->from_ip) - 1);
+    strncpy(conn->to_ip, to_ip, sizeof(conn->to_ip) - 1);
+    memset(conn->samples, 0, sizeof(conn->samples));
+    conn->samples[0].rtt_ms = rtt_ms;
+    conn->samples[0].timestamp = time(NULL);
+    conn->sample_count = 1;
+    conn->next_sample_index = 1;
+    conn->rtt_avg_ms = rtt_ms;
+    conn->rtt_min_ms = rtt_ms;
+    conn->rtt_max_ms = rtt_ms;
+    conn->last_updated = time(NULL);
+
+    g_connection_count++;
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    LOG_DEBUG("Added connection: %s -> %s (RTT: %.2f ms)",
+             from_ip, to_ip, rtt_ms);
+    return 0;
+}
+
+/**
+ * Find a connection
+ */
+TopologyConnection* topology_db_find_connection(const char *from_ip, const char *to_ip) {
+    if (!from_ip || !to_ip) {
+        return NULL;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    for (int i = 0; i < g_connection_count; i++) {
+        if (strcmp(g_connections[i].from_ip, from_ip) == 0 &&
+            strcmp(g_connections[i].to_ip, to_ip) == 0) {
+            pthread_mutex_unlock(&g_topology_mutex);
+            return &g_connections[i];
+        }
+    }
+
+    pthread_mutex_unlock(&g_topology_mutex);
+    return NULL;
+}
+
+/**
+ * Get connection count
+ */
+int topology_db_get_connection_count(void) {
+    pthread_mutex_lock(&g_topology_mutex);
+    int count = g_connection_count;
+    pthread_mutex_unlock(&g_topology_mutex);
+    return count;
+}
+
+/**
+ * Fetch location data for all nodes
+ */
+void topology_db_fetch_all_locations(void) {
+    LOG_INFO("Fetching location data for %d nodes...", g_node_count);
+
+    int fetched = 0;
+    int failed = 0;
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    for (int i = 0; i < g_node_count; i++) {
+        TopologyNode *node = &g_nodes[i];
+
+        // Skip if already has location
+        if (strlen(node->lat) > 0 && strlen(node->lon) > 0) {
+            continue;
+        }
+
+        // Build URL
+        char url[256];
+        snprintf(url, sizeof(url), "http://%s/cgi-bin/sysinfo.json", node->ip);
+
+        // Fetch location (HTTP GET with 2-second timeout)
+        char lat[32] = "";
+        char lon[32] = "";
+
+        if (uac_http_get_location(url, lat, sizeof(lat), lon, sizeof(lon)) == 0) {
+            strncpy(node->lat, lat, sizeof(node->lat) - 1);
+            strncpy(node->lon, lon, sizeof(node->lon) - 1);
+            fetched++;
+            LOG_DEBUG("Fetched location for %s: %s, %s", node->ip, lat, lon);
+        } else {
+            failed++;
+            LOG_DEBUG("Failed to fetch location for %s", node->ip);
+        }
+    }
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    LOG_INFO("Location fetch complete: %d successful, %d failed", fetched, failed);
+}
+
+/**
+ * Calculate aggregate statistics for all connections
+ */
+void topology_db_calculate_aggregate_stats(void) {
+    LOG_INFO("Calculating aggregate statistics for %d connections...", g_connection_count);
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    for (int i = 0; i < g_connection_count; i++) {
+        TopologyConnection *conn = &g_connections[i];
+
+        if (conn->sample_count == 0) {
+            conn->rtt_avg_ms = 0.0;
+            conn->rtt_min_ms = 0.0;
+            conn->rtt_max_ms = 0.0;
+            continue;
+        }
+
+        // Calculate min, max, avg
+        float sum = 0.0;
+        float min = conn->samples[0].rtt_ms;
+        float max = conn->samples[0].rtt_ms;
+
+        for (int s = 0; s < conn->sample_count; s++) {
+            float rtt = conn->samples[s].rtt_ms;
+            sum += rtt;
+            if (rtt < min) min = rtt;
+            if (rtt > max) max = rtt;
+        }
+
+        conn->rtt_avg_ms = sum / conn->sample_count;
+        conn->rtt_min_ms = min;
+        conn->rtt_max_ms = max;
+
+        LOG_DEBUG("Connection %s -> %s: avg=%.2f ms, min=%.2f ms, max=%.2f ms (samples=%d)",
+                 conn->from_ip, conn->to_ip, conn->rtt_avg_ms,
+                 conn->rtt_min_ms, conn->rtt_max_ms, conn->sample_count);
+    }
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    LOG_INFO("Statistics calculation complete");
+}
+
+/**
+ * Write topology database to JSON file
+ */
+int topology_db_write_to_file(const char *filepath) {
+    if (!filepath) {
+        LOG_ERROR("Invalid filepath for topology JSON");
+        return -1;
+    }
+
+    LOG_INFO("Writing topology to %s...", filepath);
+
+    FILE *fp = fopen(filepath, "w");
+    if (!fp) {
+        LOG_ERROR("Failed to open %s for writing: %s", filepath, strerror(errno));
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    // Write JSON header
+    fprintf(fp, "{\n");
+    fprintf(fp, "  \"version\": \"2.0\",\n");
+
+    // Write timestamp (ISO 8601 format)
+    time_t now = time(NULL);
+    struct tm *tm_info = gmtime(&now);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
+    fprintf(fp, "  \"generated_at\": \"%s\",\n", timestamp);
+
+    // Write source node (this node - will be filled by caller, use first node for now)
+    fprintf(fp, "  \"source_node\": {\n");
+    if (g_node_count > 0) {
+        fprintf(fp, "    \"ip\": \"%s\",\n", g_nodes[0].ip);
+        fprintf(fp, "    \"name\": \"%s\",\n", g_nodes[0].name);
+        fprintf(fp, "    \"type\": \"server\"\n");
+    } else {
+        fprintf(fp, "    \"ip\": \"0.0.0.0\",\n");
+        fprintf(fp, "    \"name\": \"unknown\",\n");
+        fprintf(fp, "    \"type\": \"server\"\n");
+    }
+    fprintf(fp, "  },\n");
+
+    // Write nodes array
+    fprintf(fp, "  \"nodes\": [\n");
+    for (int i = 0; i < g_node_count; i++) {
+        TopologyNode *node = &g_nodes[i];
+        fprintf(fp, "    {\n");
+        fprintf(fp, "      \"ip\": \"%s\",\n", node->ip);
+        fprintf(fp, "      \"type\": \"%s\",\n", node->type);
+        fprintf(fp, "      \"name\": \"%s\",\n", node->name);
+        fprintf(fp, "      \"lat\": \"%s\",\n", node->lat);
+        fprintf(fp, "      \"lon\": \"%s\",\n", node->lon);
+        fprintf(fp, "      \"status\": \"%s\",\n", node->status);
+        fprintf(fp, "      \"last_seen\": %ld\n", (long)node->last_seen);
+        fprintf(fp, "    }%s\n", (i < g_node_count - 1) ? "," : "");
+    }
+    fprintf(fp, "  ],\n");
+
+    // Write connections array
+    fprintf(fp, "  \"connections\": [\n");
+    for (int i = 0; i < g_connection_count; i++) {
+        TopologyConnection *conn = &g_connections[i];
+        fprintf(fp, "    {\n");
+        fprintf(fp, "      \"from\": \"%s\",\n", conn->from_ip);
+        fprintf(fp, "      \"to\": \"%s\",\n", conn->to_ip);
+        fprintf(fp, "      \"rtt_avg_ms\": %.3f,\n", conn->rtt_avg_ms);
+        fprintf(fp, "      \"rtt_min_ms\": %.3f,\n", conn->rtt_min_ms);
+        fprintf(fp, "      \"rtt_max_ms\": %.3f,\n", conn->rtt_max_ms);
+        fprintf(fp, "      \"sample_count\": %d,\n", conn->sample_count);
+        fprintf(fp, "      \"last_updated\": %ld\n", (long)conn->last_updated);
+        fprintf(fp, "    }%s\n", (i < g_connection_count - 1) ? "," : "");
+    }
+    fprintf(fp, "  ],\n");
+
+    // Write statistics
+    fprintf(fp, "  \"statistics\": {\n");
+    fprintf(fp, "    \"total_nodes\": %d,\n", g_node_count);
+    fprintf(fp, "    \"total_connections\": %d\n", g_connection_count);
+    fprintf(fp, "  }\n");
+
+    fprintf(fp, "}\n");
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    fclose(fp);
+
+    LOG_INFO("Topology written to %s (%d nodes, %d connections)",
+             filepath, g_node_count, g_connection_count);
+    return 0;
+}
