@@ -828,7 +828,7 @@ cat <<EOF
                         opacity: 0.7
                     }).addTo(topologyMap);
 
-                    // Add tooltip with RTT info
+                    // Add tooltip with RTT info (on hover)
                     line.bindTooltip(
                         'RTT: ' + conn.rtt_avg_ms.toFixed(1) + ' ms' +
                         ' (min: ' + conn.rtt_min_ms.toFixed(1) +
@@ -836,9 +836,47 @@ cat <<EOF
                         { sticky: true, permanent: false }
                     );
 
-                    // Find node types for from and to
+                    // Find node types and names for from and to
                     const fromNode = data.nodes.find(n => n.ip === conn.from);
                     const toNode = data.nodes.find(n => n.ip === conn.to);
+
+                    // Add click handler to show connection details
+                    line.on('click', function() {
+                        // Clean up node names
+                        let fromName = fromNode ? fromNode.name : conn.from;
+                        let toName = toNode ? toNode.name : conn.to;
+
+                        if (fromName.includes('.')) {
+                            const parts = fromName.split('.');
+                            if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
+                                fromName = parts.slice(1).join('.');
+                            }
+                        }
+
+                        if (toName.includes('.')) {
+                            const parts = toName.split('.');
+                            if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
+                                toName = parts.slice(1).join('.');
+                            }
+                        }
+
+                        // Create popup content
+                        const popupContent = '<div style="font-family: Arial, sans-serif;">' +
+                            '<strong>Connection Details</strong><br><br>' +
+                            '<strong>From:</strong> ' + fromName + '<br>' +
+                            '<strong>To:</strong> ' + toName + '<br><br>' +
+                            '<strong>RTT Statistics:</strong><br>' +
+                            '• Minimum: ' + conn.rtt_min_ms.toFixed(1) + ' ms<br>' +
+                            '• Average: ' + conn.rtt_avg_ms.toFixed(1) + ' ms<br>' +
+                            '• Maximum: ' + conn.rtt_max_ms.toFixed(1) + ' ms<br>' +
+                            '</div>';
+
+                        // Show popup at click location
+                        L.popup()
+                            .setLatLng(line.getCenter())
+                            .setContent(popupContent)
+                            .openOn(topologyMap);
+                    });
 
                     // Only show RTT label for router-to-router connections
                     const isRouterToRouter = fromNode && toNode &&
