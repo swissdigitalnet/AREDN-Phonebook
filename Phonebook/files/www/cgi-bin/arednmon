@@ -351,10 +351,16 @@ cat <<'EOF'
             <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
         </div>
         <div class="map-legend">
+            <strong>Node Types:</strong><br>
+            <span style="color: #FF9800;">● Orange</span> - Router<br>
+            <span style="color: #4CAF50;">● Green</span> - Phone<br>
+            <span style="color: #9E9E9E;">● Grey</span> - Offline<br>
+            <br>
             <strong>Connection Quality (RTT):</strong><br>
-            <span style="color: #4CAF50;">━━━ Green</span> - Excellent (&lt;100ms)<br>
-            <span style="color: #FF9800;">━━━ Orange</span> - Medium (100-200ms)<br>
-            <span style="color: #f44336;">━━━ Red</span> - Poor (&gt;200ms)<br>
+            <span style="color: #4CAF50;">━━━ Green (solid)</span> - Excellent (&lt;100ms)<br>
+            <span style="color: #FF9800;">━━━ Orange (solid)</span> - Medium (100-200ms)<br>
+            <span style="color: #f44336;">━━━ Red (solid)</span> - Poor (&gt;200ms)<br>
+            <span style="color: #9E9E9E;">╌╌╌ Grey (dashed)</span> - Unreachable (ping timeout)<br>
             <br>
             <strong>Interaction:</strong> Click any node to highlight the route and show traceroute results below
         </div>
@@ -439,8 +445,8 @@ cat <<EOF
         // Topology data update interval (30 seconds for real-time node discovery)
         const TOPOLOGY_UPDATE_INTERVAL = 30000;
         // Track previously seen nodes to highlight new discoveries
-        let previousNodeIPs = new Set();
-        let newNodeHighlights = new Map(); // IP -> timestamp when added
+        let previousNodeNames = new Set();
+        let newNodeHighlights = new Map(); // hostname -> timestamp when added
 
         // Load and display software health
         async function loadHealthStatus() {
@@ -838,10 +844,10 @@ cat <<EOF
             if (!data) return;
 
             // Create node lookup map once (O(1) lookups instead of O(n))
-            const nodesByIp = {};
+            const nodesByName = {};
             if (data.nodes) {
                 data.nodes.forEach(node => {
-                    nodesByIp[node.ip] = node;
+                    nodesByName[node.name] = node;
                 });
             }
 
@@ -895,8 +901,8 @@ cat <<EOF
                 let html = '';
                 data.connections.forEach(conn => {
                     // Use lookup map for O(1) access instead of find() O(n)
-                    const fromNode = nodesByIp[conn.source];
-                    const toNode = nodesByIp[conn.target];
+                    const fromNode = nodesByName[conn.source];
+                    const toNode = nodesByName[conn.target];
                     const fromName = fromNode ? fromNode.name : conn.source;
                     const toName = toNode ? toNode.name : conn.target;
 
@@ -922,10 +928,10 @@ cat <<EOF
             }
 
             // Create node lookup map once for O(1) access throughout rendering
-            const nodesByIp = {};
+            const nodesByName = {};
             if (data.nodes) {
                 data.nodes.forEach(node => {
-                    nodesByIp[node.ip] = node;
+                    nodesByName[node.name] = node;
                 });
             }
 
@@ -948,25 +954,25 @@ cat <<EOF
             let bounds = [];
 
             // Detect new nodes
-            const currentNodeIPs = new Set();
+            const currentNodeNames = new Set();
             const now = Date.now();
 
             // Clean up old highlights (older than 30 seconds)
-            for (const [ip, timestamp] of newNodeHighlights.entries()) {
+            for (const [name, timestamp] of newNodeHighlights.entries()) {
                 if (now - timestamp > 30000) {
-                    newNodeHighlights.delete(ip);
+                    newNodeHighlights.delete(name);
                 }
             }
 
             // Add nodes
             data.nodes.forEach(node => {
-                currentNodeIPs.add(node.ip);
+                currentNodeNames.add(node.name);
 
                 // Check if this is a new node
-                const isNewNode = !previousNodeIPs.has(node.ip);
+                const isNewNode = !previousNodeNames.has(node.name);
                 if (isNewNode) {
-                    newNodeHighlights.set(node.ip, now);
-                    console.log('New node discovered:', node.name, '(' + node.ip + ')');
+                    newNodeHighlights.set(node.name, now);
+                    console.log('New node discovered:', node.name);
                 }
 
                 // Skip nodes without location
@@ -994,7 +1000,7 @@ cat <<EOF
                 }
 
                 // Create marker with highlight for new nodes
-                const isHighlighted = newNodeHighlights.has(node.ip);
+                const isHighlighted = newNodeHighlights.has(node.name);
                 const marker = L.marker([lat, lon], {
                     icon: getNodeIcon(node.type, node.status, isHighlighted),
                     title: cleanName
@@ -1005,14 +1011,14 @@ cat <<EOF
 
                 // Add click handler for route highlighting and traceroute
                 marker.on('click', async function() {
-                    await highlightPathToNode(data, node.ip, cleanName, marker);
+                    await highlightPathToNode(data, node.name, cleanName, marker);
                 });
 
-                nodeMarkers[node.ip] = marker;
+                nodeMarkers[node.name] = marker;
             });
 
             // Update the set of previously seen nodes
-            previousNodeIPs = currentNodeIPs;
+            previousNodeNames = currentNodeNames;
 
             // Get color for RTT (same as table color coding)
             function getRttColor(rtt) {
@@ -1027,28 +1033,38 @@ cat <<EOF
                 const toMarker = nodeMarkers[conn.target];
 
                 if (fromMarker && toMarker) {
-                    const color = getRttColor(conn.rtt_avg_ms);
+                    // Check if connection is unreachable (RTT == 0)
+                    const isUnreachable = conn.rtt_avg_ms === 0;
+                    const color = isUnreachable ? '#9E9E9E' : getRttColor(conn.rtt_avg_ms);
+                    const dashArray = isUnreachable ? '5, 5' : null;  // Dashed for unreachable
+                    const opacity = isUnreachable ? 0.4 : 0.7;
+
+                    const lineOptions = {
+                        color: color,
+                        weight: 3,
+                        opacity: opacity
+                    };
+                    if (dashArray) {
+                        lineOptions.dashArray = dashArray;
+                    }
 
                     const line = L.polyline([
                         fromMarker.getLatLng(),
                         toMarker.getLatLng()
-                    ], {
-                        color: color,
-                        weight: 3,
-                        opacity: 0.7
-                    }).addTo(topologyMap);
+                    ], lineOptions).addTo(topologyMap);
 
                     // Add tooltip with RTT info (on hover)
-                    line.bindTooltip(
+                    const tooltipText = isUnreachable ?
+                        'Unreachable (ping_success_time = 0)' :
                         'RTT: ' + conn.rtt_avg_ms.toFixed(1) + ' ms' +
                         ' (min: ' + conn.rtt_min_ms.toFixed(1) +
-                        ', max: ' + conn.rtt_max_ms.toFixed(1) + ')',
-                        { sticky: true, permanent: false }
-                    );
+                        ', max: ' + conn.rtt_max_ms.toFixed(1) + ')';
+
+                    line.bindTooltip(tooltipText, { sticky: true, permanent: false });
 
                     // Use lookup map for O(1) access instead of find() O(n)
-                    const fromNode = nodesByIp[conn.source];
-                    const toNode = nodesByIp[conn.target];
+                    const fromNode = nodesByName[conn.source];
+                    const toNode = nodesByName[conn.target];
 
                     // Add click handler to show connection details
                     line.on('click', function() {
@@ -1150,12 +1166,12 @@ cat <<EOF
         }
 
         // BFS to find shortest path
-        function findShortestPath(data, targetIp) {
+        function findShortestPath(data, targetName) {
             if (!data || !data.source_node) {
                 return [];
             }
 
-            const sourceIp = data.source_node.ip;
+            const sourceName = data.source_node.name;
 
             // Build adjacency list
             const graph = {};
@@ -1167,14 +1183,14 @@ cat <<EOF
             });
 
             // BFS
-            const queue = [[sourceIp]];
-            const visited = new Set([sourceIp]);
+            const queue = [[sourceName]];
+            const visited = new Set([sourceName]);
 
             while (queue.length > 0) {
                 const path = queue.shift();
                 const node = path[path.length - 1];
 
-                if (node === targetIp) {
+                if (node === targetName) {
                     return path;
                 }
 
@@ -1192,23 +1208,23 @@ cat <<EOF
         }
 
         // Highlight path to specific node (with live traceroute fallback)
-        async function highlightPathToNode(data, targetIp, targetName, marker) {
+        async function highlightPathToNode(data, targetHostname, targetDisplayName, marker) {
             // Clear previous highlights
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
 
             // Find shortest path in topology database
-            const path = findShortestPath(data, targetIp);
+            const path = findShortestPath(data, targetHostname);
 
             if (path.length === 0) {
-                console.log('No path found in topology database for', targetIp, '- triggering live traceroute');
+                console.log('No path found in topology database for', targetHostname, '- triggering live traceroute');
 
-                // Trigger live traceroute with popup
-                await fetchTraceroute(targetIp, targetName, marker);
+                // Trigger live traceroute with popup (traceroute needs hostname)
+                await fetchTraceroute(targetHostname, targetDisplayName, marker);
                 return;
             }
 
-            console.log('Path to', targetIp, ':', path);
+            console.log('Path to', targetHostname, ':', path);
 
             // Draw highlighted path with thicker, brighter line
             for (let i = 0; i < path.length - 1; i++) {

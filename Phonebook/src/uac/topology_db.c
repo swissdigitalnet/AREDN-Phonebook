@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -606,19 +607,23 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
             }
 
             if (strchr(line, '}')) {
-                if (neighbor_hostname[0] != '\0' && ping_time_ms > 0.0) {
-                    topology_db_add_connection(hostname, neighbor_hostname, ping_time_ms);
+                // Include both reachable (ping_time_ms > 0) and unreachable (ping_time_ms == 0) neighbors
+                if (neighbor_hostname[0] != '\0') {
+                    // Use 0.0 RTT for unreachable neighbors to distinguish them
+                    float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
+                    topology_db_add_connection(hostname, neighbor_hostname, rtt);
                     if (neighbors_buf && buf_size > 0) {
                         size_t len = strlen(neighbors_buf);
                         snprintf(neighbors_buf + len, buf_size - len, "%s%s",
                                 len > 0 ? "," : "", neighbor_hostname);
                     }
                     link_count++;
-                } else if (neighbor_ip[0] != '\0' && ping_time_ms > 0.0) {
+                } else if (neighbor_ip[0] != '\0') {
                     // Fallback: resolve IP to hostname
                     char resolved_hostname[256];
                     if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
-                        topology_db_add_connection(hostname, resolved_hostname, ping_time_ms);
+                        float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
+                        topology_db_add_connection(hostname, resolved_hostname, rtt);
                         if (neighbors_buf && buf_size > 0) {
                             size_t len = strlen(neighbors_buf);
                             snprintf(neighbors_buf + len, buf_size - len, "%s%s",
@@ -634,6 +639,79 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
 
     pclose(fp);
     return link_count;
+}
+
+/**
+ * Helper: Fetch phones from OLSR services database
+ */
+static int fetch_phones_from_olsr_services(void) {
+    const char *services_file = "/var/run/services_olsr";
+    FILE *fp = fopen(services_file, "r");
+
+    if (!fp) {
+        LOG_WARN("Cannot open %s: %s", services_file, strerror(errno));
+        return 0;
+    }
+
+    char line[512];
+    int phone_count = 0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        // Look for [phone] tag
+        if (!strstr(line, "[phone]")) continue;
+
+        // Extract router hostname (between http:// and :)
+        char *url_start = strstr(line, "http://");
+        if (!url_start) continue;
+
+        url_start += 7;  // Skip "http://"
+        char *url_end = strchr(url_start, ':');
+        if (!url_end) continue;
+
+        char router_hostname[256];
+        int router_len = url_end - url_start;
+        if (router_len >= (int)sizeof(router_hostname)) continue;
+
+        strncpy(router_hostname, url_start, router_len);
+        router_hostname[router_len] = '\0';
+
+        // Extract phone number from description (first sequence of digits)
+        char *desc_start = strchr(url_start, '|');
+        if (!desc_start) continue;
+        desc_start = strchr(desc_start + 1, '|');
+        if (!desc_start) continue;
+        desc_start++;  // Move past second |
+
+        // Find first digit sequence
+        char phone_number[64] = "";
+        char *p = desc_start;
+        while (*p && !isdigit(*p)) p++;
+
+        if (*p && isdigit(*p)) {
+            char *num_start = p;
+            while (*p && isdigit(*p)) p++;
+            int num_len = p - num_start;
+            if (num_len > 0 && num_len < (int)sizeof(phone_number)) {
+                strncpy(phone_number, num_start, num_len);
+                phone_number[num_len] = '\0';
+            }
+        }
+
+        if (phone_number[0] == '\0') continue;
+
+        // Add phone node with no location (will be positioned near router later)
+        if (topology_db_add_node(phone_number, "phone", NULL, NULL, "ONLINE") == 0) {
+            // Create connection from router to phone
+            // Use RTT 0.1ms as dummy value for phones
+            topology_db_add_connection(router_hostname, phone_number, 0.1);
+            phone_count++;
+            LOG_DEBUG("Added phone: %s connected to router %s", phone_number, router_hostname);
+        }
+    }
+
+    fclose(fp);
+    LOG_INFO("Fetched %d phones from OLSR services", phone_count);
+    return phone_count;
 }
 
 /**
@@ -687,32 +765,107 @@ static int fetch_hostnames(char hostnames[][40], int max_hostnames) {
 }
 
 /**
- * Crawl the entire mesh network
+ * Helper: Check if hostname is already visited
  */
-void topology_db_crawl_mesh_network(void) {
-    LOG_INFO("Starting mesh network crawl from localhost...");
+static bool is_hostname_visited(const char *hostname, char visited[][64], int visited_count) {
+    for (int i = 0; i < visited_count; i++) {
+        if (strcmp(visited[i], hostname) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
-    char hostnames[500][40];
-    int num_hosts = fetch_hostnames(hostnames, 500);
-
-    if (num_hosts <= 0) {
-        LOG_ERROR("Failed to fetch hostnames from localhost");
+/**
+ * Helper: Add hostname to queue if not already visited or queued
+ */
+static void add_to_queue_if_new(const char *hostname, char queue[][64], int *queue_count,
+                                 char visited[][64], int visited_count, int max_queue) {
+    // Skip if already visited
+    if (is_hostname_visited(hostname, visited, visited_count)) {
         return;
     }
 
-    LOG_INFO("Crawling %d nodes...", num_hosts);
+    // Skip if already in queue
+    for (int i = 0; i < *queue_count; i++) {
+        if (strcmp(queue[i], hostname) == 0) {
+            return;
+        }
+    }
+
+    // Add to queue if space available
+    if (*queue_count < max_queue) {
+        strncpy(queue[*queue_count], hostname, 63);
+        queue[*queue_count][63] = '\0';
+        (*queue_count)++;
+        LOG_DEBUG("Added to crawl queue: %s (queue size: %d)", hostname, *queue_count);
+    } else {
+        LOG_WARN("Crawl queue full, cannot add: %s", hostname);
+    }
+}
+
+/**
+ * Crawl the entire mesh network using BFS recursive discovery
+ */
+void topology_db_crawl_mesh_network(void) {
+    LOG_INFO("Starting BFS mesh network crawl from localhost...");
+
+    // Dynamic queues for BFS
+    char crawl_queue[1000][64];  // Nodes to crawl
+    int queue_count = 0;
+    char visited[1000][64];      // Nodes already crawled
+    int visited_count = 0;
+
+    // Seed the queue with initial hostnames from localhost
+    char initial_hostnames[500][40];
+    int num_initial = fetch_hostnames(initial_hostnames, 500);
+
+    if (num_initial <= 0) {
+        LOG_ERROR("Failed to fetch initial hostnames from localhost");
+        return;
+    }
+
+    LOG_INFO("Seeding crawl queue with %d initial hostnames...", num_initial);
+    for (int i = 0; i < num_initial; i++) {
+        if (queue_count < 1000) {
+            strncpy(crawl_queue[queue_count], initial_hostnames[i], 63);
+            crawl_queue[queue_count][63] = '\0';
+            queue_count++;
+        }
+    }
 
     int processed = 0;
     int discovered = 0;
+    int queue_head = 0;  // Index of next node to process
 
-    for (int i = 0; i < num_hosts; i++) {
-        char *hostname = hostnames[i];
+    LOG_INFO("Starting BFS crawl with %d nodes in queue...", queue_count);
+
+    // BFS: process queue until empty
+    while (queue_head < queue_count && visited_count < 1000) {
+        char *hostname = crawl_queue[queue_head];
+        queue_head++;
         processed++;
 
-        // Check if numeric (phone)
+        // Skip if already visited (shouldn't happen but safety check)
+        if (is_hostname_visited(hostname, visited, visited_count)) {
+            continue;
+        }
+
+        // Mark as visited
+        if (visited_count < 1000) {
+            strncpy(visited[visited_count], hostname, 63);
+            visited[visited_count][63] = '\0';
+            visited_count++;
+        }
+
+        // Check if numeric (phone) - skip phones in crawl
         bool is_numeric = true;
         for (char *p = hostname; *p; p++) {
             if (!isdigit(*p)) { is_numeric = false; break; }
+        }
+        if (is_numeric) {
+            LOG_DEBUG("SKIP %d/%d: %s (numeric/phone)", processed, queue_count, hostname);
+            continue;
         }
 
         // Fetch node details
@@ -722,22 +875,37 @@ void topology_db_crawl_mesh_network(void) {
         if (fetch_node_details(hostname, lat, sizeof(lat), lon, sizeof(lon)) == 0) {
             topology_db_add_node(hostname, "router", lat, lon, "ONLINE");
             discovered++;
-            char neighbors[256];
-            int links = fetch_lqm_links_from_host(hostname, neighbors, sizeof(neighbors));
-            LOG_DEBUG("OK %d/%d: %s (idx=%d,num=%d,links=%d,nbrs=%s) %s,%s",
-                     processed, num_hosts, hostname, i, is_numeric?1:0, links,
-                     links > 0 ? neighbors : "none", lat, lon);
+
+            // Fetch neighbors and add to queue for recursive discovery
+            char neighbors_buf[2048] = "";
+            int links = fetch_lqm_links_from_host(hostname, neighbors_buf, sizeof(neighbors_buf));
+
+            // Parse neighbors and add to crawl queue
+            if (strlen(neighbors_buf) > 0) {
+                char *neighbor = strtok(neighbors_buf, ",");
+                while (neighbor != NULL) {
+                    add_to_queue_if_new(neighbor, crawl_queue, &queue_count, visited, visited_count, 1000);
+                    neighbor = strtok(NULL, ",");
+                }
+            }
+
+            LOG_DEBUG("OK %d/%d (Q:%d): %s (links=%d,nbrs=%s) %s,%s",
+                     processed, queue_count, queue_count - queue_head, hostname, links,
+                     strlen(neighbors_buf) > 0 ? neighbors_buf : "none", lat, lon);
         } else {
-            LOG_DEBUG("FAIL %d/%d: %s (idx=%d,num=%d)",
-                     processed, num_hosts, hostname, i, is_numeric?1:0);
-            continue;
+            LOG_DEBUG("FAIL %d/%d (Q:%d): %s",
+                     processed, queue_count, queue_count - queue_head, hostname);
         }
 
         usleep(100000);  // 100ms delay
     }
 
-    LOG_INFO("Mesh crawl complete: processed %d nodes, discovered %d nodes with details",
-             processed, discovered);
+    LOG_INFO("BFS mesh crawl complete: processed %d nodes, discovered %d nodes with details, %d total in queue",
+             processed, discovered, queue_count);
+
+    // Fetch phones from OLSR services
+    int phones = fetch_phones_from_olsr_services();
+    LOG_INFO("Added %d phones from OLSR services to topology", phones);
 }
 
 /**

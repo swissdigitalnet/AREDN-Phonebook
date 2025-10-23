@@ -1644,6 +1644,198 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 - JSON export: ~50 KB (typical mesh with 50 nodes, 30 connections)
 - Total RAM impact: <200 KB
 
+#### 4.12.13 Mesh Network Crawler
+
+**Purpose**: Discovers all mesh nodes by fetching the OLSR hosts list and crawling each node to gather topology information.
+
+**Implementation:** `topology_db.c` (`mesh_crawler_thread()`)
+
+**Key Features:**
+
+1. **Hostname Capacity** (v2.5.40+):
+   - Array size: 500 entries (increased from 200)
+   - Per-hostname buffer: 40 bytes (optimized from 256 bytes)
+   - Memory footprint: 20 KB (60% reduction from 51 KB)
+   - Rationale: AREDN hostnames without `.local.mesh` suffix fit in 40 bytes
+
+2. **Hostname Filtering**:
+   ```c
+   // Only accept canonical short hostnames (without .local.mesh suffix)
+   if (len > 0 && strstr(name_start, "local.mesh") == NULL) {
+       // Truncate to 39 chars max (leave room for null terminator)
+       if (len >= 40) len = 39;
+       strncpy(hostnames[count], name_start, len);
+       hostnames[count][len] = '\0';
+       count++;
+   }
+   ```
+   This filters out interface-specific names like:
+   - `dtdlink.HB9BLA-VM-1.local.mesh`
+   - `lan.HB9BLA-VM-1.local.mesh`
+   - `mid.HB9BLA-VM-1.local.mesh`
+
+   And keeps only canonical hostnames like:
+   - `HB9BLA-VM-1`
+   - `HB9BLA-HAP-2`
+
+3. **Seed-Only Crawl** (Performance Optimization):
+   - Fetches complete hosts list from localhost seed node only
+   - DNS query: `http://127.0.0.1/cgi-bin/sysinfo.json?hosts=1`
+   - Eliminates redundant fetches from every discovered node
+   - Reduces network traffic by 95%+
+
+4. **Enhanced Debug Logging** (v2.5.40+):
+   Compact one-line format per node with comprehensive diagnostic data:
+   ```
+   OK 206/215: HB9BLA-HAP-2 (idx=205,num=0,links=1,nbrs=hb9bla-vm-1) 47.47446,7.76728
+   ```
+
+   **Log Fields:**
+   - `OK/FAIL`: Node crawl status
+   - `206/215`: Progress counter (current/total)
+   - `HB9BLA-HAP-2`: Hostname
+   - `idx=205`: Array index (detect gaps/truncation)
+   - `num=0`: Numeric flag (0=router, 1=phone)
+   - `links=1`: LQM neighbor count
+   - `nbrs=...`: Comma-separated neighbor hostnames
+   - `47.47446,7.76728`: GPS coordinates (lat,lon)
+
+   **Benefits:**
+   - Single line per node (preserves log buffer)
+   - All key metrics for diagnosis
+   - Easy grep filtering for analysis
+
+5. **Node Aging System** (v2.5.40+):
+   - Configuration: `TOPOLOGY_NODE_TIMEOUT_SECONDS` (default: 3600s)
+   - Removes nodes not seen for > 1 hour
+   - Prevents stale offline nodes cluttering topology map
+   - Log: `TOPOLOGY_DB: Aged out 3 stale nodes (last seen > 3600s ago)`
+
+6. **LQM Link Extraction** (Enhanced):
+   - Parses ALL LQM tracker entries (RF, DTD, Tunnel, xlink0-7)
+   - Discovers direct neighbor connections
+   - Measures per-link RTT and quality
+   - Implementation in `fetch_lqm_links_from_host()`:
+   ```c
+   static int fetch_lqm_links_from_host(const char *hostname,
+                                        char *neighbors_buf,
+                                        size_t buf_size) {
+       // Fetch sysinfo.json?lqm=1
+       // Parse each tracker entry
+       // Extract neighbor hostname and ping_time_ms
+       // Add connection to topology database
+       // Append neighbor to buffer for logging
+       return link_count;
+   }
+   ```
+
+7. **Hostname-Based Topology API** (v2.5.39+):
+   - Changed from IP-based to hostname-based node identification
+   - Resolves tunnel/DTD IPs to main mesh IPs
+   - Uses DNS reverse lookup to get canonical hostnames
+   - Prevents duplicate nodes for multi-interface devices
+   - Example: `10.167.247.74` (dtdlink) → `HB9BLA-VM-1`
+
+**Crawler Workflow:**
+```
+1. Fetch hosts list from 127.0.0.1 (seed only)
+   └─ Parses sysinfo.json?hosts=1
+   └─ Filters to canonical hostnames
+   └─ Capacity: 500 entries (40 bytes each)
+
+2. For each hostname (1-500):
+   a. Check if numeric (phone vs router)
+   b. Fetch node details:
+      └─ HTTP GET: http://{hostname}/cgi-bin/sysinfo.json
+      └─ Extract: lat, lon, node type
+   c. Add node to topology database
+   d. Fetch LQM links:
+      └─ HTTP GET: http://{hostname}/cgi-bin/sysinfo.json?lqm=1
+      └─ Parse all tracker entries (RF, DTD, Tunnel, xlink*)
+      └─ Add connections to topology database
+   e. Log results (one line):
+      OK {progress}: {hostname} (idx={i},num={flag},links={n},nbrs={list}) {lat},{lon}
+   f. 100ms delay between nodes
+
+3. After all nodes crawled:
+   └─ Age out stale nodes (> TOPOLOGY_NODE_TIMEOUT_SECONDS)
+   └─ Fetch location data (Phase 1: routers, Phase 2: phones)
+   └─ Export topology JSON
+   └─ Log summary: X nodes, Y connections, Z locations
+
+4. Sleep until next interval
+   └─ Repeat cycle
+```
+
+**Configuration:**
+```ini
+# /etc/phonebook.conf
+
+# Enable mesh network crawler
+TOPOLOGY_CRAWLER_ENABLED=1
+
+# Crawler interval (seconds)
+TOPOLOGY_CRAWLER_INTERVAL_SECONDS=600
+
+# Node aging timeout (seconds)
+# Nodes not seen for this duration are removed
+TOPOLOGY_NODE_TIMEOUT_SECONDS=3600
+
+# Fetch location data from sysinfo.json
+TOPOLOGY_FETCH_LOCATIONS=1
+```
+
+**Performance Impact:**
+- Crawl time for 215 nodes: ~25-30 seconds
+- Memory: 20 KB (hostname array) + 100 KB (topology DB) = 120 KB total
+- Network: ~1 KB per node × 215 = 215 KB per cycle
+- CPU: Minimal (mostly I/O wait)
+
+**Example Logs:**
+```
+TOPOLOGY_DB: Fetching hosts from seed: 127.0.0.1
+TOPOLOGY_DB: Filtered 215 hostnames (out of 437 OLSR entries)
+TOPOLOGY_DB: Starting mesh crawl...
+OK 1/215: HB9BLA-VM-1 (idx=0,num=0,links=3,nbrs=hb9bla-hap-2,hb9edi-vm-gw,hb9gno-hap) 47.47446,7.76728
+OK 2/215: HB9BLA-HAP-2 (idx=1,num=0,links=1,nbrs=hb9bla-vm-1) 47.47456,7.76718
+FAIL 3/215: 441530 (idx=2,num=1)
+OK 206/215: HB9BLA-HAP-2 (idx=205,num=0,links=1,nbrs=hb9bla-vm-1) 47.47446,7.76728
+...
+TOPOLOGY_DB: Mesh crawl complete: 189/215 nodes discovered
+TOPOLOGY_DB: Aged out 3 stale nodes (last seen > 3600s ago)
+TOPOLOGY_DB: Phase 1: Fetching locations for routers...
+TOPOLOGY_DB: Phase 2: Propagating router locations to phones...
+TOPOLOGY_DB: Location fetch complete: 156 routers, 33 phones, 189 total
+```
+
+#### 4.12.14 AREDNmon UI Enhancements (v2.5.38+)
+
+**Performance Optimizations:**
+
+1. **Update Interval Change**:
+   - Old: 10 seconds (causes UI lag with 215 nodes)
+   - New: 30 seconds
+   - Result: 66% reduction in CPU load, smoother user experience
+
+2. **Connection Field Rename**:
+   - Changed from `from`/`to` to `source`/`target` for clarity
+   - Matches industry-standard graph terminology
+   - Updates in both topology database and JavaScript
+
+3. **Map Visualization Improvements**:
+   - **Popup Width**: Explicit `maxWidth: 300px` for Leaflet popups
+   - **Zoom Preservation**: Map zoom level maintained during topology refresh
+   - **Margin-Based Padding**: Fixed layout issues with proper CSS margin instead of padding
+   - **Connection Labels**: RTT values displayed at connection midpoints with quality-based coloring
+
+**Cache Control Headers** (topology_json endpoint):
+```bash
+echo "Cache-Control: no-cache, no-store, must-revalidate"
+echo "Pragma: no-cache"
+echo "Expires: 0"
+```
+Ensures browser always fetches latest topology data without stale cache issues.
+
 ## 5. Health Reporting
 
 The Health Reporting subsystem monitors the operational health of the AREDN-Phonebook service itself, tracking CPU, memory, thread responsiveness, and crash diagnostics. This provides visibility into software stability and enables proactive maintenance.
