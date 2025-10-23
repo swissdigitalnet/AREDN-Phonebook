@@ -619,6 +619,108 @@ static int fetch_hosts_from_node(const char *node_ip, char hosts[][INET_ADDRSTRL
 }
 
 /**
+ * Helper: Fetch LQM links from a node
+ * Extracts neighbor connections from LQM tracker data
+ * Returns number of links found, or -1 on error
+ */
+static int fetch_lqm_links_from_node(const char *node_ip) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json?lqm=1' 2>/dev/null",
+             node_ip);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        LOG_DEBUG("Failed to fetch LQM data from %s", node_ip);
+        return -1;
+    }
+
+    // Simple JSON parsing for LQM trackers
+    char line[4096];
+    int link_count = 0;
+    bool in_trackers = false;
+    bool in_tracker_entry = false;
+    char neighbor_ip[INET_ADDRSTRLEN] = "";
+    float ping_time_ms = 0.0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        // Look for "trackers": {
+        if (strstr(line, "\"trackers\"")) {
+            in_trackers = true;
+            continue;
+        }
+
+        if (!in_trackers) continue;
+
+        // End of trackers section (closing brace followed by comma or end)
+        if (in_trackers && !in_tracker_entry && strchr(line, '}')) {
+            // Check if this is the end of the trackers object
+            char *brace = strchr(line, '}');
+            if (brace) {
+                // Count braces to determine nesting level
+                // If we see }, it might be end of trackers
+                break;
+            }
+        }
+
+        // Detect tracker entry start: "MAC": {
+        if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
+            in_tracker_entry = true;
+            neighbor_ip[0] = '\0';
+            ping_time_ms = 0.0;
+            continue;
+        }
+
+        // Inside a tracker entry
+        if (in_tracker_entry) {
+            // Extract canonical_ip or ip
+            if (strstr(line, "\"canonical_ip\":") || strstr(line, "\"ip\":")) {
+                char *ip_start = strchr(line, ':');
+                if (ip_start) {
+                    ip_start++; // Move past colon
+                    // Skip whitespace and opening quote
+                    while (*ip_start == ' ' || *ip_start == '"') ip_start++;
+                    // Find end (closing quote)
+                    char *ip_end = strchr(ip_start, '"');
+                    if (ip_end) {
+                        int len = ip_end - ip_start;
+                        if (len > 0 && len < INET_ADDRSTRLEN) {
+                            strncpy(neighbor_ip, ip_start, len);
+                            neighbor_ip[len] = '\0';
+                        }
+                    }
+                }
+            }
+
+            // Extract ping_success_time
+            if (strstr(line, "\"ping_success_time\":")) {
+                char *time_start = strchr(line, ':');
+                if (time_start) {
+                    time_start++;
+                    // Parse float value
+                    ping_time_ms = atof(time_start) * 1000.0;  // Convert seconds to milliseconds
+                }
+            }
+
+            // End of tracker entry
+            if (strchr(line, '}')) {
+                // If we have both IP and ping time, add connection
+                if (neighbor_ip[0] != '\0' && ping_time_ms > 0.0) {
+                    topology_db_add_connection(node_ip, neighbor_ip, ping_time_ms);
+                    link_count++;
+                    LOG_DEBUG("Added LQM link: %s -> %s (%.2f ms)", node_ip, neighbor_ip, ping_time_ms);
+                }
+                in_tracker_entry = false;
+            }
+        }
+    }
+
+    pclose(fp);
+    LOG_DEBUG("Fetched %d LQM links from %s", link_count, node_ip);
+    return link_count;
+}
+
+/**
  * Helper: Fetch node details from sysinfo.json
  * Returns 0 on success, -1 on error
  */
@@ -761,6 +863,12 @@ void topology_db_crawl_mesh_network(const char *seed_ip) {
         } else {
             LOG_DEBUG("Failed to fetch details for %s, skipping", current_ip);
             continue;
+        }
+
+        // Fetch LQM links from this node
+        int num_links = fetch_lqm_links_from_node(current_ip);
+        if (num_links > 0) {
+            LOG_DEBUG("Extracted %d LQM links from %s", num_links, current_ip);
         }
 
         // Fetch hosts list from this node
