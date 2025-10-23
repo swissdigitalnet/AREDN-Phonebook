@@ -367,6 +367,49 @@ cat <<'EOF'
             <div class="traceroute-loading">Click on a node to view traceroute</div>
         </div>
     </div>
+
+    <!-- Debug: Topology Data Tables -->
+    <div class="map-panel" id="debugPanel" style="margin-top: 20px;">
+        <div class="map-title">Debug: Topology Data</div>
+
+        <h3 style="margin-top: 15px; color: #333;">Nodes</h3>
+        <div style="overflow-x: auto;">
+            <table style="font-size: 0.85em;">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>IP</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
+                        <th>Grid Square</th>
+                    </tr>
+                </thead>
+                <tbody id="debugNodesTable">
+                    <tr><td colspan="7" class="loading">No topology data loaded</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3 style="margin-top: 20px; color: #333;">Connections</h3>
+        <div style="overflow-x: auto;">
+            <table style="font-size: 0.85em;">
+                <thead>
+                    <tr>
+                        <th>From Node</th>
+                        <th>To Node</th>
+                        <th>RTT Min (ms)</th>
+                        <th>RTT Avg (ms)</th>
+                        <th>RTT Max (ms)</th>
+                    </tr>
+                </thead>
+                <tbody id="debugConnectionsTable">
+                    <tr><td colspan="5" class="loading">No topology data loaded</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 EOF
 
 cat <<EOF
@@ -626,13 +669,20 @@ cat <<EOF
                 const data = await response.json();
 
                 if (data.error) {
-                    content.innerHTML = '<div class="error">' + data.error + '</div>';
+                    content.innerHTML = '<div class="error">No active route: ' + data.error + '</div>';
                     return;
                 }
 
                 // Display hops
                 if (!data.hops || data.hops.length === 0) {
-                    content.innerHTML = '<div class="traceroute-loading">No hops found</div>';
+                    content.innerHTML = '<div class="error">No active route: No hops found in traceroute</div>';
+                    return;
+                }
+
+                // Check if all hops are timeouts (no route)
+                const allTimeouts = data.hops.every(hop => hop.timeout);
+                if (allTimeouts) {
+                    content.innerHTML = '<div class="error">No active route: All hops timed out</div>';
                     return;
                 }
 
@@ -656,7 +706,7 @@ cat <<EOF
 
             } catch (error) {
                 console.error('Failed to fetch traceroute:', error);
-                content.innerHTML = '<div class="error">Failed to fetch traceroute: ' + error.message + '</div>';
+                content.innerHTML = '<div class="error">No active route: Failed to run traceroute (' + error.message + ')</div>';
             }
         }
 
@@ -770,11 +820,65 @@ cat <<EOF
             });
         }
 
+        // Update debug tables with topology data
+        function updateDebugTables(data) {
+            if (!data) return;
+
+            // Update nodes table
+            const nodesTable = document.getElementById('debugNodesTable');
+            if (data.nodes && data.nodes.length > 0) {
+                let html = '';
+                data.nodes.forEach(node => {
+                    const hasLocation = node.lat && node.lon && node.lat !== '' && node.lon !== '';
+                    const rowStyle = hasLocation ? '' : ' style="background-color: #ffe0e0;"';
+                    html += '<tr' + rowStyle + '>' +
+                           '<td>' + (node.name || '-') + '</td>' +
+                           '<td>' + (node.ip || '-') + '</td>' +
+                           '<td>' + (node.type || '-') + '</td>' +
+                           '<td>' + (node.status || '-') + '</td>' +
+                           '<td>' + (node.lat || '<em>missing</em>') + '</td>' +
+                           '<td>' + (node.lon || '<em>missing</em>') + '</td>' +
+                           '<td>' + (node.grid_square || '-') + '</td>' +
+                           '</tr>';
+                });
+                nodesTable.innerHTML = html;
+            } else {
+                nodesTable.innerHTML = '<tr><td colspan="7" class="loading">No nodes found</td></tr>';
+            }
+
+            // Update connections table
+            const connectionsTable = document.getElementById('debugConnectionsTable');
+            if (data.connections && data.connections.length > 0) {
+                let html = '';
+                data.connections.forEach(conn => {
+                    // Find node names for from and to IPs
+                    const fromNode = data.nodes.find(n => n.ip === conn.from);
+                    const toNode = data.nodes.find(n => n.ip === conn.to);
+                    const fromName = fromNode ? fromNode.name : conn.from;
+                    const toName = toNode ? toNode.name : conn.to;
+
+                    html += '<tr>' +
+                           '<td>' + fromName + '</td>' +
+                           '<td>' + toName + '</td>' +
+                           '<td>' + (conn.rtt_min_ms ? conn.rtt_min_ms.toFixed(1) : '-') + '</td>' +
+                           '<td>' + (conn.rtt_avg_ms ? conn.rtt_avg_ms.toFixed(1) : '-') + '</td>' +
+                           '<td>' + (conn.rtt_max_ms ? conn.rtt_max_ms.toFixed(1) : '-') + '</td>' +
+                           '</tr>';
+                });
+                connectionsTable.innerHTML = html;
+            } else {
+                connectionsTable.innerHTML = '<tr><td colspan="5" class="loading">No connections found</td></tr>';
+            }
+        }
+
         // Render topology on map
         function renderTopology(data) {
             if (!topologyMap || !data) {
                 return;
             }
+
+            // Update debug tables
+            updateDebugTables(data);
 
             // Clear existing markers, lines, and RTT labels
             Object.values(nodeMarkers).forEach(marker => topologyMap.removeLayer(marker));
@@ -827,9 +931,9 @@ cat <<EOF
                 marker.bindPopup('<strong>' + cleanName + '</strong>');
 
                 // Add click handler for route highlighting and traceroute
-                marker.on('click', function() {
-                    highlightPathToNode(data, node.ip);
-                    fetchTraceroute(node.ip, node.name);
+                marker.on('click', async function() {
+                    await highlightPathToNode(data, node.ip, cleanName);
+                    // fetchTraceroute is now called from highlightPathToNode if needed
                 });
 
                 nodeMarkers[node.ip] = marker;
@@ -1012,17 +1116,26 @@ cat <<EOF
             return []; // No path found
         }
 
-        // Highlight path to specific node
-        function highlightPathToNode(data, targetIp) {
+        // Highlight path to specific node (with live traceroute fallback)
+        async function highlightPathToNode(data, targetIp, targetName) {
             // Clear previous highlights
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
 
-            // Find shortest path
+            // Find shortest path in topology database
             const path = findShortestPath(data, targetIp);
 
             if (path.length === 0) {
-                console.log('No path found to', targetIp);
+                console.log('No path found in topology database for', targetIp, '- triggering live traceroute');
+
+                // Show traceroute panel with "no active route" message initially
+                const panel = document.getElementById('traceroutePanel');
+                const content = document.getElementById('tracerouteContent');
+                panel.classList.add('visible');
+                content.innerHTML = '<div class="error">No active route in topology database. Running live traceroute...</div>';
+
+                // Trigger live traceroute
+                await fetchTraceroute(targetIp, targetName);
                 return;
             }
 
