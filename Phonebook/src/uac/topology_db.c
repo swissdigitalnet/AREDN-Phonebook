@@ -342,58 +342,32 @@ void topology_db_fetch_all_locations(void) {
             TopologyConnection *conn = &g_connections[c];
 
             if (strcmp(conn->to_name, phone->name) == 0) {
-                TopologyNode *router_with_location = NULL;
-
-                // Try 1: Find source router by exact name
+                // Find source router (prefixes already stripped)
                 for (int j = 0; j < g_node_count; j++) {
                     TopologyNode *router = &g_nodes[j];
 
                     if (strcmp(router->name, conn->from_name) == 0) {
                         if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
-                            router_with_location = router;
-                            break;
-                        }
-                    }
-                }
+                            // Copy router location with random offset
+                            double router_lat = atof(router->lat);
+                            double router_lon = atof(router->lon);
 
-                // Try 2: If router has prefix (mid1., mid2., dtdlink., etc.) but no location,
-                // try to find base hostname without prefix
-                if (!router_with_location && strchr(conn->from_name, '.')) {
-                    const char *base_hostname = strchr(conn->from_name, '.') + 1;
-
-                    for (int j = 0; j < g_node_count; j++) {
-                        TopologyNode *router = &g_nodes[j];
-
-                        if (strcmp(router->name, base_hostname) == 0) {
-                            if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
-                                router_with_location = router;
-                                LOG_DEBUG("Phone %s: found location on base router %s (source was %s)",
-                                         phone->name, base_hostname, conn->from_name);
-                                break;
+                            unsigned int seed = 0;
+                            for (const char *p = phone->name; *p; p++) {
+                                seed = seed * 31 + *p;
                             }
+                            srand(seed);
+
+                            double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+                            double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+
+                            snprintf(phone->lat, sizeof(phone->lat), "%.7f", router_lat + lat_offset);
+                            snprintf(phone->lon, sizeof(phone->lon), "%.7f", router_lon + lon_offset);
+
+                            propagated++;
+                            goto next_phone;
                         }
                     }
-                }
-
-                // If we found a router with location, copy it to the phone
-                if (router_with_location) {
-                    double router_lat = atof(router_with_location->lat);
-                    double router_lon = atof(router_with_location->lon);
-
-                    unsigned int seed = 0;
-                    for (const char *p = phone->name; *p; p++) {
-                        seed = seed * 31 + *p;
-                    }
-                    srand(seed);
-
-                    double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
-                    double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
-
-                    snprintf(phone->lat, sizeof(phone->lat), "%.7f", router_lat + lat_offset);
-                    snprintf(phone->lon, sizeof(phone->lon), "%.7f", router_lon + lon_offset);
-
-                    propagated++;
-                    goto next_phone;
                 }
             }
         }
@@ -406,6 +380,51 @@ void topology_db_fetch_all_locations(void) {
 
     LOG_INFO("Location fetch complete: %d routers fetched, %d failed, %d phones propagated",
              fetched, failed, propagated);
+}
+
+/**
+ * Helper: Strip hostname prefix (mid1., mid2., dtdlink., etc.)
+ * Since hostnames are unique, we always strip prefixes to avoid duplicates.
+ */
+static const char* strip_hostname_prefix(const char *hostname, char *buffer, size_t buffer_size) {
+    if (!hostname || !buffer || buffer_size == 0) {
+        return hostname;
+    }
+
+    // Check if hostname contains a dot
+    const char *dot = strchr(hostname, '.');
+    if (!dot) {
+        // No dot, return as-is
+        strncpy(buffer, hostname, buffer_size - 1);
+        buffer[buffer_size - 1] = '\0';
+        return buffer;
+    }
+
+    // Check if prefix looks like a typical interface prefix (lowercase, short)
+    const char *prefix = hostname;
+    int prefix_len = dot - prefix;
+
+    if (prefix_len > 0 && prefix_len < 10) {
+        bool is_prefix = true;
+        for (int i = 0; i < prefix_len; i++) {
+            if (!islower(prefix[i]) && !isdigit(prefix[i])) {
+                is_prefix = false;
+                break;
+            }
+        }
+
+        if (is_prefix) {
+            // Strip prefix, use base hostname
+            strncpy(buffer, dot + 1, buffer_size - 1);
+            buffer[buffer_size - 1] = '\0';
+            return buffer;
+        }
+    }
+
+    // Not a prefix pattern, return as-is
+    strncpy(buffer, hostname, buffer_size - 1);
+    buffer[buffer_size - 1] = '\0';
+    return buffer;
 }
 
 /**
@@ -635,25 +654,33 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
             if (strchr(line, '}')) {
                 // Include both reachable (ping_time_ms > 0) and unreachable (ping_time_ms == 0) neighbors
                 if (neighbor_hostname[0] != '\0') {
+                    // Strip prefix from neighbor hostname
+                    char clean_neighbor[256];
+                    strip_hostname_prefix(neighbor_hostname, clean_neighbor, sizeof(clean_neighbor));
+
                     // Use 0.0 RTT for unreachable neighbors to distinguish them
                     float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
-                    topology_db_add_connection(hostname, neighbor_hostname, rtt);
+                    topology_db_add_connection(hostname, clean_neighbor, rtt);
                     if (neighbors_buf && buf_size > 0) {
                         size_t len = strlen(neighbors_buf);
                         snprintf(neighbors_buf + len, buf_size - len, "%s%s",
-                                len > 0 ? "," : "", neighbor_hostname);
+                                len > 0 ? "," : "", clean_neighbor);
                     }
                     link_count++;
                 } else if (neighbor_ip[0] != '\0') {
                     // Fallback: resolve IP to hostname
                     char resolved_hostname[256];
                     if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
+                        // Strip prefix from resolved hostname
+                        char clean_resolved[256];
+                        strip_hostname_prefix(resolved_hostname, clean_resolved, sizeof(clean_resolved));
+
                         float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
-                        topology_db_add_connection(hostname, resolved_hostname, rtt);
+                        topology_db_add_connection(hostname, clean_resolved, rtt);
                         if (neighbors_buf && buf_size > 0) {
                             size_t len = strlen(neighbors_buf);
                             snprintf(neighbors_buf + len, buf_size - len, "%s%s",
-                                    len > 0 ? "," : "", resolved_hostname);
+                                    len > 0 ? "," : "", clean_resolved);
                         }
                         link_count++;
                     }
@@ -725,13 +752,17 @@ static int fetch_phones_from_olsr_services(void) {
 
         if (phone_number[0] == '\0') continue;
 
+        // Strip prefix from router hostname
+        char clean_router[256];
+        strip_hostname_prefix(router_hostname, clean_router, sizeof(clean_router));
+
         // Add phone node with no location (will be positioned near router later)
         if (topology_db_add_node(phone_number, "phone", NULL, NULL, "ONLINE") == 0) {
             // Create connection from router to phone
             // Use RTT 0.1ms as dummy value for phones
-            topology_db_add_connection(router_hostname, phone_number, 0.1);
+            topology_db_add_connection(clean_router, phone_number, 0.1);
             phone_count++;
-            LOG_DEBUG("Added phone: %s connected to router %s", phone_number, router_hostname);
+            LOG_DEBUG("Added phone: %s connected to router %s", phone_number, clean_router);
         }
     }
 
