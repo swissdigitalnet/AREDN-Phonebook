@@ -17,6 +17,7 @@ AGENTS.md
 .wget-hsts
 .claude.json
 .claude.json.backup
+.gnupg/
 SetupDevContainer.md
 
 # Microsoft Office documents
@@ -50,13 +51,28 @@ Phonebook/src/uac_test_db_json
 # Log files
 *.log
 
-# Large SDK files
-openwrt-sdk.tar.xz
+# OpenWrt SDK and build system (local builds only)
+openwrt-sdk*/
+openwrt-imagebuilder*/
 *.tar.xz
+sdk/
+imagebuilder/
 
 # Build artifacts and downloaded packages
 AREDN-Phonebook-*-UAC-*/
 AREDN-Phonebook-*-Phonebook-*/
 build-output/
 downloads/
-CLAUDE.md
+bin/
+build_dir/
+staging_dir/
+tmp/
+logs/
+dl/
+
+# Local build outputs
+*.ipk
+packages/
+
+# Keep local build script
+!build-x86-local.sh
