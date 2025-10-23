@@ -276,21 +276,34 @@ void *uac_bulk_tester_thread(void *arg) {
                             if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
                                 LOG_DEBUG("Traced %d hops to %s", hop_count, user->user_id);
 
-                                // Get source IP for this route
+                                // Get source IP for this route (for reverse DNS lookup)
                                 char source_ip[INET_ADDRSTRLEN];
                                 if (get_source_ip_for_target(ip_str, source_ip) == 0) {
-                                    // Add destination node (the phone)
-                                    topology_db_add_node(ip_str, "phone", user->display_name,
+                                    // Add destination node (the phone) using hostname as key
+                                    topology_db_add_node(user->user_id, "phone",
                                                        NULL, NULL, "ONLINE");
 
                                     // Process hops and build topology
-                                    char prev_ip[INET_ADDRSTRLEN];
-                                    strncpy(prev_ip, source_ip, sizeof(prev_ip));
+                                    char prev_hostname[256] = "";  // Track previous hop by hostname
+
+                                    // Get source hostname (this server) for first connection
+                                    char source_hostname[256];
+                                    if (gethostname(source_hostname, sizeof(source_hostname)) != 0) {
+                                        strncpy(source_hostname, "localhost", sizeof(source_hostname));
+                                    }
+                                    strncpy(prev_hostname, source_hostname, sizeof(prev_hostname));
 
                                     for (int h = 0; h < hop_count; h++) {
                                         if (hops[h].timeout) {
                                             // Timeout hop - break connection chain
-                                            prev_ip[0] = '\0';
+                                            prev_hostname[0] = '\0';
+                                            continue;
+                                        }
+
+                                        // Skip hops without hostnames
+                                        if (hops[h].hostname[0] == '\0') {
+                                            LOG_WARN("Hop %d has no hostname, skipping topology entry", h);
+                                            prev_hostname[0] = '\0';
                                             continue;
                                         }
 
@@ -302,17 +315,17 @@ void *uac_bulk_tester_thread(void *arg) {
                                             node_type = "router"; // Intermediate hop (or source)
                                         }
 
-                                        // Add this hop as a node
-                                        topology_db_add_node(hops[h].ip_address, node_type,
-                                                           hops[h].hostname, NULL, NULL, "ONLINE");
+                                        // Add this hop as a node using hostname as key
+                                        topology_db_add_node(hops[h].hostname, node_type,
+                                                           NULL, NULL, "ONLINE");
 
                                         // Add connection from previous hop to this hop
-                                        if (prev_ip[0] != '\0') {
-                                            topology_db_add_connection(prev_ip, hops[h].ip_address,
+                                        if (prev_hostname[0] != '\0') {
+                                            topology_db_add_connection(prev_hostname, hops[h].hostname,
                                                                      hops[h].rtt_ms);
                                         }
 
-                                        strncpy(prev_ip, hops[h].ip_address, sizeof(prev_ip));
+                                        strncpy(prev_hostname, hops[h].hostname, sizeof(prev_hostname));
                                     }
 
                                     LOG_INFO("Topology updated: %d hops added for %s",
