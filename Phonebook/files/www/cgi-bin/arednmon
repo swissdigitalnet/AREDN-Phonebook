@@ -654,64 +654,67 @@ cat <<EOF
         let highlightedPath = [];
         let rttLabels = [];  // Store RTT label markers for zoom-dependent visibility
 
-        // Fetch and display traceroute for a node
-        async function fetchTraceroute(targetIp, targetName) {
-            const panel = document.getElementById('traceroutePanel');
-            const title = document.getElementById('tracerouteTitle');
-            const content = document.getElementById('tracerouteContent');
-
-            // Show panel
-            panel.classList.add('visible');
-
-            // Update title
-            title.textContent = 'Traceroute to ' + targetName + ' (' + targetIp + ')';
-
-            // Show loading
-            content.innerHTML = '<div class="traceroute-loading">Running traceroute...</div>';
+        // Fetch and display traceroute for a node (returns popup HTML)
+        async function fetchTraceroute(targetIp, targetName, marker) {
+            // Show loading popup
+            const loadingPopup = L.popup({ maxWidth: 900 })
+                .setLatLng(marker.getLatLng())
+                .setContent('<div style="font-family: monospace; padding: 15px; min-width: 650px;">' +
+                           '<strong style="font-size: 1.4em;">Traceroute to ' + targetName + '</strong><br>' +
+                           '<div style="padding: 10px; color: #666; font-size: 1.1em;">Running traceroute...</div>' +
+                           '</div>')
+                .openOn(topologyMap);
 
             try {
                 const response = await fetch('/cgi-bin/traceroute_json?ip=' + encodeURIComponent(targetIp));
                 const data = await response.json();
 
+                let html = '<div style="font-family: monospace; max-width: 800px; min-width: 650px; padding: 5px;">' +
+                          '<strong style="font-size: 1.4em;">Traceroute to ' + targetName + '</strong><br>' +
+                          '<div style="font-size: 1.1em; color: #666; margin-bottom: 10px;">' + targetIp + '</div>';
+
                 if (data.error) {
-                    content.innerHTML = '<div class="error">No active route: ' + data.error + '</div>';
-                    return;
-                }
-
-                // Display hops
-                if (!data.hops || data.hops.length === 0) {
-                    content.innerHTML = '<div class="error">No active route: No hops found in traceroute</div>';
-                    return;
-                }
-
-                // Check if all hops are timeouts (no route)
-                const allTimeouts = data.hops.every(hop => hop.timeout);
-                if (allTimeouts) {
-                    content.innerHTML = '<div class="error">No active route: All hops timed out</div>';
-                    return;
-                }
-
-                let html = '';
-                data.hops.forEach(hop => {
-                    if (hop.timeout) {
-                        html += '<div class="traceroute-hop">' +
-                               '<span class="traceroute-hop-number">' + hop.hop + '</span>' +
-                               '<span class="traceroute-hop-host">* * * (timeout)</span>' +
-                               '</div>';
+                    html += '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">No active route: ' + data.error + '</div>';
+                } else if (!data.hops || data.hops.length === 0) {
+                    html += '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">No active route: No hops found</div>';
+                } else {
+                    const allTimeouts = data.hops.every(hop => hop.timeout);
+                    if (allTimeouts) {
+                        html += '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">No active route: All hops timed out</div>';
                     } else {
-                        html += '<div class="traceroute-hop">' +
-                               '<span class="traceroute-hop-number">' + hop.hop + '</span>' +
-                               '<span class="traceroute-hop-host">' + hop.hostname + ' (' + hop.ip + ')</span>  ' +
-                               '<span class="traceroute-hop-rtt">' + hop.rtt_ms.toFixed(2) + ' ms</span>' +
-                               '</div>';
+                        // Display hops in compact format
+                        html += '<div style="margin-top: 10px; font-size: 1.05em;">';
+                        data.hops.forEach(hop => {
+                            if (!hop.timeout) {
+                                html += '<div style="padding: 5px 0; border-bottom: 1px solid #eee;">' +
+                                       '<span style="color: #2196F3; font-weight: bold; display: inline-block; width: 25px;">' + hop.hop + '</span>' +
+                                       '<span style="color: #333;">' + hop.hostname + ' (' + hop.ip + ')</span>  ' +
+                                       '<span style="color: #4CAF50; font-weight: bold; float: right;">' + hop.rtt_ms.toFixed(2) + ' ms</span>' +
+                                       '</div>';
+                            }
+                        });
+                        html += '</div>';
                     }
-                });
+                }
 
-                content.innerHTML = html;
+                html += '</div>';
+
+                // Update popup with results
+                L.popup({ maxWidth: 900 })
+                    .setLatLng(marker.getLatLng())
+                    .setContent(html)
+                    .openOn(topologyMap);
 
             } catch (error) {
                 console.error('Failed to fetch traceroute:', error);
-                content.innerHTML = '<div class="error">No active route: Failed to run traceroute (' + error.message + ')</div>';
+                const errorHtml = '<div style="font-family: monospace; padding: 15px; min-width: 650px;">' +
+                                '<strong style="font-size: 1.4em;">Traceroute to ' + targetName + '</strong><br>' +
+                                '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">Failed to run traceroute: ' + error.message + '</div>' +
+                                '</div>';
+                L.popup({ maxWidth: 900 })
+                    .setLatLng(marker.getLatLng())
+                    .setContent(errorHtml)
+                    .openOn(topologyMap);
             }
         }
 
@@ -986,8 +989,7 @@ cat <<EOF
 
                 // Add click handler for route highlighting and traceroute
                 marker.on('click', async function() {
-                    await highlightPathToNode(data, node.ip, cleanName);
-                    // fetchTraceroute is now called from highlightPathToNode if needed
+                    await highlightPathToNode(data, node.ip, cleanName, marker);
                 });
 
                 nodeMarkers[node.ip] = marker;
@@ -1174,7 +1176,7 @@ cat <<EOF
         }
 
         // Highlight path to specific node (with live traceroute fallback)
-        async function highlightPathToNode(data, targetIp, targetName) {
+        async function highlightPathToNode(data, targetIp, targetName, marker) {
             // Clear previous highlights
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
@@ -1185,14 +1187,8 @@ cat <<EOF
             if (path.length === 0) {
                 console.log('No path found in topology database for', targetIp, '- triggering live traceroute');
 
-                // Show traceroute panel with "no active route" message initially
-                const panel = document.getElementById('traceroutePanel');
-                const content = document.getElementById('tracerouteContent');
-                panel.classList.add('visible');
-                content.innerHTML = '<div class="error">No active route in topology database. Running live traceroute...</div>';
-
-                // Trigger live traceroute
-                await fetchTraceroute(targetIp, targetName);
+                // Trigger live traceroute with popup
+                await fetchTraceroute(targetIp, targetName, marker);
                 return;
             }
 
