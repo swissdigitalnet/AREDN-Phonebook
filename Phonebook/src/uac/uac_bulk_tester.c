@@ -279,10 +279,6 @@ void *uac_bulk_tester_thread(void *arg) {
                                 // Get source IP for this route
                                 char source_ip[INET_ADDRSTRLEN];
                                 if (get_source_ip_for_target(ip_str, source_ip) == 0) {
-                                    // Add source node (this server)
-                                    topology_db_add_node(source_ip, "server", "this-node",
-                                                       NULL, NULL, "ONLINE");
-
                                     // Add destination node (the phone)
                                     topology_db_add_node(ip_str, "phone", user->display_name,
                                                        NULL, NULL, "ONLINE");
@@ -303,7 +299,7 @@ void *uac_bulk_tester_thread(void *arg) {
                                         if (strcmp(hops[h].ip_address, ip_str) == 0) {
                                             node_type = "phone"; // Destination
                                         } else {
-                                            node_type = "router"; // Intermediate hop
+                                            node_type = "router"; // Intermediate hop (or source)
                                         }
 
                                         // Add this hop as a node

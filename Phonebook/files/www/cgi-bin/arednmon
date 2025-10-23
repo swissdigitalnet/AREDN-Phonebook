@@ -221,7 +221,7 @@ cat <<'EOF'
         }
         #topologyMap {
             width: 100%;
-            height: 1200px;
+            aspect-ratio: 16 / 9;
             border-radius: 4px;
         }
         .map-controls {
@@ -352,11 +352,6 @@ cat <<'EOF'
             <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
         </div>
         <div class="map-legend">
-            <strong>Node Types:</strong><br>
-            <span style="color: #2196F3;">● Server</span> - This node (source)<br>
-            <span style="color: #4CAF50;">● Phone</span> - SIP phone (destination)<br>
-            <span style="color: #FF9800;">● Router</span> - Intermediate hop<br>
-            <br>
             <strong>Connection Quality (RTT):</strong><br>
             <span style="color: #4CAF50;">━━━ Green</span> - Excellent (&lt;100ms)<br>
             <span style="color: #FF9800;">━━━ Orange</span> - Medium (100-200ms)<br>
@@ -739,19 +734,21 @@ cat <<EOF
             }
         }
 
-        // Get color for node type
-        function getNodeColor(type) {
+        // Get color for node type and status
+        function getNodeColor(type, status) {
+            if (status === 'OFFLINE') {
+                return '#9E9E9E';  // Grey for offline
+            }
             switch (type) {
-                case 'server': return '#2196F3'; // Blue
                 case 'phone': return '#4CAF50';  // Green
                 case 'router': return '#FF9800'; // Orange
                 default: return '#9E9E9E';       // Gray
             }
         }
 
-        // Get icon for node type
-        function getNodeIcon(type) {
-            const color = getNodeColor(type);
+        // Get icon for node type and status
+        function getNodeIcon(type, status) {
+            const color = getNodeColor(type, status);
             return L.divIcon({
                 className: 'custom-div-icon',
                 html: '<div style="background-color:' + color + '; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
@@ -791,20 +788,24 @@ cat <<EOF
 
                 bounds.push([lat, lon]);
 
+                // Clean up node name (remove hostname prefix like "mid2.")
+                let cleanName = node.name;
+                if (cleanName.includes('.')) {
+                    const parts = cleanName.split('.');
+                    // If first part looks like hostname prefix (lowercase, short), remove it
+                    if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
+                        cleanName = parts.slice(1).join('.');
+                    }
+                }
+
                 // Create marker
                 const marker = L.marker([lat, lon], {
-                    icon: getNodeIcon(node.type),
-                    title: node.name
+                    icon: getNodeIcon(node.type, node.status),
+                    title: cleanName
                 }).addTo(topologyMap);
 
-                // Add popup
-                const popupContent =
-                    '<strong>' + node.name + '</strong><br>' +
-                    'IP: ' + node.ip + '<br>' +
-                    'Type: ' + node.type + '<br>' +
-                    'Status: ' + node.status;
-
-                marker.bindPopup(popupContent);
+                // Add simple popup with just the name
+                marker.bindPopup('<strong>' + cleanName + '</strong>');
 
                 // Add click handler for route highlighting and traceroute
                 marker.on('click', function() {
