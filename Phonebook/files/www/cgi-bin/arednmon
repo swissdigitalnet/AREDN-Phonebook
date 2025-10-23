@@ -562,6 +562,21 @@ cat <<EOF
             }
         }
 
+        // Clean hostname by removing common prefixes (mid2., dtdlink., etc.)
+        function cleanHostname(hostname) {
+            if (!hostname || !hostname.includes('.')) {
+                return hostname;
+            }
+
+            const parts = hostname.split('.');
+            // If first part looks like hostname prefix (lowercase, short), remove it
+            if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
+                return parts.slice(1).join('.');
+            }
+
+            return hostname;
+        }
+
         // Get display name for a phone number
         function getDisplayName(phoneNumber) {
             // Strip any @routing suffix from phone number
@@ -877,7 +892,7 @@ cat <<EOF
                     }
 
                     html += '<tr' + rowStyle + '>' +
-                           '<td>' + (node.name || '-') + '</td>' +
+                           '<td>' + cleanHostname(node.name || '-') + '</td>' +
                            '<td>' + (node.ip || '-') + '</td>' +
                            '<td>' + (node.type || '-') + '</td>' +
                            '<td>' + (node.status || '-') + '</td>' +
@@ -903,8 +918,8 @@ cat <<EOF
                     // Use lookup map for O(1) access instead of find() O(n)
                     const fromNode = nodesByName[conn.source];
                     const toNode = nodesByName[conn.target];
-                    const fromName = fromNode ? fromNode.name : conn.source;
-                    const toName = toNode ? toNode.name : conn.target;
+                    const fromName = cleanHostname(fromNode ? fromNode.name : conn.source);
+                    const toName = cleanHostname(toNode ? toNode.name : conn.target);
 
                     html += '<tr>' +
                            '<td>' + fromName + '</td>' +
@@ -990,14 +1005,7 @@ cat <<EOF
                 bounds.push([lat, lon]);
 
                 // Clean up node name (remove hostname prefix like "mid2.")
-                let cleanName = node.name;
-                if (cleanName.includes('.')) {
-                    const parts = cleanName.split('.');
-                    // If first part looks like hostname prefix (lowercase, short), remove it
-                    if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
-                        cleanName = parts.slice(1).join('.');
-                    }
-                }
+                const cleanName = cleanHostname(node.name);
 
                 // Create marker with highlight for new nodes
                 const isHighlighted = newNodeHighlights.has(node.name);
@@ -1059,22 +1067,8 @@ cat <<EOF
 
                     // Add tooltip with RTT info and endpoints (on hover)
                     // Clean up endpoint names
-                    let fromName = fromNode ? fromNode.name : conn.source;
-                    let toName = toNode ? toNode.name : conn.target;
-
-                    if (fromName.includes('.')) {
-                        const parts = fromName.split('.');
-                        if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
-                            fromName = parts.slice(1).join('.');
-                        }
-                    }
-
-                    if (toName.includes('.')) {
-                        const parts = toName.split('.');
-                        if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
-                            toName = parts.slice(1).join('.');
-                        }
-                    }
+                    const fromName = cleanHostname(fromNode ? fromNode.name : conn.source);
+                    const toName = cleanHostname(toNode ? toNode.name : conn.target);
 
                     const tooltipText = isUnreachable ?
                         fromName + ' ↔ ' + toName + '<br>Unreachable (ping_success_time = 0)' :
@@ -1087,22 +1081,8 @@ cat <<EOF
                     // Add click handler to show connection details
                     line.on('click', function() {
                         // Clean up node names
-                        let fromName = fromNode ? fromNode.name : conn.from;
-                        let toName = toNode ? toNode.name : conn.to;
-
-                        if (fromName.includes('.')) {
-                            const parts = fromName.split('.');
-                            if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
-                                fromName = parts.slice(1).join('.');
-                            }
-                        }
-
-                        if (toName.includes('.')) {
-                            const parts = toName.split('.');
-                            if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
-                                toName = parts.slice(1).join('.');
-                            }
-                        }
+                        const fromName = cleanHostname(fromNode ? fromNode.name : conn.from);
+                        const toName = cleanHostname(toNode ? toNode.name : conn.to);
 
                         // Create popup content
                         const popupContent = '<div style="font-family: Arial, sans-serif;">' +
