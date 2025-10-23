@@ -552,11 +552,7 @@ cat <<EOF
                     return data.last_update || 0;
                 }
 
-                // Update last update time
-                if (data.last_update) {
-                    const lastUpdate = new Date(data.last_update * 1000);
-                    document.getElementById('lastUpdate').textContent = lastUpdate.toLocaleString();
-                }
+                // Note: last update time display removed (no DOM element for it)
 
                 // Return last_update timestamp for cache validation
                 const lastUpdateTimestamp = data.last_update || 0;
@@ -597,16 +593,7 @@ cat <<EOF
             }
         }
 
-        // Update progress indicator
-        function updateProgress(numResults, numTestablePhones) {
-            // Show progress only for reachable phones (those marked with * in phonebook)
-            const reachablePhones = numTestablePhones || 0;
-            const progressPct = reachablePhones > 0 ? Math.min(100, Math.round((numResults / reachablePhones) * 100)) : 0;
-
-            document.getElementById('testProgress').textContent = numResults + ' of ' + reachablePhones + ' phones tested (all reachable telephones only)';
-            document.getElementById('progressText').textContent = progressPct + '%';
-            document.getElementById('progressBar').style.width = progressPct + '%';
-        }
+        // Progress indicator removed (no DOM elements for it)
 
         // ============================================================
         // TOPOLOGY MAP FUNCTIONALITY
@@ -1026,28 +1013,12 @@ cat <<EOF
             }
         }
 
-        // Refresh topology data and fit to all nodes
+        // Refresh topology data (without auto-zoom)
         async function refreshTopology() {
             document.getElementById('mapStatus').textContent = 'Loading...';
             const data = await loadTopologyData();
             if (data) {
                 renderTopology(data);
-
-                // Fit map to show all nodes after refresh
-                const bounds = [];
-                data.nodes.forEach(node => {
-                    if (node.lat && node.lon && node.lat !== '' && node.lon !== '') {
-                        const lat = parseFloat(node.lat);
-                        const lon = parseFloat(node.lon);
-                        if (!isNaN(lat) && !isNaN(lon)) {
-                            bounds.push([lat, lon]);
-                        }
-                    }
-                });
-
-                if (bounds.length > 0) {
-                    topologyMap.fitBounds(bounds, { padding: [50, 50] });
-                }
             }
         }
 
@@ -1081,7 +1052,6 @@ cat <<EOF
 
             // If no test data yet, show waiting message
             if (data.error || (data.num_results === 0 && data.num_testable_phones === 0)) {
-                document.getElementById('testProgress').textContent = 'Waiting for first test cycle to complete...';
                 document.getElementById('results').innerHTML =
                     '<tr><td colspan="8" class="loading">Waiting for first test cycle (runs every 60 seconds)...</td></tr>';
                 return;
@@ -1092,11 +1062,6 @@ cat <<EOF
 
             // Now render results with phonebook data available
             await loadResults();
-
-            // Update progress
-            if (!data.error && data.num_results !== undefined) {
-                updateProgress(data.num_results, data.num_testable_phones);
-            }
         }
 
         // Run on page load
