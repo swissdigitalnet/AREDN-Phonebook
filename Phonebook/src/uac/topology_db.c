@@ -810,18 +810,30 @@ static void add_to_queue_if_new(const char *hostname, char queue[][64], int *que
 void topology_db_crawl_mesh_network(void) {
     LOG_INFO("Starting BFS mesh network crawl from localhost...");
 
-    // Dynamic queues for BFS
-    char crawl_queue[1000][64];  // Nodes to crawl
+    // Allocate BFS queues on heap to avoid stack overflow
+    char (*crawl_queue)[64] = malloc(1000 * 64);  // Nodes to crawl
+    char (*visited)[64] = malloc(1000 * 64);      // Nodes already crawled
+    char (*initial_hostnames)[40] = malloc(500 * 40);
+
+    if (!crawl_queue || !visited || !initial_hostnames) {
+        LOG_ERROR("Failed to allocate memory for BFS crawl queues");
+        free(crawl_queue);
+        free(visited);
+        free(initial_hostnames);
+        return;
+    }
+
     int queue_count = 0;
-    char visited[1000][64];      // Nodes already crawled
     int visited_count = 0;
 
     // Seed the queue with initial hostnames from localhost
-    char initial_hostnames[500][40];
     int num_initial = fetch_hostnames(initial_hostnames, 500);
 
     if (num_initial <= 0) {
         LOG_ERROR("Failed to fetch initial hostnames from localhost");
+        free(crawl_queue);
+        free(visited);
+        free(initial_hostnames);
         return;
     }
 
@@ -906,6 +918,11 @@ void topology_db_crawl_mesh_network(void) {
     // Fetch phones from OLSR services
     int phones = fetch_phones_from_olsr_services();
     LOG_INFO("Added %d phones from OLSR services to topology", phones);
+
+    // Free allocated memory
+    free(crawl_queue);
+    free(visited);
+    free(initial_hostnames);
 }
 
 /**
