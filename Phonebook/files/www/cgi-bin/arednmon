@@ -1122,7 +1122,7 @@ cat <<EOF
                             .openOn(topologyMap);
                     });
 
-                    // Only show RTT label for router-to-router connections
+                    // Only show RTT label for router-to-router connections with distance > 1km
                     const isRouterToRouter = fromNode && toNode &&
                                             fromNode.type === 'router' && toNode.type === 'router';
 
@@ -1135,7 +1135,9 @@ cat <<EOF
                             toLatLng.lat, toLatLng.lng
                         );
 
-                        // Create RTT label at midpoint (will be shown/hidden based on zoom and distance)
+                        // Only create RTT label if distance > 1km
+                        if (distance > 1) {
+                        // Create RTT label at midpoint (will be shown/hidden based on zoom)
                         const midpoint = [
                             (fromLatLng.lat + toLatLng.lat) / 2,
                             (fromLatLng.lng + toLatLng.lng) / 2
@@ -1168,6 +1170,7 @@ cat <<EOF
                             marker: rttLabel,
                             distance: distance
                         });
+                        }
                     }
 
                     connectionLines.push(line);
