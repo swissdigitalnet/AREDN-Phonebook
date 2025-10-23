@@ -1,0 +1,119 @@
+#!/bin/sh
+# traceroute_json - Traceroute JSON Endpoint
+# Performs a live traceroute to the specified IP address
+# Usage: curl "http://node/cgi-bin/traceroute_json?ip=10.51.55.233"
+
+# Set Content-Type header
+echo "Content-Type: application/json; charset=utf-8"
+echo ""
+
+# Parse query string for IP parameter
+if [ -n "$QUERY_STRING" ]; then
+    TARGET_IP=$(echo "$QUERY_STRING" | grep -o "ip=[^&]*" | cut -d'=' -f2)
+fi
+
+# Validate IP parameter
+if [ -z "$TARGET_IP" ]; then
+    cat <<'EOF'
+{
+  "error": "Missing IP parameter. Usage: /cgi-bin/traceroute_json?ip=<target_ip>",
+  "hops": []
+}
+EOF
+    exit 0
+fi
+
+# Perform traceroute using ICMP
+# -I: Use ICMP ECHO instead of UDP
+# -m: Max hops (30)
+# -w: Timeout per hop (2 seconds)
+# -n: Don't resolve hostnames (we'll do it ourselves for .local.mesh)
+TRACEROUTE_OUTPUT=$(traceroute -I -m 30 -w 2 -n "$TARGET_IP" 2>&1)
+
+# Check if traceroute succeeded
+if [ $? -ne 0 ]; then
+    cat <<EOF
+{
+  "error": "Traceroute failed: $TRACEROUTE_OUTPUT",
+  "target_ip": "$TARGET_IP",
+  "hops": []
+}
+EOF
+    exit 0
+fi
+
+# Parse traceroute output and convert to JSON
+# Format: hop_number  ip_address  rtt1 ms  rtt2 ms  rtt3 ms
+# We'll extract: hop number, IP, and average RTT
+
+echo "{"
+echo "  \"target_ip\": \"$TARGET_IP\","
+echo "  \"hops\": ["
+
+FIRST_HOP=true
+echo "$TRACEROUTE_OUTPUT" | tail -n +2 | while IFS= read -r line; do
+    # Skip empty lines
+    [ -z "$line" ] && continue
+
+    # Extract hop number (first field)
+    HOP_NUM=$(echo "$line" | awk '{print $1}')
+
+    # Check if this is a timeout hop (* * *)
+    if echo "$line" | grep -q "\* \* \*"; then
+        # Timeout hop
+        if [ "$FIRST_HOP" = false ]; then
+            echo ","
+        fi
+        echo "    {"
+        echo "      \"hop\": $HOP_NUM,"
+        echo "      \"ip\": \"*\","
+        echo "      \"hostname\": \"*\","
+        echo "      \"rtt_ms\": 0,"
+        echo "      \"timeout\": true"
+        echo -n "    }"
+        FIRST_HOP=false
+        continue
+    fi
+
+    # Extract IP address (second field, might be in parentheses)
+    IP=$(echo "$line" | awk '{print $2}' | tr -d '()')
+
+    # Skip if no IP found
+    [ -z "$IP" ] && continue
+
+    # Extract RTT values (look for numbers followed by 'ms')
+    RTT_VALUES=$(echo "$line" | grep -o "[0-9.]*\s*ms" | grep -o "[0-9.]*")
+
+    # Calculate average RTT
+    if [ -n "$RTT_VALUES" ]; then
+        RTT_COUNT=$(echo "$RTT_VALUES" | wc -l)
+        RTT_SUM=$(echo "$RTT_VALUES" | awk '{sum+=$1} END {print sum}')
+        RTT_AVG=$(awk "BEGIN {printf \"%.2f\", $RTT_SUM / $RTT_COUNT}")
+    else
+        RTT_AVG="0.00"
+    fi
+
+    # Try reverse DNS lookup
+    HOSTNAME=$(nslookup "$IP" 2>/dev/null | grep "name =" | awk '{print $4}' | sed 's/\.$//')
+    [ -z "$HOSTNAME" ] && HOSTNAME="$IP"
+
+    # Remove .local.mesh suffix if present
+    HOSTNAME=$(echo "$HOSTNAME" | sed 's/\.local\.mesh$//')
+
+    # Output JSON for this hop
+    if [ "$FIRST_HOP" = false ]; then
+        echo ","
+    fi
+    echo "    {"
+    echo "      \"hop\": $HOP_NUM,"
+    echo "      \"ip\": \"$IP\","
+    echo "      \"hostname\": \"$HOSTNAME\","
+    echo "      \"rtt_ms\": $RTT_AVG,"
+    echo "      \"timeout\": false"
+    echo -n "    }"
+    FIRST_HOP=false
+done
+
+echo ""
+echo "  ]"
+echo "}"

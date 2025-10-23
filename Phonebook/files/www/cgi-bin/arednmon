@@ -221,7 +221,7 @@ cat <<'EOF'
         }
         #topologyMap {
             width: 100%;
-            height: 600px;
+            height: 1200px;
             border-radius: 4px;
         }
         .map-controls {
@@ -251,6 +251,58 @@ cat <<'EOF'
             background-color: #f5f5f5;
             border-radius: 4px;
             font-size: 0.9em;
+        }
+        /* Traceroute Display Styles */
+        .traceroute-panel {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .traceroute-panel.visible {
+            display: block;
+        }
+        .traceroute-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .traceroute-content {
+            font-family: monospace;
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .traceroute-loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .traceroute-hop {
+            padding: 5px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .traceroute-hop:last-child {
+            border-bottom: none;
+        }
+        .traceroute-hop-number {
+            display: inline-block;
+            width: 40px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .traceroute-hop-host {
+            color: #333;
+        }
+        .traceroute-hop-rtt {
+            color: #4CAF50;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -310,7 +362,15 @@ cat <<'EOF'
             <span style="color: #FF9800;">━━━ Orange</span> - Medium (100-200ms)<br>
             <span style="color: #f44336;">━━━ Red</span> - Poor (&gt;200ms)<br>
             <br>
-            <strong>Interaction:</strong> Click any node to highlight the route from this server
+            <strong>Interaction:</strong> Click any node to highlight the route and show traceroute results below
+        </div>
+    </div>
+
+    <!-- Traceroute Panel -->
+    <div class="traceroute-panel" id="traceroutePanel">
+        <div class="traceroute-title" id="tracerouteTitle">Traceroute Results</div>
+        <div class="traceroute-content" id="tracerouteContent">
+            <div class="traceroute-loading">Click on a node to view traceroute</div>
         </div>
     </div>
 EOF
@@ -575,16 +635,79 @@ cat <<EOF
         let connectionLines = [];
         let highlightedPath = [];
 
+        // Fetch and display traceroute for a node
+        async function fetchTraceroute(targetIp, targetName) {
+            const panel = document.getElementById('traceroutePanel');
+            const title = document.getElementById('tracerouteTitle');
+            const content = document.getElementById('tracerouteContent');
+
+            // Show panel
+            panel.classList.add('visible');
+
+            // Update title
+            title.textContent = 'Traceroute to ' + targetName + ' (' + targetIp + ')';
+
+            // Show loading
+            content.innerHTML = '<div class="traceroute-loading">Running traceroute...</div>';
+
+            try {
+                const response = await fetch('/cgi-bin/traceroute_json?ip=' + encodeURIComponent(targetIp));
+                const data = await response.json();
+
+                if (data.error) {
+                    content.innerHTML = '<div class="error">' + data.error + '</div>';
+                    return;
+                }
+
+                // Display hops
+                if (!data.hops || data.hops.length === 0) {
+                    content.innerHTML = '<div class="traceroute-loading">No hops found</div>';
+                    return;
+                }
+
+                let html = '';
+                data.hops.forEach(hop => {
+                    if (hop.timeout) {
+                        html += '<div class="traceroute-hop">' +
+                               '<span class="traceroute-hop-number">' + hop.hop + '</span>' +
+                               '<span class="traceroute-hop-host">* * * (timeout)</span>' +
+                               '</div>';
+                    } else {
+                        html += '<div class="traceroute-hop">' +
+                               '<span class="traceroute-hop-number">' + hop.hop + '</span>' +
+                               '<span class="traceroute-hop-host">' + hop.hostname + ' (' + hop.ip + ')</span>  ' +
+                               '<span class="traceroute-hop-rtt">' + hop.rtt_ms.toFixed(2) + ' ms</span>' +
+                               '</div>';
+                    }
+                });
+
+                content.innerHTML = html;
+
+            } catch (error) {
+                console.error('Failed to fetch traceroute:', error);
+                content.innerHTML = '<div class="error">Failed to fetch traceroute: ' + error.message + '</div>';
+            }
+        }
+
         // Initialize Leaflet map
         function initMap() {
-            // Create map centered on a default location (will be adjusted after loading topology)
-            topologyMap = L.map('topologyMap').setView([0, 0], 2);
+            // Switzerland bounds: [45.8, 5.9] to [47.8, 10.5]
+            const switzerlandBounds = [
+                [45.8, 5.9],  // Southwest corner
+                [47.8, 10.5]  // Northeast corner
+            ];
+
+            // Create map centered on Switzerland
+            topologyMap = L.map('topologyMap', {
+                maxBounds: switzerlandBounds,
+                maxBoundsViscosity: 1.0  // Prevent panning outside bounds
+            }).fitBounds(switzerlandBounds);
 
             // Add OpenStreetMap tiles
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 18,
-                minZoom: 2
+                minZoom: 7  // Prevent zooming out beyond Switzerland
             }).addTo(topologyMap);
 
             console.log('Topology map initialized');
@@ -683,9 +806,10 @@ cat <<EOF
 
                 marker.bindPopup(popupContent);
 
-                // Add click handler for route highlighting
+                // Add click handler for route highlighting and traceroute
                 marker.on('click', function() {
                     highlightPathToNode(data, node.ip);
+                    fetchTraceroute(node.ip, node.name);
                 });
 
                 nodeMarkers[node.ip] = marker;
@@ -745,10 +869,7 @@ cat <<EOF
                 }
             });
 
-            // Fit map to show all nodes
-            if (bounds.length > 0) {
-                topologyMap.fitBounds(bounds, { padding: [50, 50] });
-            }
+            // Don't auto-zoom on render (removed autozoom functionality)
 
             console.log('Rendered', Object.keys(nodeMarkers).length, 'nodes and',
                        connectionLines.length, 'connections');
@@ -839,12 +960,28 @@ cat <<EOF
             }
         }
 
-        // Refresh topology data
+        // Refresh topology data and fit to all nodes
         async function refreshTopology() {
             document.getElementById('mapStatus').textContent = 'Loading...';
             const data = await loadTopologyData();
             if (data) {
                 renderTopology(data);
+
+                // Fit map to show all nodes after refresh
+                const bounds = [];
+                data.nodes.forEach(node => {
+                    if (node.lat && node.lon && node.lat !== '' && node.lon !== '') {
+                        const lat = parseFloat(node.lat);
+                        const lon = parseFloat(node.lon);
+                        if (!isNaN(lat) && !isNaN(lon)) {
+                            bounds.push([lat, lon]);
+                        }
+                    }
+                });
+
+                if (bounds.length > 0) {
+                    topologyMap.fitBounds(bounds, { padding: [50, 50] });
+                }
             }
         }
 
