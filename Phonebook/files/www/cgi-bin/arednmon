@@ -617,6 +617,7 @@ cat <<EOF
         let nodeMarkers = {};
         let connectionLines = [];
         let highlightedPath = [];
+        let rttLabels = [];  // Store RTT label markers for zoom-dependent visibility
 
         // Fetch and display traceroute for a node
         async function fetchTraceroute(targetIp, targetName) {
@@ -672,6 +673,26 @@ cat <<EOF
             }
         }
 
+        // Update RTT label visibility based on zoom level
+        function updateRttLabelsVisibility() {
+            if (!topologyMap) return;
+
+            const zoomLevel = topologyMap.getZoom();
+            const showLabels = zoomLevel >= 10;  // Show labels when zoomed in to level 10+
+
+            rttLabels.forEach(label => {
+                if (showLabels) {
+                    if (!topologyMap.hasLayer(label)) {
+                        topologyMap.addLayer(label);
+                    }
+                } else {
+                    if (topologyMap.hasLayer(label)) {
+                        topologyMap.removeLayer(label);
+                    }
+                }
+            });
+        }
+
         // Initialize Leaflet map
         function initMap() {
             // Switzerland bounds: [45.8, 5.9] to [47.8, 10.5]
@@ -692,6 +713,9 @@ cat <<EOF
                 maxZoom: 18,
                 minZoom: 7  // Prevent zooming out beyond Switzerland
             }).addTo(topologyMap);
+
+            // Add zoom event listener to show/hide RTT labels
+            topologyMap.on('zoomend', updateRttLabelsVisibility);
 
             console.log('Topology map initialized');
         }
@@ -751,11 +775,17 @@ cat <<EOF
                 return;
             }
 
-            // Clear existing markers and lines
+            // Clear existing markers, lines, and RTT labels
             Object.values(nodeMarkers).forEach(marker => topologyMap.removeLayer(marker));
             connectionLines.forEach(line => topologyMap.removeLayer(line));
+            rttLabels.forEach(label => {
+                if (topologyMap.hasLayer(label)) {
+                    topologyMap.removeLayer(label);
+                }
+            });
             nodeMarkers = {};
             connectionLines = [];
+            rttLabels = [];
 
             // Find map bounds
             let bounds = [];
@@ -883,13 +913,13 @@ cat <<EOF
                                             fromNode.type === 'router' && toNode.type === 'router';
 
                     if (isRouterToRouter) {
-                        // Add permanent label at midpoint showing RTT
+                        // Create RTT label at midpoint (will be shown/hidden based on zoom)
                         const midpoint = [
                             (fromMarker.getLatLng().lat + toMarker.getLatLng().lat) / 2,
                             (fromMarker.getLatLng().lng + toMarker.getLatLng().lng) / 2
                         ];
 
-                        L.marker(midpoint, {
+                        const rttLabel = L.marker(midpoint, {
                             icon: L.divIcon({
                                 className: 'rtt-label',
                                 html: '<div style="background-color: white; padding: 2px 4px; border-radius: 3px; ' +
@@ -899,7 +929,10 @@ cat <<EOF
                                 iconSize: [40, 20],
                                 iconAnchor: [20, 10]
                             })
-                        }).addTo(topologyMap);
+                        });
+
+                        // Store in array for zoom-dependent visibility (don't add to map yet)
+                        rttLabels.push(rttLabel);
                     }
 
                     connectionLines.push(line);
@@ -907,6 +940,9 @@ cat <<EOF
             });
 
             // Don't auto-zoom on render (removed autozoom functionality)
+
+            // Update RTT label visibility based on current zoom level
+            updateRttLabelsVisibility();
 
             console.log('Rendered', Object.keys(nodeMarkers).length, 'nodes and',
                        connectionLines.length, 'connections');
