@@ -527,7 +527,8 @@ static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
 /**
  * Helper: Fetch LQM links from a hostname
  */
-static int fetch_lqm_links_from_host(const char *hostname) {
+static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, size_t buf_size) {
+    if (neighbors_buf && buf_size > 0) neighbors_buf[0] = '\0';
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh/cgi-bin/sysinfo.json?lqm=1' 2>/dev/null",
@@ -607,17 +608,23 @@ static int fetch_lqm_links_from_host(const char *hostname) {
             if (strchr(line, '}')) {
                 if (neighbor_hostname[0] != '\0' && ping_time_ms > 0.0) {
                     topology_db_add_connection(hostname, neighbor_hostname, ping_time_ms);
+                    if (neighbors_buf && buf_size > 0) {
+                        size_t len = strlen(neighbors_buf);
+                        snprintf(neighbors_buf + len, buf_size - len, "%s%s",
+                                len > 0 ? "," : "", neighbor_hostname);
+                    }
                     link_count++;
-                    LOG_DEBUG("Added LQM link: %s -> %s (%.2f ms)",
-                             hostname, neighbor_hostname, ping_time_ms);
                 } else if (neighbor_ip[0] != '\0' && ping_time_ms > 0.0) {
                     // Fallback: resolve IP to hostname
                     char resolved_hostname[256];
                     if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
                         topology_db_add_connection(hostname, resolved_hostname, ping_time_ms);
+                        if (neighbors_buf && buf_size > 0) {
+                            size_t len = strlen(neighbors_buf);
+                            snprintf(neighbors_buf + len, buf_size - len, "%s%s",
+                                    len > 0 ? "," : "", resolved_hostname);
+                        }
                         link_count++;
-                        LOG_DEBUG("Added LQM link via IP resolution: %s -> %s (%.2f ms)",
-                                 hostname, resolved_hostname, ping_time_ms);
                     }
                 }
                 in_tracker_entry = false;
@@ -626,14 +633,13 @@ static int fetch_lqm_links_from_host(const char *hostname) {
     }
 
     pclose(fp);
-    LOG_DEBUG("Fetched %d LQM links from %s", link_count, hostname);
     return link_count;
 }
 
 /**
  * Helper: Fetch hosts list from localhost
  */
-static int fetch_hostnames(char hostnames[][256], int max_hostnames) {
+static int fetch_hostnames(char hostnames[][40], int max_hostnames) {
     char cmd[] = "curl -s --connect-timeout 2 --max-time 5 'http://127.0.0.1/cgi-bin/sysinfo.json?hosts=1' 2>/dev/null";
 
     FILE *fp = popen(cmd, "r");
@@ -662,7 +668,9 @@ static int fetch_hostnames(char hostnames[][256], int max_hostnames) {
                     char *name_end = strchr(name_start, '"');
                     if (name_end) {
                         int len = name_end - name_start;
-                        if (len > 0 && len < 256 && strstr(name_start, "local.mesh") == NULL) {
+                        if (len > 0 && strstr(name_start, "local.mesh") == NULL) {
+                            // Truncate to 39 chars max (leave room for null terminator)
+                            if (len >= 40) len = 39;
                             strncpy(hostnames[count], name_start, len);
                             hostnames[count][len] = '\0';
                             count++;
@@ -684,8 +692,8 @@ static int fetch_hostnames(char hostnames[][256], int max_hostnames) {
 void topology_db_crawl_mesh_network(void) {
     LOG_INFO("Starting mesh network crawl from localhost...");
 
-    char hostnames[200][256];
-    int num_hosts = fetch_hostnames(hostnames, 200);
+    char hostnames[500][40];
+    int num_hosts = fetch_hostnames(hostnames, 500);
 
     if (num_hosts <= 0) {
         LOG_ERROR("Failed to fetch hostnames from localhost");
@@ -699,9 +707,13 @@ void topology_db_crawl_mesh_network(void) {
 
     for (int i = 0; i < num_hosts; i++) {
         char *hostname = hostnames[i];
-
         processed++;
-        LOG_DEBUG("Crawling node %d/%d: %s", processed, num_hosts, hostname);
+
+        // Check if numeric (phone)
+        bool is_numeric = true;
+        for (char *p = hostname; *p; p++) {
+            if (!isdigit(*p)) { is_numeric = false; break; }
+        }
 
         // Fetch node details
         char lat[32] = "";
@@ -710,13 +722,16 @@ void topology_db_crawl_mesh_network(void) {
         if (fetch_node_details(hostname, lat, sizeof(lat), lon, sizeof(lon)) == 0) {
             topology_db_add_node(hostname, "router", lat, lon, "ONLINE");
             discovered++;
+            char neighbors[256];
+            int links = fetch_lqm_links_from_host(hostname, neighbors, sizeof(neighbors));
+            LOG_DEBUG("OK %d/%d: %s (idx=%d,num=%d,links=%d,nbrs=%s) %s,%s",
+                     processed, num_hosts, hostname, i, is_numeric?1:0, links,
+                     links > 0 ? neighbors : "none", lat, lon);
         } else {
-            LOG_DEBUG("Failed to fetch details for %s", hostname);
+            LOG_DEBUG("FAIL %d/%d: %s (idx=%d,num=%d)",
+                     processed, num_hosts, hostname, i, is_numeric?1:0);
             continue;
         }
-
-        // Fetch LQM links
-        fetch_lqm_links_from_host(hostname);
 
         usleep(100000);  // 100ms delay
     }
