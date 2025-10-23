@@ -590,7 +590,7 @@ void *topology_crawler_thread(void *arg) {
         topology_db_cleanup_stale_nodes();
 
         // Crawl the mesh starting from localhost
-        topology_db_crawl_mesh_network("127.0.0.1");
+        topology_db_crawl_mesh_network();
 
         // Get statistics
         int node_count = topology_db_get_node_count();

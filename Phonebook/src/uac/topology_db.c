@@ -1,5 +1,5 @@
 // topology_db.c
-// Network Topology Database Implementation
+// Network Topology Database Implementation (Hostname-based)
 
 #define MODULE_NAME "TOPOLOGY_DB"
 
@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <libgen.h>
+#include <unistd.h>
 
 // Global topology database
 static TopologyNode g_nodes[MAX_TOPOLOGY_NODES];
@@ -46,7 +47,6 @@ void topology_db_init(void) {
 
 /**
  * Clean up stale nodes and connections
- * Removes nodes that haven't been seen for longer than g_topology_node_timeout_seconds
  */
 void topology_db_cleanup_stale_nodes(void) {
     extern int g_topology_node_timeout_seconds;
@@ -57,51 +57,46 @@ void topology_db_cleanup_stale_nodes(void) {
     int removed_nodes = 0;
     int removed_connections = 0;
 
-    // Remove stale nodes (compact array by shifting)
+    // Remove stale nodes
     int write_idx = 0;
     for (int read_idx = 0; read_idx < g_node_count; read_idx++) {
         time_t age = now - g_nodes[read_idx].last_seen;
 
         if (age <= g_topology_node_timeout_seconds) {
-            // Keep this node - copy if needed
             if (write_idx != read_idx) {
                 memcpy(&g_nodes[write_idx], &g_nodes[read_idx], sizeof(TopologyNode));
             }
             write_idx++;
         } else {
-            // Node is stale - will be removed
             removed_nodes++;
-            LOG_DEBUG("Removing stale node: %s (%s), last seen %ld seconds ago",
-                     g_nodes[read_idx].ip, g_nodes[read_idx].name, age);
+            LOG_DEBUG("Removing stale node: %s, last seen %ld seconds ago",
+                     g_nodes[read_idx].name, age);
         }
     }
     g_node_count = write_idx;
 
-    // Remove connections that reference non-existent nodes
+    // Remove orphaned connections
     write_idx = 0;
     for (int read_idx = 0; read_idx < g_connection_count; read_idx++) {
         bool from_exists = false;
         bool to_exists = false;
 
-        // Check if both endpoints still exist
         for (int i = 0; i < g_node_count; i++) {
-            if (strcmp(g_nodes[i].ip, g_connections[read_idx].from_ip) == 0) {
+            if (strcmp(g_nodes[i].name, g_connections[read_idx].from_name) == 0) {
                 from_exists = true;
             }
-            if (strcmp(g_nodes[i].ip, g_connections[read_idx].to_ip) == 0) {
+            if (strcmp(g_nodes[i].name, g_connections[read_idx].to_name) == 0) {
                 to_exists = true;
             }
             if (from_exists && to_exists) break;
         }
 
         if (from_exists && to_exists) {
-            // Keep this connection
             if (write_idx != read_idx) {
                 memcpy(&g_connections[write_idx], &g_connections[read_idx], sizeof(TopologyConnection));
             }
             write_idx++;
         } else {
-            // Connection references removed node
             removed_connections++;
         }
     }
@@ -109,70 +104,58 @@ void topology_db_cleanup_stale_nodes(void) {
 
     pthread_mutex_unlock(&g_topology_mutex);
 
-    LOG_INFO("Cleanup complete: removed %d stale nodes, %d orphaned connections (timeout: %d seconds)",
-             removed_nodes, removed_connections, g_topology_node_timeout_seconds);
+    LOG_INFO("Cleanup complete: removed %d stale nodes, %d orphaned connections",
+             removed_nodes, removed_connections);
 }
 
 /**
  * Add or update a node
  */
-int topology_db_add_node(const char *ip, const char *type, const char *name,
+int topology_db_add_node(const char *name, const char *type,
                          const char *lat, const char *lon, const char *status) {
-    if (!ip || !type || !name || !status) {
+    if (!name || !type || !status) {
         LOG_ERROR("Invalid parameters for topology_db_add_node");
         return -1;
     }
 
     pthread_mutex_lock(&g_topology_mutex);
 
-    // Check if node already exists
+    // Check if node exists
     TopologyNode *existing = NULL;
     for (int i = 0; i < g_node_count; i++) {
-        if (strcmp(g_nodes[i].ip, ip) == 0) {
+        if (strcmp(g_nodes[i].name, name) == 0) {
             existing = &g_nodes[i];
             break;
         }
     }
 
     if (existing) {
-        // Update existing node
+        // Update existing
         strncpy(existing->type, type, sizeof(existing->type) - 1);
-        strncpy(existing->name, name, sizeof(existing->name) - 1);
-        if (lat) {
-            strncpy(existing->lat, lat, sizeof(existing->lat) - 1);
-        }
-        if (lon) {
-            strncpy(existing->lon, lon, sizeof(existing->lon) - 1);
-        }
+        if (lat) strncpy(existing->lat, lat, sizeof(existing->lat) - 1);
+        if (lon) strncpy(existing->lon, lon, sizeof(existing->lon) - 1);
         strncpy(existing->status, status, sizeof(existing->status) - 1);
         existing->last_seen = time(NULL);
 
         pthread_mutex_unlock(&g_topology_mutex);
-        LOG_DEBUG("Updated node: %s (%s)", ip, name);
+        LOG_DEBUG("Updated node: %s", name);
         return 0;
     }
 
     // Add new node
     if (g_node_count >= MAX_TOPOLOGY_NODES) {
         pthread_mutex_unlock(&g_topology_mutex);
-        LOG_WARN("Topology database full (nodes): cannot add %s", ip);
+        LOG_WARN("Topology database full: cannot add %s", name);
         return -1;
     }
 
     TopologyNode *node = &g_nodes[g_node_count];
-    strncpy(node->ip, ip, sizeof(node->ip) - 1);
-    strncpy(node->type, type, sizeof(node->type) - 1);
     strncpy(node->name, name, sizeof(node->name) - 1);
-    if (lat) {
-        strncpy(node->lat, lat, sizeof(node->lat) - 1);
-    } else {
-        node->lat[0] = '\0';
-    }
-    if (lon) {
-        strncpy(node->lon, lon, sizeof(node->lon) - 1);
-    } else {
-        node->lon[0] = '\0';
-    }
+    strncpy(node->type, type, sizeof(node->type) - 1);
+    if (lat) strncpy(node->lat, lat, sizeof(node->lat) - 1);
+    else node->lat[0] = '\0';
+    if (lon) strncpy(node->lon, lon, sizeof(node->lon) - 1);
+    else node->lon[0] = '\0';
     strncpy(node->status, status, sizeof(node->status) - 1);
     node->last_seen = time(NULL);
 
@@ -180,23 +163,20 @@ int topology_db_add_node(const char *ip, const char *type, const char *name,
 
     pthread_mutex_unlock(&g_topology_mutex);
 
-    LOG_DEBUG("Added node: %s (%s) - type=%s, status=%s",
-             ip, name, type, status);
+    LOG_DEBUG("Added node: %s (type=%s, status=%s)", name, type, status);
     return 0;
 }
 
 /**
- * Find a node by IP
+ * Find a node by hostname
  */
-TopologyNode* topology_db_find_node(const char *ip) {
-    if (!ip) {
-        return NULL;
-    }
+TopologyNode* topology_db_find_node(const char *name) {
+    if (!name) return NULL;
 
     pthread_mutex_lock(&g_topology_mutex);
 
     for (int i = 0; i < g_node_count; i++) {
-        if (strcmp(g_nodes[i].ip, ip) == 0) {
+        if (strcmp(g_nodes[i].name, name) == 0) {
             pthread_mutex_unlock(&g_topology_mutex);
             return &g_nodes[i];
         }
@@ -219,26 +199,26 @@ int topology_db_get_node_count(void) {
 /**
  * Add RTT sample to connection
  */
-int topology_db_add_connection(const char *from_ip, const char *to_ip, float rtt_ms) {
-    if (!from_ip || !to_ip || rtt_ms < 0) {
+int topology_db_add_connection(const char *from_name, const char *to_name, float rtt_ms) {
+    if (!from_name || !to_name || rtt_ms < 0) {
         LOG_ERROR("Invalid parameters for topology_db_add_connection");
         return -1;
     }
 
     pthread_mutex_lock(&g_topology_mutex);
 
-    // Check if connection already exists
+    // Check if connection exists
     TopologyConnection *existing = NULL;
     for (int i = 0; i < g_connection_count; i++) {
-        if (strcmp(g_connections[i].from_ip, from_ip) == 0 &&
-            strcmp(g_connections[i].to_ip, to_ip) == 0) {
+        if (strcmp(g_connections[i].from_name, from_name) == 0 &&
+            strcmp(g_connections[i].to_name, to_name) == 0) {
             existing = &g_connections[i];
             break;
         }
     }
 
     if (existing) {
-        // Add sample to existing connection (circular buffer)
+        // Add sample to existing connection
         int idx = existing->next_sample_index;
         existing->samples[idx].rtt_ms = rtt_ms;
         existing->samples[idx].timestamp = time(NULL);
@@ -251,8 +231,7 @@ int topology_db_add_connection(const char *from_ip, const char *to_ip, float rtt
         existing->last_updated = time(NULL);
 
         pthread_mutex_unlock(&g_topology_mutex);
-        LOG_DEBUG("Added RTT sample to connection %s -> %s: %.2f ms (total samples: %d)",
-                 from_ip, to_ip, rtt_ms, existing->sample_count);
+        LOG_DEBUG("Added RTT sample %s -> %s: %.2f ms", from_name, to_name, rtt_ms);
         return 0;
     }
 
@@ -260,13 +239,13 @@ int topology_db_add_connection(const char *from_ip, const char *to_ip, float rtt
     if (g_connection_count >= MAX_TOPOLOGY_CONNECTIONS) {
         pthread_mutex_unlock(&g_topology_mutex);
         LOG_WARN("Topology database full (connections): cannot add %s -> %s",
-                from_ip, to_ip);
+                from_name, to_name);
         return -1;
     }
 
     TopologyConnection *conn = &g_connections[g_connection_count];
-    strncpy(conn->from_ip, from_ip, sizeof(conn->from_ip) - 1);
-    strncpy(conn->to_ip, to_ip, sizeof(conn->to_ip) - 1);
+    strncpy(conn->from_name, from_name, sizeof(conn->from_name) - 1);
+    strncpy(conn->to_name, to_name, sizeof(conn->to_name) - 1);
     memset(conn->samples, 0, sizeof(conn->samples));
     conn->samples[0].rtt_ms = rtt_ms;
     conn->samples[0].timestamp = time(NULL);
@@ -281,24 +260,21 @@ int topology_db_add_connection(const char *from_ip, const char *to_ip, float rtt
 
     pthread_mutex_unlock(&g_topology_mutex);
 
-    LOG_DEBUG("Added connection: %s -> %s (RTT: %.2f ms)",
-             from_ip, to_ip, rtt_ms);
+    LOG_DEBUG("Added connection: %s -> %s (RTT: %.2f ms)", from_name, to_name, rtt_ms);
     return 0;
 }
 
 /**
  * Find a connection
  */
-TopologyConnection* topology_db_find_connection(const char *from_ip, const char *to_ip) {
-    if (!from_ip || !to_ip) {
-        return NULL;
-    }
+TopologyConnection* topology_db_find_connection(const char *from_name, const char *to_name) {
+    if (!from_name || !to_name) return NULL;
 
     pthread_mutex_lock(&g_topology_mutex);
 
     for (int i = 0; i < g_connection_count; i++) {
-        if (strcmp(g_connections[i].from_ip, from_ip) == 0 &&
-            strcmp(g_connections[i].to_ip, to_ip) == 0) {
+        if (strcmp(g_connections[i].from_name, from_name) == 0 &&
+            strcmp(g_connections[i].to_name, to_name) == 0) {
             pthread_mutex_unlock(&g_topology_mutex);
             return &g_connections[i];
         }
@@ -320,8 +296,6 @@ int topology_db_get_connection_count(void) {
 
 /**
  * Fetch location data for all nodes
- * Phase 1: Fetch locations for routers and servers only (phones don't have sysinfo.json)
- * Phase 2: Propagate router locations to connected phones
  */
 void topology_db_fetch_all_locations(void) {
     LOG_INFO("Fetching location data for %d nodes...", g_node_count);
@@ -332,26 +306,16 @@ void topology_db_fetch_all_locations(void) {
 
     pthread_mutex_lock(&g_topology_mutex);
 
-    // Phase 1: Fetch locations for routers and servers only
-    LOG_INFO("Phase 1: Fetching locations for routers and servers...");
+    // Phase 1: Fetch locations for routers and servers
     for (int i = 0; i < g_node_count; i++) {
         TopologyNode *node = &g_nodes[i];
 
-        // Skip phones - they don't have sysinfo.json
-        if (strcmp(node->type, "phone") == 0) {
-            continue;
-        }
+        if (strcmp(node->type, "phone") == 0) continue;
+        if (strlen(node->lat) > 0 && strlen(node->lon) > 0) continue;
 
-        // Skip if already has location
-        if (strlen(node->lat) > 0 && strlen(node->lon) > 0) {
-            continue;
-        }
+        char url[512];
+        snprintf(url, sizeof(url), "http://%s.local.mesh/cgi-bin/sysinfo.json", node->name);
 
-        // Build URL
-        char url[256];
-        snprintf(url, sizeof(url), "http://%s/cgi-bin/sysinfo.json", node->ip);
-
-        // Fetch location (HTTP GET with 2-second timeout)
         char lat[32] = "";
         char lon[32] = "";
 
@@ -359,53 +323,36 @@ void topology_db_fetch_all_locations(void) {
             strncpy(node->lat, lat, sizeof(node->lat) - 1);
             strncpy(node->lon, lon, sizeof(node->lon) - 1);
             fetched++;
-            LOG_DEBUG("Fetched location for %s (%s): %s, %s", node->ip, node->type, lat, lon);
+            LOG_DEBUG("Fetched location for %s: %s, %s", node->name, lat, lon);
         } else {
             failed++;
-            LOG_DEBUG("Failed to fetch location for %s (%s)", node->ip, node->type);
         }
     }
 
-    // Phase 2: Propagate router locations to connected phones
-    LOG_INFO("Phase 2: Propagating router locations to phones...");
+    // Phase 2: Propagate router locations to phones
     for (int i = 0; i < g_node_count; i++) {
         TopologyNode *phone = &g_nodes[i];
 
-        // Skip non-phones
-        if (strcmp(phone->type, "phone") != 0) {
-            continue;
-        }
+        if (strcmp(phone->type, "phone") != 0) continue;
+        if (strlen(phone->lat) > 0 && strlen(phone->lon) > 0) continue;
 
-        // Skip if already has location
-        if (strlen(phone->lat) > 0 && strlen(phone->lon) > 0) {
-            continue;
-        }
-
-        // Find a connection where this phone is the destination
-        // The source should be a router with location data
+        // Find connection to router
         for (int c = 0; c < g_connection_count; c++) {
             TopologyConnection *conn = &g_connections[c];
 
-            // Check if this connection leads to the phone
-            if (strcmp(conn->to_ip, phone->ip) == 0) {
-                // Find the source node (router)
+            if (strcmp(conn->to_name, phone->name) == 0) {
+                // Find source router
                 for (int j = 0; j < g_node_count; j++) {
                     TopologyNode *router = &g_nodes[j];
 
-                    if (strcmp(router->ip, conn->from_ip) == 0) {
-                        // Check if this router has location data
+                    if (strcmp(router->name, conn->from_name) == 0) {
                         if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
-                            // Copy router location to phone with random offset
-                            // Offset by ~100m in a random direction for visibility on map
-                            // 0.001 degrees ≈ 111 meters latitude, ~100m longitude at mid-latitudes
-
+                            // Copy with offset
                             double router_lat = atof(router->lat);
                             double router_lon = atof(router->lon);
 
-                            // Generate random offset: -0.001 to +0.001 degrees
-                            // Use phone IP as seed for consistency across test cycles
                             unsigned int seed = 0;
-                            for (const char *p = phone->ip; *p; p++) {
+                            for (const char *p = phone->name; *p; p++) {
                                 seed = seed * 31 + *p;
                             }
                             srand(seed);
@@ -413,17 +360,11 @@ void topology_db_fetch_all_locations(void) {
                             double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
                             double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
 
-                            double phone_lat = router_lat + lat_offset;
-                            double phone_lon = router_lon + lon_offset;
-
-                            snprintf(phone->lat, sizeof(phone->lat), "%.7f", phone_lat);
-                            snprintf(phone->lon, sizeof(phone->lon), "%.7f", phone_lon);
+                            snprintf(phone->lat, sizeof(phone->lat), "%.7f", router_lat + lat_offset);
+                            snprintf(phone->lon, sizeof(phone->lon), "%.7f", router_lon + lon_offset);
 
                             propagated++;
-                            LOG_DEBUG("Propagated location from %s (%s) to phone %s: %s, %s (offset: %.4f, %.4f)",
-                                     router->ip, router->name, phone->name,
-                                     phone->lat, phone->lon, lat_offset, lon_offset);
-                            goto next_phone;  // Done with this phone
+                            goto next_phone;
                         }
                     }
                 }
@@ -441,7 +382,7 @@ void topology_db_fetch_all_locations(void) {
 }
 
 /**
- * Calculate aggregate statistics for all connections
+ * Calculate aggregate statistics
  */
 void topology_db_calculate_aggregate_stats(void) {
     LOG_INFO("Calculating aggregate statistics for %d connections...", g_connection_count);
@@ -458,7 +399,6 @@ void topology_db_calculate_aggregate_stats(void) {
             continue;
         }
 
-        // Calculate min, max, avg
         float sum = 0.0;
         float min = conn->samples[0].rtt_ms;
         float max = conn->samples[0].rtt_ms;
@@ -473,10 +413,6 @@ void topology_db_calculate_aggregate_stats(void) {
         conn->rtt_avg_ms = sum / conn->sample_count;
         conn->rtt_min_ms = min;
         conn->rtt_max_ms = max;
-
-        LOG_DEBUG("Connection %s -> %s: avg=%.2f ms, min=%.2f ms, max=%.2f ms (samples=%d)",
-                 conn->from_ip, conn->to_ip, conn->rtt_avg_ms,
-                 conn->rtt_min_ms, conn->rtt_max_ms, conn->sample_count);
     }
 
     pthread_mutex_unlock(&g_topology_mutex);
@@ -485,451 +421,21 @@ void topology_db_calculate_aggregate_stats(void) {
 }
 
 /**
- * Create directory recursively (helper function)
+ * Helper: Fetch hostname from IP
  */
-static int create_directory(const char *path) {
-    char temp_path[512];
-    strncpy(temp_path, path, sizeof(temp_path) - 1);
-    temp_path[sizeof(temp_path) - 1] = '\0';
-
-    // Extract directory from filepath
-    char *dir = dirname(temp_path);
-
-    // Try to create directory (mkdir -p equivalent)
-    struct stat st = {0};
-    if (stat(dir, &st) == -1) {
-        if (mkdir(dir, 0755) == -1) {
-            if (errno != EEXIST) {
-                LOG_ERROR("Failed to create directory %s: %s", dir, strerror(errno));
-                return -1;
-            }
-        }
-        LOG_DEBUG("Created directory: %s", dir);
-    }
-
-    return 0;
-}
-
-/**
- * Write topology database to JSON file
- */
-int topology_db_write_to_file(const char *filepath) {
-    if (!filepath) {
-        LOG_ERROR("Invalid filepath for topology JSON");
-        return -1;
-    }
-
-    LOG_INFO("Writing topology to %s...", filepath);
-
-    // Ensure directory exists
-    if (create_directory(filepath) != 0) {
-        LOG_ERROR("Failed to create directory for %s", filepath);
-        return -1;
-    }
-
-    FILE *fp = fopen(filepath, "w");
-    if (!fp) {
-        LOG_ERROR("Failed to open %s for writing: %s", filepath, strerror(errno));
-        return -1;
-    }
-
-    pthread_mutex_lock(&g_topology_mutex);
-
-    // Write JSON header
-    fprintf(fp, "{\n");
-    fprintf(fp, "  \"version\": \"2.0\",\n");
-
-    // Write timestamp (ISO 8601 format)
-    time_t now = time(NULL);
-    struct tm *tm_info = gmtime(&now);
-    char timestamp[64];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
-    fprintf(fp, "  \"generated_at\": \"%s\",\n", timestamp);
-
-    // Write source node (this node - will be filled by caller, use first node for now)
-    fprintf(fp, "  \"source_node\": {\n");
-    if (g_node_count > 0) {
-        fprintf(fp, "    \"ip\": \"%s\",\n", g_nodes[0].ip);
-        fprintf(fp, "    \"name\": \"%s\",\n", g_nodes[0].name);
-        fprintf(fp, "    \"type\": \"server\"\n");
-    } else {
-        fprintf(fp, "    \"ip\": \"0.0.0.0\",\n");
-        fprintf(fp, "    \"name\": \"unknown\",\n");
-        fprintf(fp, "    \"type\": \"server\"\n");
-    }
-    fprintf(fp, "  },\n");
-
-    // Write nodes array
-    fprintf(fp, "  \"nodes\": [\n");
-    for (int i = 0; i < g_node_count; i++) {
-        TopologyNode *node = &g_nodes[i];
-        fprintf(fp, "    {\n");
-        fprintf(fp, "      \"ip\": \"%s\",\n", node->ip);
-        fprintf(fp, "      \"type\": \"%s\",\n", node->type);
-        fprintf(fp, "      \"name\": \"%s\",\n", node->name);
-        fprintf(fp, "      \"lat\": \"%s\",\n", node->lat);
-        fprintf(fp, "      \"lon\": \"%s\",\n", node->lon);
-        fprintf(fp, "      \"status\": \"%s\",\n", node->status);
-        fprintf(fp, "      \"last_seen\": %ld\n", (long)node->last_seen);
-        fprintf(fp, "    }%s\n", (i < g_node_count - 1) ? "," : "");
-    }
-    fprintf(fp, "  ],\n");
-
-    // Write connections array
-    fprintf(fp, "  \"connections\": [\n");
-    for (int i = 0; i < g_connection_count; i++) {
-        TopologyConnection *conn = &g_connections[i];
-        fprintf(fp, "    {\n");
-        fprintf(fp, "      \"from\": \"%s\",\n", conn->from_ip);
-        fprintf(fp, "      \"to\": \"%s\",\n", conn->to_ip);
-        fprintf(fp, "      \"rtt_avg_ms\": %.3f,\n", conn->rtt_avg_ms);
-        fprintf(fp, "      \"rtt_min_ms\": %.3f,\n", conn->rtt_min_ms);
-        fprintf(fp, "      \"rtt_max_ms\": %.3f,\n", conn->rtt_max_ms);
-        fprintf(fp, "      \"sample_count\": %d,\n", conn->sample_count);
-        fprintf(fp, "      \"last_updated\": %ld\n", (long)conn->last_updated);
-        fprintf(fp, "    }%s\n", (i < g_connection_count - 1) ? "," : "");
-    }
-    fprintf(fp, "  ],\n");
-
-    // Write statistics
-    fprintf(fp, "  \"statistics\": {\n");
-    fprintf(fp, "    \"total_nodes\": %d,\n", g_node_count);
-    fprintf(fp, "    \"total_connections\": %d\n", g_connection_count);
-    fprintf(fp, "  }\n");
-
-    fprintf(fp, "}\n");
-
-    pthread_mutex_unlock(&g_topology_mutex);
-
-    fclose(fp);
-
-    LOG_INFO("Topology written to %s (%d nodes, %d connections)",
-             filepath, g_node_count, g_connection_count);
-    return 0;
-}
-
-/**
- * Helper: Fetch hosts list from a node using curl
- * Returns number of hosts found, or -1 on error
- */
-static int fetch_hosts_from_node(const char *node_ip, char hosts[][INET_ADDRSTRLEN], int max_hosts) {
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json?hosts=1' 2>/dev/null",
-             node_ip);
-
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        LOG_DEBUG("Failed to fetch hosts from %s", node_ip);
-        return -1;
-    }
-
-    // Read response (simple JSON parsing for hosts array)
-    char line[4096];
-    int host_count = 0;
-    bool in_hosts = false;
-
-    while (fgets(line, sizeof(line), fp) && host_count < max_hosts) {
-        // Look for "hosts": [
-        if (strstr(line, "\"hosts\"")) {
-            in_hosts = true;
-            continue;
-        }
-
-        if (!in_hosts) continue;
-
-        // End of hosts array
-        if (strstr(line, "]")) {
-            break;
-        }
-
-        // Extract IP from: "ip": "10.x.x.x"
-        char *ip_start = strstr(line, "\"ip\":");
-        if (ip_start) {
-            // Move to the colon
-            ip_start = strchr(ip_start, ':');
-            if (ip_start) {
-                ip_start++; // Move past the colon
-                // Skip whitespace and opening quote
-                while (*ip_start == ' ' || *ip_start == '"') ip_start++;
-                // Find the end (closing quote or comma)
-                char *ip_end = ip_start;
-                while (*ip_end && *ip_end != '"' && *ip_end != ',' && *ip_end != '\n') ip_end++;
-
-                int len = ip_end - ip_start;
-                if (len > 0 && len < INET_ADDRSTRLEN) {
-                    char temp_ip[INET_ADDRSTRLEN];
-                    strncpy(temp_ip, ip_start, len);
-                    temp_ip[len] = '\0';
-
-                    // Skip tunnel IPs (172.31.x.x) - these are not main mesh IPs
-                    if (strncmp(temp_ip, "172.31.", 7) != 0) {
-                        strncpy(hosts[host_count], temp_ip, INET_ADDRSTRLEN - 1);
-                        hosts[host_count][INET_ADDRSTRLEN - 1] = '\0';
-                        host_count++;
-                    } else {
-                        LOG_DEBUG("Skipping tunnel IP: %s", temp_ip);
-                    }
-                }
-            }
-        }
-    }
-
-    pclose(fp);
-    LOG_DEBUG("Fetched %d hosts from %s", host_count, node_ip);
-    return host_count;
-}
-
-/**
- * Helper: Resolve hostname to main mesh IP using hosts database
- * Queries sysinfo.json?hosts=1 from the source node
- * Returns 0 on success, -1 on error
- */
-static int resolve_hostname_to_ip(const char *source_node_ip, const char *hostname,
-                                   char *resolved_ip, size_t resolved_ip_len) {
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json?hosts=1' 2>/dev/null",
-             source_node_ip);
-
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        LOG_DEBUG("Failed to fetch hosts from %s for resolution", source_node_ip);
-        return -1;
-    }
-
-    // Simple JSON parsing to find hostname -> IP mapping
-    char line[4096];
-    bool in_hosts = false;
-    bool found = false;
-    char current_name[256] = "";
-    char current_ip[INET_ADDRSTRLEN] = "";
-
-    while (fgets(line, sizeof(line), fp)) {
-        // Look for "hosts": [
-        if (strstr(line, "\"hosts\"")) {
-            in_hosts = true;
-            continue;
-        }
-
-        if (!in_hosts) continue;
-
-        // End of hosts array
-        if (strstr(line, "]")) {
-            break;
-        }
-
-        // Extract "name": "hostname"
-        char *name_start = strstr(line, "\"name\":");
-        if (name_start) {
-            name_start = strchr(name_start, ':');
-            if (name_start) {
-                name_start++;
-                while (*name_start == ' ' || *name_start == '"') name_start++;
-                char *name_end = strchr(name_start, '"');
-                if (name_end) {
-                    int len = name_end - name_start;
-                    if (len > 0 && len < (int)sizeof(current_name)) {
-                        strncpy(current_name, name_start, len);
-                        current_name[len] = '\0';
-                    }
-                }
-            }
-        }
-
-        // Extract "ip": "10.x.x.x"
-        char *ip_start = strstr(line, "\"ip\":");
-        if (ip_start) {
-            ip_start = strchr(ip_start, ':');
-            if (ip_start) {
-                ip_start++;
-                while (*ip_start == ' ' || *ip_start == '"') ip_start++;
-                char *ip_end = ip_start;
-                while (*ip_end && *ip_end != '"' && *ip_end != ',' && *ip_end != '\n') ip_end++;
-                int len = ip_end - ip_start;
-                if (len > 0 && len < INET_ADDRSTRLEN) {
-                    strncpy(current_ip, ip_start, len);
-                    current_ip[len] = '\0';
-                }
-            }
-        }
-
-        // Check if we have both name and IP, and if name matches
-        if (current_name[0] != '\0' && current_ip[0] != '\0') {
-            if (strcmp(current_name, hostname) == 0) {
-                // Found the hostname!
-                strncpy(resolved_ip, current_ip, resolved_ip_len - 1);
-                resolved_ip[resolved_ip_len - 1] = '\0';
-                found = true;
-                LOG_DEBUG("Resolved hostname '%s' to IP '%s'", hostname, resolved_ip);
-                break;
-            }
-            // Reset for next entry
-            current_name[0] = '\0';
-            current_ip[0] = '\0';
-        }
-    }
-
-    pclose(fp);
-
-    if (!found) {
-        LOG_DEBUG("Failed to resolve hostname '%s' in hosts database", hostname);
-        return -1;
-    }
-
-    return 0;
-}
-
-/**
- * Helper: Fetch LQM links from a node
- * Extracts neighbor connections from LQM tracker data
- * Resolves hostnames to main mesh IPs to handle tunnels and DTD links
- * Returns number of links found, or -1 on error
- */
-static int fetch_lqm_links_from_node(const char *node_ip) {
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json?lqm=1' 2>/dev/null",
-             node_ip);
-
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        LOG_DEBUG("Failed to fetch LQM data from %s", node_ip);
-        return -1;
-    }
-
-    // Simple JSON parsing for LQM trackers
-    char line[4096];
-    int link_count = 0;
-    bool in_trackers = false;
-    bool in_tracker_entry = false;
-    char neighbor_hostname[256] = "";
-    char neighbor_ip[INET_ADDRSTRLEN] = "";
-    float ping_time_ms = 0.0;
-
-    while (fgets(line, sizeof(line), fp)) {
-        // Look for "trackers": {
-        if (strstr(line, "\"trackers\"")) {
-            in_trackers = true;
-            continue;
-        }
-
-        if (!in_trackers) continue;
-
-        // Detect tracker entry start: "MAC": {
-        if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
-            in_tracker_entry = true;
-            neighbor_hostname[0] = '\0';
-            neighbor_ip[0] = '\0';
-            ping_time_ms = 0.0;
-            continue;
-        }
-
-        // Inside a tracker entry
-        if (in_tracker_entry) {
-            // Extract hostname
-            if (strstr(line, "\"hostname\":")) {
-                char *name_start = strchr(line, ':');
-                if (name_start) {
-                    name_start++;
-                    while (*name_start == ' ' || *name_start == '"') name_start++;
-                    char *name_end = strchr(name_start, '"');
-                    if (name_end) {
-                        int len = name_end - name_start;
-                        if (len > 0 && len < (int)sizeof(neighbor_hostname)) {
-                            strncpy(neighbor_hostname, name_start, len);
-                            neighbor_hostname[len] = '\0';
-                        }
-                    }
-                }
-            }
-
-            // Extract canonical_ip or ip (fallback if hostname resolution fails)
-            if (strstr(line, "\"canonical_ip\":") || strstr(line, "\"ip\":")) {
-                char *ip_start = strchr(line, ':');
-                if (ip_start) {
-                    ip_start++; // Move past colon
-                    // Skip whitespace and opening quote
-                    while (*ip_start == ' ' || *ip_start == '"') ip_start++;
-                    // Find end (closing quote)
-                    char *ip_end = strchr(ip_start, '"');
-                    if (ip_end) {
-                        int len = ip_end - ip_start;
-                        if (len > 0 && len < INET_ADDRSTRLEN) {
-                            strncpy(neighbor_ip, ip_start, len);
-                            neighbor_ip[len] = '\0';
-                        }
-                    }
-                }
-            }
-
-            // Extract ping_success_time
-            if (strstr(line, "\"ping_success_time\":")) {
-                char *time_start = strchr(line, ':');
-                if (time_start) {
-                    time_start++;
-                    // Parse float value
-                    ping_time_ms = atof(time_start) * 1000.0;  // Convert seconds to milliseconds
-                }
-            }
-
-            // End of tracker entry
-            if (strchr(line, '}')) {
-                // If we have hostname and ping time, resolve and add connection
-                if (neighbor_hostname[0] != '\0' && ping_time_ms > 0.0) {
-                    char resolved_ip[INET_ADDRSTRLEN] = "";
-
-                    // Try to resolve hostname to main mesh IP
-                    if (resolve_hostname_to_ip(node_ip, neighbor_hostname, resolved_ip, sizeof(resolved_ip)) == 0) {
-                        // Successfully resolved - use main mesh IP
-                        topology_db_add_connection(node_ip, resolved_ip, ping_time_ms);
-                        link_count++;
-                        LOG_DEBUG("Added LQM link: %s -> %s (resolved from hostname '%s', %.2f ms)",
-                                 node_ip, resolved_ip, neighbor_hostname, ping_time_ms);
-                    } else if (neighbor_ip[0] != '\0') {
-                        // Resolution failed - fall back to IP from tracker
-                        topology_db_add_connection(node_ip, neighbor_ip, ping_time_ms);
-                        link_count++;
-                        LOG_DEBUG("Added LQM link: %s -> %s (fallback IP, hostname '%s' not resolved, %.2f ms)",
-                                 node_ip, neighbor_ip, neighbor_hostname, ping_time_ms);
-                    } else {
-                        LOG_WARN("Failed to add LQM link for hostname '%s': no IP available", neighbor_hostname);
-                    }
-                }
-                in_tracker_entry = false;
-            }
-        }
-    }
-
-    pclose(fp);
-    LOG_DEBUG("Fetched %d LQM links from %s", link_count, node_ip);
-    return link_count;
-}
-
-/**
- * Helper: Fetch node details from sysinfo.json
- * Returns 0 on success, -1 on error
- */
-static int fetch_node_details(const char *node_ip, char *name, size_t name_len,
-                              char *lat, size_t lat_len, char *lon, size_t lon_len) {
+static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostname_len) {
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json' 2>/dev/null",
-             node_ip);
+             ip);
 
     FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        return -1;
-    }
+    if (!fp) return -1;
 
-    // Simple JSON parsing
     char line[1024];
-    name[0] = '\0';
-    lat[0] = '\0';
-    lon[0] = '\0';
+    hostname[0] = '\0';
 
     while (fgets(line, sizeof(line), fp)) {
-        // Extract node name
         if (strstr(line, "\"node\":")) {
             char *val_start = strchr(line, ':');
             if (val_start) {
@@ -939,16 +445,44 @@ static int fetch_node_details(const char *node_ip, char *name, size_t name_len,
                     char *val_end = strchr(val_start, '"');
                     if (val_end) {
                         int len = val_end - val_start;
-                        if (len > 0 && len < (int)name_len) {
-                            strncpy(name, val_start, len);
-                            name[len] = '\0';
+                        if (len > 0 && len < (int)hostname_len) {
+                            strncpy(hostname, val_start, len);
+                            hostname[len] = '\0';
                         }
                     }
                 }
             }
         }
+    }
 
-        // Extract latitude
+    pclose(fp);
+
+    if (hostname[0] != '\0') {
+        LOG_DEBUG("Resolved IP %s to hostname '%s'", ip, hostname);
+        return 0;
+    }
+
+    return -1;
+}
+
+/**
+ * Helper: Fetch node details from hostname
+ */
+static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
+                              char *lon, size_t lon_len) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh/cgi-bin/sysinfo.json' 2>/dev/null",
+             hostname);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return -1;
+
+    char line[1024];
+    lat[0] = '\0';
+    lon[0] = '\0';
+
+    while (fgets(line, sizeof(line), fp)) {
         if (strstr(line, "\"lat\":")) {
             char *val_start = strchr(line, ':');
             if (val_start) {
@@ -964,7 +498,6 @@ static int fetch_node_details(const char *node_ip, char *name, size_t name_len,
             }
         }
 
-        // Extract longitude
         if (strstr(line, "\"lon\":")) {
             char *val_start = strchr(line, ':');
             if (val_start) {
@@ -983,8 +516,8 @@ static int fetch_node_details(const char *node_ip, char *name, size_t name_len,
 
     pclose(fp);
 
-    if (name[0] != '\0') {
-        LOG_DEBUG("Fetched details for %s: name=%s, lat=%s, lon=%s", node_ip, name, lat, lon);
+    if (lat[0] != '\0') {
+        LOG_DEBUG("Fetched details for %s: lat=%s, lon=%s", hostname, lat, lon);
         return 0;
     }
 
@@ -992,118 +525,312 @@ static int fetch_node_details(const char *node_ip, char *name, size_t name_len,
 }
 
 /**
- * Crawl the entire mesh network using BFS
+ * Helper: Fetch LQM links from a hostname
  */
-void topology_db_crawl_mesh_network(const char *seed_ip) {
-    if (!seed_ip) {
-        LOG_ERROR("Invalid seed IP for mesh crawl");
-        return;
+static int fetch_lqm_links_from_host(const char *hostname) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh/cgi-bin/sysinfo.json?lqm=1' 2>/dev/null",
+             hostname);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        LOG_DEBUG("Failed to fetch LQM data from %s", hostname);
+        return -1;
     }
 
-    LOG_INFO("Starting mesh network crawl from %s...", seed_ip);
+    char line[4096];
+    int link_count = 0;
+    bool in_trackers = false;
+    bool in_tracker_entry = false;
+    char neighbor_hostname[256] = "";
+    char neighbor_ip[INET_ADDRSTRLEN] = "";
+    float ping_time_ms = 0.0;
 
-    // BFS queue (simple array-based queue)
-    char queue[MAX_TOPOLOGY_NODES][INET_ADDRSTRLEN];
-    int queue_head = 0;
-    int queue_tail = 0;
-
-    // Visited set (simple array for O(n) lookup - good enough for mesh networks)
-    static char visited[MAX_TOPOLOGY_NODES][INET_ADDRSTRLEN];
-    static int visited_count = 0;
-    visited_count = 0;  // Reset for each crawl
-
-    // Add seed to queue
-    strncpy(queue[queue_tail], seed_ip, INET_ADDRSTRLEN - 1);
-    queue[queue_tail][INET_ADDRSTRLEN - 1] = '\0';
-    queue_tail++;
-
-    // Mark seed as visited
-    strncpy(visited[visited_count], seed_ip, INET_ADDRSTRLEN - 1);
-    visited[visited_count][INET_ADDRSTRLEN - 1] = '\0';
-    visited_count++;
-
-    int nodes_discovered = 0;
-    int nodes_processed = 0;
-
-    // Optimization: Fetch hosts list from seed node only (OLSR maintains global routing table)
-    // This populates the BFS queue with all mesh nodes immediately
-    LOG_INFO("Fetching global hosts list from seed node %s...", seed_ip);
-    char hosts[200][INET_ADDRSTRLEN];  // Max 200 hosts per node
-    int num_hosts = fetch_hosts_from_node(seed_ip, hosts, 200);
-
-    if (num_hosts > 0) {
-        LOG_INFO("Seed node returned %d total hosts in mesh", num_hosts);
-
-        // Add all hosts to BFS queue (except seed, which is already there)
-        for (int i = 0; i < num_hosts && queue_tail < MAX_TOPOLOGY_NODES; i++) {
-            // Check if already visited (skip seed)
-            if (strcmp(hosts[i], seed_ip) == 0) {
-                continue;
-            }
-
-            bool already_visited = false;
-            for (int v = 0; v < visited_count; v++) {
-                if (strcmp(visited[v], hosts[i]) == 0) {
-                    already_visited = true;
-                    break;
-                }
-            }
-
-            if (!already_visited) {
-                // Add to queue
-                strncpy(queue[queue_tail], hosts[i], INET_ADDRSTRLEN - 1);
-                queue[queue_tail][INET_ADDRSTRLEN - 1] = '\0';
-                queue_tail++;
-
-                // Mark as visited
-                if (visited_count < MAX_TOPOLOGY_NODES) {
-                    strncpy(visited[visited_count], hosts[i], INET_ADDRSTRLEN - 1);
-                    visited[visited_count][INET_ADDRSTRLEN - 1] = '\0';
-                    visited_count++;
-                }
-            }
-        }
-        LOG_INFO("BFS queue initialized with %d nodes from hosts list", queue_tail);
-    } else {
-        LOG_WARN("Failed to fetch hosts list from seed, falling back to LQM-only discovery");
-    }
-
-    // BFS loop - now only fetches node details and LQM links (no redundant hosts list calls)
-    while (queue_head < queue_tail && queue_tail < MAX_TOPOLOGY_NODES) {
-        char current_ip[INET_ADDRSTRLEN];
-        strncpy(current_ip, queue[queue_head], sizeof(current_ip) - 1);
-        current_ip[sizeof(current_ip) - 1] = '\0';
-        queue_head++;
-        nodes_processed++;
-
-        LOG_DEBUG("Crawling node %d/%d: %s", nodes_processed, queue_tail, current_ip);
-
-        // Fetch node details
-        char node_name[256] = "";
-        char lat[32] = "";
-        char lon[32] = "";
-
-        if (fetch_node_details(current_ip, node_name, sizeof(node_name),
-                              lat, sizeof(lat), lon, sizeof(lon)) == 0) {
-            // Add node to topology database
-            // Type is "router" for now (phones will be added by traceroute)
-            topology_db_add_node(current_ip, "router", node_name, lat, lon, "ONLINE");
-            nodes_discovered++;
-        } else {
-            LOG_DEBUG("Failed to fetch details for %s, skipping", current_ip);
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, "\"trackers\"")) {
+            in_trackers = true;
             continue;
         }
 
-        // Fetch LQM links from this node
-        int num_links = fetch_lqm_links_from_node(current_ip);
-        if (num_links > 0) {
-            LOG_DEBUG("Extracted %d LQM links from %s", num_links, current_ip);
+        if (!in_trackers) continue;
+
+        if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
+            in_tracker_entry = true;
+            neighbor_hostname[0] = '\0';
+            neighbor_ip[0] = '\0';
+            ping_time_ms = 0.0;
+            continue;
         }
 
-        // Small delay to avoid overwhelming the network
-        usleep(100000);  // 100ms delay between nodes
+        if (in_tracker_entry) {
+            if (strstr(line, "\"hostname\":")) {
+                char *name_start = strchr(line, ':');
+                if (name_start) {
+                    name_start++;
+                    while (*name_start == ' ' || *name_start == '"') name_start++;
+                    char *name_end = strchr(name_start, '"');
+                    if (name_end) {
+                        int len = name_end - name_start;
+                        if (len > 0 && len < (int)sizeof(neighbor_hostname)) {
+                            strncpy(neighbor_hostname, name_start, len);
+                            neighbor_hostname[len] = '\0';
+                        }
+                    }
+                }
+            }
+
+            if (strstr(line, "\"ip\":")) {
+                char *ip_start = strchr(line, ':');
+                if (ip_start) {
+                    ip_start++;
+                    while (*ip_start == ' ' || *ip_start == '"') ip_start++;
+                    char *ip_end = strchr(ip_start, '"');
+                    if (ip_end) {
+                        int len = ip_end - ip_start;
+                        if (len > 0 && len < INET_ADDRSTRLEN) {
+                            strncpy(neighbor_ip, ip_start, len);
+                            neighbor_ip[len] = '\0';
+                        }
+                    }
+                }
+            }
+
+            if (strstr(line, "\"ping_success_time\":")) {
+                char *time_start = strchr(line, ':');
+                if (time_start) {
+                    time_start++;
+                    ping_time_ms = atof(time_start) * 1000.0;
+                }
+            }
+
+            if (strchr(line, '}')) {
+                if (neighbor_hostname[0] != '\0' && ping_time_ms > 0.0) {
+                    topology_db_add_connection(hostname, neighbor_hostname, ping_time_ms);
+                    link_count++;
+                    LOG_DEBUG("Added LQM link: %s -> %s (%.2f ms)",
+                             hostname, neighbor_hostname, ping_time_ms);
+                } else if (neighbor_ip[0] != '\0' && ping_time_ms > 0.0) {
+                    // Fallback: resolve IP to hostname
+                    char resolved_hostname[256];
+                    if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
+                        topology_db_add_connection(hostname, resolved_hostname, ping_time_ms);
+                        link_count++;
+                        LOG_DEBUG("Added LQM link via IP resolution: %s -> %s (%.2f ms)",
+                                 hostname, resolved_hostname, ping_time_ms);
+                    }
+                }
+                in_tracker_entry = false;
+            }
+        }
+    }
+
+    pclose(fp);
+    LOG_DEBUG("Fetched %d LQM links from %s", link_count, hostname);
+    return link_count;
+}
+
+/**
+ * Helper: Fetch hosts list from localhost
+ */
+static int fetch_hostnames(char hostnames[][256], int max_hostnames) {
+    char cmd[] = "curl -s --connect-timeout 2 --max-time 5 'http://127.0.0.1/cgi-bin/sysinfo.json?hosts=1' 2>/dev/null";
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return -1;
+
+    char line[4096];
+    int count = 0;
+    bool in_hosts = false;
+
+    while (fgets(line, sizeof(line), fp) && count < max_hostnames) {
+        if (strstr(line, "\"hosts\"")) {
+            in_hosts = true;
+            continue;
+        }
+
+        if (!in_hosts) continue;
+        if (strstr(line, "]")) break;
+
+        char *name_start = strstr(line, "\"name\":");
+        if (name_start) {
+            name_start = strchr(name_start, ':');
+            if (name_start) {
+                name_start = strchr(name_start, '"');
+                if (name_start) {
+                    name_start++;
+                    char *name_end = strchr(name_start, '"');
+                    if (name_end) {
+                        int len = name_end - name_start;
+                        if (len > 0 && len < 256 && strstr(name_start, "local.mesh") == NULL) {
+                            strncpy(hostnames[count], name_start, len);
+                            hostnames[count][len] = '\0';
+                            count++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pclose(fp);
+    LOG_INFO("Fetched %d hostnames from localhost", count);
+    return count;
+}
+
+/**
+ * Crawl the entire mesh network
+ */
+void topology_db_crawl_mesh_network(void) {
+    LOG_INFO("Starting mesh network crawl from localhost...");
+
+    char hostnames[200][256];
+    int num_hosts = fetch_hostnames(hostnames, 200);
+
+    if (num_hosts <= 0) {
+        LOG_ERROR("Failed to fetch hostnames from localhost");
+        return;
+    }
+
+    LOG_INFO("Crawling %d nodes...", num_hosts);
+
+    int processed = 0;
+    int discovered = 0;
+
+    for (int i = 0; i < num_hosts; i++) {
+        char *hostname = hostnames[i];
+
+        processed++;
+        LOG_DEBUG("Crawling node %d/%d: %s", processed, num_hosts, hostname);
+
+        // Fetch node details
+        char lat[32] = "";
+        char lon[32] = "";
+
+        if (fetch_node_details(hostname, lat, sizeof(lat), lon, sizeof(lon)) == 0) {
+            topology_db_add_node(hostname, "router", lat, lon, "ONLINE");
+            discovered++;
+        } else {
+            LOG_DEBUG("Failed to fetch details for %s", hostname);
+            continue;
+        }
+
+        // Fetch LQM links
+        fetch_lqm_links_from_host(hostname);
+
+        usleep(100000);  // 100ms delay
     }
 
     LOG_INFO("Mesh crawl complete: processed %d nodes, discovered %d nodes with details",
-             nodes_processed, nodes_discovered);
+             processed, discovered);
+}
+
+/**
+ * Create directory recursively
+ */
+static int create_directory(const char *path) {
+    char temp_path[512];
+    strncpy(temp_path, path, sizeof(temp_path) - 1);
+    temp_path[sizeof(temp_path) - 1] = '\0';
+
+    char *dir = dirname(temp_path);
+
+    struct stat st = {0};
+    if (stat(dir, &st) == -1) {
+        if (mkdir(dir, 0755) == -1) {
+            if (errno != EEXIST) {
+                LOG_ERROR("Failed to create directory %s: %s", dir, strerror(errno));
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Write topology database to JSON file
+ */
+int topology_db_write_to_file(const char *filepath) {
+    if (!filepath) {
+        LOG_ERROR("Invalid filepath for topology JSON");
+        return -1;
+    }
+
+    LOG_INFO("Writing topology to %s...", filepath);
+
+    if (create_directory(filepath) != 0) {
+        return -1;
+    }
+
+    FILE *fp = fopen(filepath, "w");
+    if (!fp) {
+        LOG_ERROR("Failed to open %s for writing: %s", filepath, strerror(errno));
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_topology_mutex);
+
+    fprintf(fp, "{\n");
+    fprintf(fp, "  \"version\": \"2.0\",\n");
+
+    time_t now = time(NULL);
+    struct tm *tm_info = gmtime(&now);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
+    fprintf(fp, "  \"generated_at\": \"%s\",\n", timestamp);
+
+    fprintf(fp, "  \"source_node\": {\n");
+    if (g_node_count > 0) {
+        fprintf(fp, "    \"name\": \"%s\",\n", g_nodes[0].name);
+        fprintf(fp, "    \"type\": \"server\"\n");
+    } else {
+        fprintf(fp, "    \"name\": \"unknown\",\n");
+        fprintf(fp, "    \"type\": \"server\"\n");
+    }
+    fprintf(fp, "  },\n");
+
+    fprintf(fp, "  \"nodes\": [\n");
+    for (int i = 0; i < g_node_count; i++) {
+        TopologyNode *node = &g_nodes[i];
+        fprintf(fp, "    {\n");
+        fprintf(fp, "      \"name\": \"%s\",\n", node->name);
+        fprintf(fp, "      \"type\": \"%s\",\n", node->type);
+        fprintf(fp, "      \"lat\": \"%s\",\n", node->lat);
+        fprintf(fp, "      \"lon\": \"%s\",\n", node->lon);
+        fprintf(fp, "      \"status\": \"%s\",\n", node->status);
+        fprintf(fp, "      \"last_seen\": %ld\n", (long)node->last_seen);
+        fprintf(fp, "    }%s\n", (i < g_node_count - 1) ? "," : "");
+    }
+    fprintf(fp, "  ],\n");
+
+    fprintf(fp, "  \"connections\": [\n");
+    for (int i = 0; i < g_connection_count; i++) {
+        TopologyConnection *conn = &g_connections[i];
+        fprintf(fp, "    {\n");
+        fprintf(fp, "      \"from\": \"%s\",\n", conn->from_name);
+        fprintf(fp, "      \"to\": \"%s\",\n", conn->to_name);
+        fprintf(fp, "      \"rtt_avg_ms\": %.3f,\n", conn->rtt_avg_ms);
+        fprintf(fp, "      \"rtt_min_ms\": %.3f,\n", conn->rtt_min_ms);
+        fprintf(fp, "      \"rtt_max_ms\": %.3f,\n", conn->rtt_max_ms);
+        fprintf(fp, "      \"sample_count\": %d,\n", conn->sample_count);
+        fprintf(fp, "      \"last_updated\": %ld\n", (long)conn->last_updated);
+        fprintf(fp, "    }%s\n", (i < g_connection_count - 1) ? "," : "");
+    }
+    fprintf(fp, "  ],\n");
+
+    fprintf(fp, "  \"statistics\": {\n");
+    fprintf(fp, "    \"total_nodes\": %d,\n", g_node_count);
+    fprintf(fp, "    \"total_connections\": %d\n", g_connection_count);
+    fprintf(fp, "  }\n");
+
+    fprintf(fp, "}\n");
+
+    pthread_mutex_unlock(&g_topology_mutex);
+
+    fclose(fp);
+
+    LOG_INFO("Topology written to %s (%d nodes, %d connections)",
+             filepath, g_node_count, g_connection_count);
+    return 0;
 }

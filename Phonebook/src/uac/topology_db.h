@@ -26,9 +26,8 @@ typedef struct {
  * Network node (phone, router, or server)
  */
 typedef struct {
-    char ip[INET_ADDRSTRLEN];  // Node IP address (unique key)
+    char name[256];             // Hostname (unique key, e.g., "HB9BLA-VM-1")
     char type[16];              // "phone", "router", "server"
-    char name[256];             // Display name (phone number or hostname)
     char lat[32];               // Latitude (from sysinfo.json)
     char lon[32];               // Longitude (from sysinfo.json)
     char status[16];            // "ONLINE", "OFFLINE", "NO_DNS"
@@ -39,8 +38,8 @@ typedef struct {
  * Network connection between two nodes
  */
 typedef struct {
-    char from_ip[INET_ADDRSTRLEN]; // Source node IP
-    char to_ip[INET_ADDRSTRLEN];   // Destination node IP
+    char from_name[256];        // Source node hostname
+    char to_name[256];          // Destination node hostname
     RTT_Sample samples[MAX_RTT_SAMPLES]; // Circular buffer of RTT samples
     int sample_count;              // Number of samples stored (0-10)
     int next_sample_index;         // Next position in circular buffer
@@ -66,33 +65,31 @@ void topology_db_cleanup_stale_nodes(void);
 /**
  * Add or update a node in the topology database
  *
- * If a node with the same IP already exists, it will be updated.
+ * If a node with the same hostname already exists, it will be updated.
  * Otherwise, a new node will be added.
  *
- * @param ip Node IP address (required, unique key)
+ * @param name Node hostname (required, unique key, e.g., "HB9BLA-VM-1")
  * @param type Node type: "phone", "router", or "server" (required)
- * @param name Display name or hostname (required)
  * @param lat Latitude as string (can be NULL, updated later)
  * @param lon Longitude as string (can be NULL, updated later)
  * @param status Status: "ONLINE", "OFFLINE", "NO_DNS" (required)
  * @return 0 on success, -1 on error (database full)
  */
 int topology_db_add_node(
-    const char *ip,
-    const char *type,
     const char *name,
+    const char *type,
     const char *lat,
     const char *lon,
     const char *status
 );
 
 /**
- * Find a node by IP address
+ * Find a node by hostname
  *
- * @param ip IP address to search for
+ * @param name Hostname to search for
  * @return Pointer to node, or NULL if not found
  */
-TopologyNode* topology_db_find_node(const char *ip);
+TopologyNode* topology_db_find_node(const char *name);
 
 /**
  * Get total number of nodes in database
@@ -107,27 +104,27 @@ int topology_db_get_node_count(void);
  * If the connection doesn't exist, it will be created.
  * RTT samples are stored in a circular buffer (last 10 samples).
  *
- * @param from_ip Source node IP
- * @param to_ip Destination node IP
+ * @param from_name Source node hostname
+ * @param to_name Destination node hostname
  * @param rtt_ms RTT measurement in milliseconds
  * @return 0 on success, -1 on error (database full)
  */
 int topology_db_add_connection(
-    const char *from_ip,
-    const char *to_ip,
+    const char *from_name,
+    const char *to_name,
     float rtt_ms
 );
 
 /**
- * Find a connection by source and destination IP
+ * Find a connection by source and destination hostname
  *
- * @param from_ip Source node IP
- * @param to_ip Destination node IP
+ * @param from_name Source node hostname
+ * @param to_name Destination node hostname
  * @return Pointer to connection, or NULL if not found
  */
 TopologyConnection* topology_db_find_connection(
-    const char *from_ip,
-    const char *to_ip
+    const char *from_name,
+    const char *to_name
 );
 
 /**
@@ -172,19 +169,16 @@ void topology_db_calculate_aggregate_stats(void);
 int topology_db_write_to_file(const char *filepath);
 
 /**
- * Crawl the entire mesh network starting from a seed node
+ * Crawl the entire mesh network starting from localhost
  *
- * Uses BFS (Breadth-First Search) to discover all reachable nodes:
- * 1. Fetches sysinfo.json?hosts=1 from each node to get its host list
- * 2. For each discovered node, fetches sysinfo.json to get details
- * 3. Adds all discovered nodes and their details to topology database
- * 4. Continues until no new nodes are found
+ * Uses sysinfo.json?hosts=1 and LQM data to discover all mesh nodes:
+ * 1. Fetches hosts list from localhost to get all known hostnames
+ * 2. For each hostname, fetches sysinfo.json from hostname.local.mesh
+ * 3. Fetches LQM data to discover direct neighbor connections with RTT
+ * 4. Adds all nodes and connections to topology database
  *
- * This provides complete network visibility instead of just nodes
- * in traceroute paths.
- *
- * @param seed_ip IP address to start crawling from (e.g., "127.0.0.1")
+ * This provides complete network visibility including tunnel connections.
  */
-void topology_db_crawl_mesh_network(const char *seed_ip);
+void topology_db_crawl_mesh_network(void);
 
 #endif // TOPOLOGY_DB_H
