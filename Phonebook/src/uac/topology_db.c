@@ -808,8 +808,8 @@ int topology_db_write_to_file(const char *filepath) {
     for (int i = 0; i < g_connection_count; i++) {
         TopologyConnection *conn = &g_connections[i];
         fprintf(fp, "    {\n");
-        fprintf(fp, "      \"from\": \"%s\",\n", conn->from_name);
-        fprintf(fp, "      \"to\": \"%s\",\n", conn->to_name);
+        fprintf(fp, "      \"source\": \"%s\",\n", conn->from_name);
+        fprintf(fp, "      \"target\": \"%s\",\n", conn->to_name);
         fprintf(fp, "      \"rtt_avg_ms\": %.3f,\n", conn->rtt_avg_ms);
         fprintf(fp, "      \"rtt_min_ms\": %.3f,\n", conn->rtt_min_ms);
         fprintf(fp, "      \"rtt_max_ms\": %.3f,\n", conn->rtt_max_ms);
