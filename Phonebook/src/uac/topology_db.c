@@ -342,32 +342,58 @@ void topology_db_fetch_all_locations(void) {
             TopologyConnection *conn = &g_connections[c];
 
             if (strcmp(conn->to_name, phone->name) == 0) {
-                // Find source router
+                TopologyNode *router_with_location = NULL;
+
+                // Try 1: Find source router by exact name
                 for (int j = 0; j < g_node_count; j++) {
                     TopologyNode *router = &g_nodes[j];
 
                     if (strcmp(router->name, conn->from_name) == 0) {
                         if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
-                            // Copy with offset
-                            double router_lat = atof(router->lat);
-                            double router_lon = atof(router->lon);
-
-                            unsigned int seed = 0;
-                            for (const char *p = phone->name; *p; p++) {
-                                seed = seed * 31 + *p;
-                            }
-                            srand(seed);
-
-                            double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
-                            double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
-
-                            snprintf(phone->lat, sizeof(phone->lat), "%.7f", router_lat + lat_offset);
-                            snprintf(phone->lon, sizeof(phone->lon), "%.7f", router_lon + lon_offset);
-
-                            propagated++;
-                            goto next_phone;
+                            router_with_location = router;
+                            break;
                         }
                     }
+                }
+
+                // Try 2: If router has prefix (mid1., mid2., dtdlink., etc.) but no location,
+                // try to find base hostname without prefix
+                if (!router_with_location && strchr(conn->from_name, '.')) {
+                    const char *base_hostname = strchr(conn->from_name, '.') + 1;
+
+                    for (int j = 0; j < g_node_count; j++) {
+                        TopologyNode *router = &g_nodes[j];
+
+                        if (strcmp(router->name, base_hostname) == 0) {
+                            if (strlen(router->lat) > 0 && strlen(router->lon) > 0) {
+                                router_with_location = router;
+                                LOG_DEBUG("Phone %s: found location on base router %s (source was %s)",
+                                         phone->name, base_hostname, conn->from_name);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If we found a router with location, copy it to the phone
+                if (router_with_location) {
+                    double router_lat = atof(router_with_location->lat);
+                    double router_lon = atof(router_with_location->lon);
+
+                    unsigned int seed = 0;
+                    for (const char *p = phone->name; *p; p++) {
+                        seed = seed * 31 + *p;
+                    }
+                    srand(seed);
+
+                    double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+                    double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
+
+                    snprintf(phone->lat, sizeof(phone->lat), "%.7f", router_lat + lat_offset);
+                    snprintf(phone->lon, sizeof(phone->lon), "%.7f", router_lon + lon_offset);
+
+                    propagated++;
+                    goto next_phone;
                 }
             }
         }
