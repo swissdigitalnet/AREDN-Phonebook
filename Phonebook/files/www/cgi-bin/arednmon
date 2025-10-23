@@ -347,7 +347,6 @@ cat <<'EOF'
         <div class="map-title">Network Topology Map</div>
         <div id="topologyMap"></div>
         <div class="map-controls">
-            <button class="map-btn" id="resetViewBtn">Reset View</button>
             <button class="map-btn" id="refreshMapBtn">Refresh Topology</button>
             <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
         </div>
@@ -371,17 +370,6 @@ cat <<'EOF'
 EOF
 
 cat <<EOF
-    <div class="info" id="info">
-        <strong>Automatic Testing:</strong> Tests run every $TEST_INTERVAL seconds<br>
-        <strong>Last Update:</strong> <span id="lastUpdate">Loading...</span><br>
-        <strong>Test Progress:</strong> <span id="testProgress">Loading...</span><br>
-        <div class="progress-container">
-            <div class="progress-text" id="progressText">0%</div>
-            <div class="progress-bar" id="progressBar" style="width: 0%"></div>
-        </div>
-        <strong>Auto-refresh:</strong> This page refreshes every 30 seconds
-    </div>
-
     <div id="errorContainer"></div>
 
     <table>
@@ -848,23 +836,33 @@ cat <<EOF
                         { sticky: true, permanent: false }
                     );
 
-                    // Add permanent label at midpoint showing RTT
-                    const midpoint = [
-                        (fromMarker.getLatLng().lat + toMarker.getLatLng().lat) / 2,
-                        (fromMarker.getLatLng().lng + toMarker.getLatLng().lng) / 2
-                    ];
+                    // Find node types for from and to
+                    const fromNode = data.nodes.find(n => n.ip === conn.from);
+                    const toNode = data.nodes.find(n => n.ip === conn.to);
 
-                    L.marker(midpoint, {
-                        icon: L.divIcon({
-                            className: 'rtt-label',
-                            html: '<div style="background-color: white; padding: 2px 4px; border-radius: 3px; ' +
-                                  'font-size: 10px; font-weight: bold; color: ' + color + '; ' +
-                                  'border: 1px solid ' + color + ';">' +
-                                  conn.rtt_avg_ms.toFixed(1) + 'ms</div>',
-                            iconSize: [40, 20],
-                            iconAnchor: [20, 10]
-                        })
-                    }).addTo(topologyMap);
+                    // Only show RTT label for router-to-router connections
+                    const isRouterToRouter = fromNode && toNode &&
+                                            fromNode.type === 'router' && toNode.type === 'router';
+
+                    if (isRouterToRouter) {
+                        // Add permanent label at midpoint showing RTT
+                        const midpoint = [
+                            (fromMarker.getLatLng().lat + toMarker.getLatLng().lat) / 2,
+                            (fromMarker.getLatLng().lng + toMarker.getLatLng().lng) / 2
+                        ];
+
+                        L.marker(midpoint, {
+                            icon: L.divIcon({
+                                className: 'rtt-label',
+                                html: '<div style="background-color: white; padding: 2px 4px; border-radius: 3px; ' +
+                                      'font-size: 10px; font-weight: bold; color: ' + color + '; ' +
+                                      'border: 1px solid ' + color + ';">' +
+                                      conn.rtt_avg_ms.toFixed(1) + 'ms</div>',
+                                iconSize: [40, 20],
+                                iconAnchor: [20, 10]
+                            })
+                        }).addTo(topologyMap);
+                    }
 
                     connectionLines.push(line);
                 }
@@ -954,13 +952,6 @@ cat <<EOF
             }
         }
 
-        // Reset map view
-        function resetMapView() {
-            if (topologyData) {
-                renderTopology(topologyData);
-            }
-        }
-
         // Refresh topology data and fit to all nodes
         async function refreshTopology() {
             document.getElementById('mapStatus').textContent = 'Loading...';
@@ -991,8 +982,7 @@ cat <<EOF
             initMap();
             await refreshTopology();
 
-            // Set up button event listeners
-            document.getElementById('resetViewBtn').addEventListener('click', resetMapView);
+            // Set up button event listener
             document.getElementById('refreshMapBtn').addEventListener('click', refreshTopology);
         }
 
