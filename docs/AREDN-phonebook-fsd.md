@@ -1269,9 +1269,31 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
 
 1. **Interactive Map Display**
    - OpenStreetMap tile layer
-   - Auto-zoom to fit all nodes
-   - Click nodes to highlight route from server
+   - **Geographic Bounds**: Constrained to Switzerland (45.8°N-47.8°N, 5.9°E-10.5°E)
+   - **Max Bounds Enforcement**: Prevents panning/zooming outside Switzerland
+   - **No Auto-Zoom**: Map stays at Switzerland overview on initial load
+   - **Manual Refresh**: "Refresh Topology" button fits map to show all nodes
+   - **Increased Height**: 1200px (double the original 600px) for better visibility
+   - Click nodes to highlight route from server and show traceroute
    - Tooltips with node information
+
+   ```javascript
+   // Initialize map with Switzerland bounds
+   const switzerlandBounds = [
+       [45.8, 5.9],  // Southwest corner
+       [47.8, 10.5]  // Northeast corner
+   ];
+
+   topologyMap = L.map('topologyMap', {
+       maxBounds: switzerlandBounds,
+       maxBoundsViscosity: 1.0  // Prevent panning outside bounds
+   }).fitBounds(switzerlandBounds);
+
+   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+       maxZoom: 18,
+       minZoom: 7  // Prevent zooming out beyond Switzerland
+   }).addTo(topologyMap);
+   ```
 
 2. **Color-Coded Routes**
    - **Green** (<100ms RTT): Excellent connection quality
@@ -1309,7 +1331,42 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    - **Green** (●): Phone (destination)
    - **Orange** (●): Router (intermediate hop)
 
-5. **Map Legend**
+5. **Traceroute Display**
+   - **Panel Location**: Below the map
+   - **Trigger**: Automatically shown when any node is clicked
+   - **Live Execution**: Performs real-time ICMP traceroute to selected node
+   - **Hop Information**: Shows hop number, hostname, IP address, and RTT
+   - **Timeout Handling**: Displays "*" for unresponsive hops
+
+   **CGI Endpoint**: `/cgi-bin/traceroute_json?ip=<target_ip>`
+
+   **Implementation**:
+   ```javascript
+   // Fetch and display traceroute
+   async function fetchTraceroute(targetIp, targetName) {
+       const response = await fetch('/cgi-bin/traceroute_json?ip=' + targetIp);
+       const data = await response.json();
+
+       // Display each hop
+       data.hops.forEach(hop => {
+           if (hop.timeout) {
+               html += '<div>Hop ' + hop.hop + ': * * * (timeout)</div>';
+           } else {
+               html += '<div>Hop ' + hop.hop + ': ' + hop.hostname +
+                      ' (' + hop.ip + ') - ' + hop.rtt_ms + ' ms</div>';
+           }
+       });
+   }
+   ```
+
+   **Traceroute Shell Script**: `/www/cgi-bin/traceroute_json`
+   - Uses `traceroute -I` (ICMP) for path discovery
+   - 30 hop maximum, 2 second timeout per hop
+   - Performs reverse DNS lookup for hostnames
+   - Strips `.local.mesh` suffix from hostnames
+   - Returns JSON with hop array
+
+6. **Map Legend**
    ```
    Node Types:
    ● Server - This node (source)
@@ -1321,8 +1378,12 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    ━━━ Orange - Medium (100-200ms)
    ━━━ Red - Poor (>200ms)
 
-   Interaction: Click any node to highlight the route from this server
+   Interaction: Click any node to highlight the route and show traceroute results below
    ```
+
+7. **Map Controls**
+   - **Reset View**: Returns to Switzerland overview
+   - **Refresh Topology**: Reloads data and fits map to show all active nodes
 
 **Data Loading:**
 ```javascript
@@ -1451,13 +1512,70 @@ fi
 cat "$TOPOLOGY_FILE"
 ```
 
+**Traceroute JSON Endpoint:**
+
+**File:** `/www/cgi-bin/traceroute_json` (shell script)
+
+**Purpose:** Performs live ICMP traceroute to a specified IP address and returns results as JSON.
+
+**Parameters:**
+- `ip`: Target IP address (required, passed via query string)
+
+**Example Request:**
+```bash
+curl "http://localnode.local.mesh/cgi-bin/traceroute_json?ip=10.197.143.20"
+```
+
+**Response Format:**
+```json
+{
+  "target_ip": "10.197.143.20",
+  "hops": [
+    {
+      "hop": 1,
+      "ip": "10.167.247.74",
+      "hostname": "router-1",
+      "rtt_ms": 1.45,
+      "timeout": false
+    },
+    {
+      "hop": 2,
+      "ip": "10.197.143.20",
+      "hostname": "441530",
+      "rtt_ms": 2.10,
+      "timeout": false
+    }
+  ]
+}
+```
+
+**Implementation:**
+- Uses `traceroute -I` (ICMP Echo) instead of UDP for compatibility
+- Maximum 30 hops with 2-second timeout per hop
+- Performs reverse DNS lookup via `nslookup`
+- Strips `.local.mesh` suffix from hostnames
+- Calculates average RTT from multiple probe samples
+- Handles timeouts by marking hop as `{"timeout": true}`
+
+**Error Handling:**
+```json
+{
+  "error": "Missing IP parameter. Usage: /cgi-bin/traceroute_json?ip=<target_ip>",
+  "target_ip": "",
+  "hops": []
+}
+```
+
 **AREDNmon Dashboard:**
 
 Enhanced with topology map section in `/www/cgi-bin/arednmon`:
-- Displays interactive Leaflet.js map above phone monitoring table
+- Displays interactive Leaflet.js map (1200px height) above phone monitoring table
+- Geographic bounds constrained to Switzerland (45.8°N-47.8°N, 5.9°E-10.5°E)
 - Loads topology from `/cgi-bin/topology_json` endpoint
 - Shows color-coded routes and RTT labels
-- Refreshes every 60 seconds
+- Interactive traceroute panel below map
+- Clicking any node triggers `/cgi-bin/traceroute_json` and displays results
+- Refreshes topology every 60 seconds
 
 #### 4.12.10 Data Flow
 
