@@ -886,11 +886,11 @@ cat <<EOF
 
                 let html = '';
                 data.connections.forEach(conn => {
-                    // Find node names for from and to IPs
-                    const fromNode = data.nodes.find(n => n.ip === conn.from);
-                    const toNode = data.nodes.find(n => n.ip === conn.to);
-                    const fromName = fromNode ? fromNode.name : conn.from;
-                    const toName = toNode ? toNode.name : conn.to;
+                    // Find node names for source and target IPs
+                    const fromNode = data.nodes.find(n => n.ip === conn.source);
+                    const toNode = data.nodes.find(n => n.ip === conn.target);
+                    const fromName = fromNode ? fromNode.name : conn.source;
+                    const toName = toNode ? toNode.name : conn.target;
 
                     html += '<tr>' +
                            '<td>' + fromName + '</td>' +
@@ -1007,8 +1007,8 @@ cat <<EOF
 
             // Add connections with color coding and labels
             data.connections.forEach(conn => {
-                const fromMarker = nodeMarkers[conn.from];
-                const toMarker = nodeMarkers[conn.to];
+                const fromMarker = nodeMarkers[conn.source];
+                const toMarker = nodeMarkers[conn.target];
 
                 if (fromMarker && toMarker) {
                     const color = getRttColor(conn.rtt_avg_ms);
@@ -1030,9 +1030,9 @@ cat <<EOF
                         { sticky: true, permanent: false }
                     );
 
-                    // Find node types and names for from and to
-                    const fromNode = data.nodes.find(n => n.ip === conn.from);
-                    const toNode = data.nodes.find(n => n.ip === conn.to);
+                    // Find node types and names for source and target
+                    const fromNode = data.nodes.find(n => n.ip === conn.source);
+                    const toNode = data.nodes.find(n => n.ip === conn.target);
 
                     // Add click handler to show connection details
                     line.on('click', function() {
@@ -1144,10 +1144,10 @@ cat <<EOF
             // Build adjacency list
             const graph = {};
             data.connections.forEach(conn => {
-                if (!graph[conn.from]) graph[conn.from] = [];
-                if (!graph[conn.to]) graph[conn.to] = [];
-                graph[conn.from].push(conn.to);
-                graph[conn.to].push(conn.from); // Bidirectional
+                if (!graph[conn.source]) graph[conn.source] = [];
+                if (!graph[conn.target]) graph[conn.target] = [];
+                graph[conn.source].push(conn.target);
+                graph[conn.target].push(conn.source); // Bidirectional
             });
 
             // BFS
