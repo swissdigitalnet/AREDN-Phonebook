@@ -574,8 +574,8 @@ void *topology_crawler_thread(void *arg) {
     }
 
     // Wait for initial system startup
-    LOG_INFO("Waiting 120 seconds for system initialization...");
-    sleep(120);
+    LOG_INFO("Waiting 10 seconds for system initialization...");
+    sleep(10);
 
     while (1) {
         // Health monitoring heartbeat
