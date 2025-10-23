@@ -436,8 +436,8 @@ cat <<EOF
     <script>
         // Health data update interval (60 seconds to match local file updates)
         const HEALTH_UPDATE_INTERVAL = 60000;
-        // Topology data update interval (10 seconds for real-time node discovery)
-        const TOPOLOGY_UPDATE_INTERVAL = 10000;
+        // Topology data update interval (30 seconds for real-time node discovery)
+        const TOPOLOGY_UPDATE_INTERVAL = 30000;
         // Track previously seen nodes to highlight new discoveries
         let previousNodeIPs = new Set();
         let newNodeHighlights = new Map(); // IP -> timestamp when added
@@ -837,6 +837,14 @@ cat <<EOF
         function updateDebugTables(data) {
             if (!data) return;
 
+            // Create node lookup map once (O(1) lookups instead of O(n))
+            const nodesByIp = {};
+            if (data.nodes) {
+                data.nodes.forEach(node => {
+                    nodesByIp[node.ip] = node;
+                });
+            }
+
             // Update nodes table
             const nodesTable = document.getElementById('debugNodesTable');
             if (data.nodes && data.nodes.length > 0) {
@@ -886,9 +894,9 @@ cat <<EOF
 
                 let html = '';
                 data.connections.forEach(conn => {
-                    // Find node names for source and target IPs
-                    const fromNode = data.nodes.find(n => n.ip === conn.source);
-                    const toNode = data.nodes.find(n => n.ip === conn.target);
+                    // Use lookup map for O(1) access instead of find() O(n)
+                    const fromNode = nodesByIp[conn.source];
+                    const toNode = nodesByIp[conn.target];
                     const fromName = fromNode ? fromNode.name : conn.source;
                     const toName = toNode ? toNode.name : conn.target;
 
@@ -911,6 +919,14 @@ cat <<EOF
         function renderTopology(data) {
             if (!topologyMap || !data) {
                 return;
+            }
+
+            // Create node lookup map once for O(1) access throughout rendering
+            const nodesByIp = {};
+            if (data.nodes) {
+                data.nodes.forEach(node => {
+                    nodesByIp[node.ip] = node;
+                });
             }
 
             // Update debug tables
@@ -1030,9 +1046,9 @@ cat <<EOF
                         { sticky: true, permanent: false }
                     );
 
-                    // Find node types and names for source and target
-                    const fromNode = data.nodes.find(n => n.ip === conn.source);
-                    const toNode = data.nodes.find(n => n.ip === conn.target);
+                    // Use lookup map for O(1) access instead of find() O(n)
+                    const fromNode = nodesByIp[conn.source];
+                    const toNode = nodesByIp[conn.target];
 
                     // Add click handler to show connection details
                     line.on('click', function() {
