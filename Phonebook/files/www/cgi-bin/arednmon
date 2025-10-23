@@ -221,7 +221,8 @@ cat <<'EOF'
         }
         #topologyMap {
             width: 100%;
-            aspect-ratio: 16 / 9;
+            aspect-ratio: 21 / 9;
+            padding: 0 60px;
             border-radius: 4px;
         }
         .map-controls {
@@ -372,7 +373,7 @@ cat <<'EOF'
     <div class="map-panel" id="debugPanel" style="margin-top: 20px;">
         <div class="map-title">Debug: Topology Data</div>
 
-        <h3 style="margin-top: 15px; color: #333;">Nodes</h3>
+        <h3 style="margin-top: 15px; color: #333;">Nodes <span id="nodeCountHeader" style="color: #666; font-size: 0.9em;">(0 nodes)</span></h3>
         <div style="overflow-x: auto;">
             <table style="font-size: 0.85em;">
                 <thead>
@@ -827,16 +828,34 @@ cat <<EOF
             // Update nodes table
             const nodesTable = document.getElementById('debugNodesTable');
             if (data.nodes && data.nodes.length > 0) {
+                // Update node count header
+                document.getElementById('nodeCountHeader').textContent = '(' + data.nodes.length + ' nodes)';
+
                 let html = '';
                 data.nodes.forEach(node => {
                     const hasLocation = node.lat && node.lon && node.lat !== '' && node.lon !== '';
                     const rowStyle = hasLocation ? '' : ' style="background-color: #ffe0e0;"';
+
+                    // For phones without location, show phone number in latitude column
+                    let latDisplay = node.lat || '<em>missing</em>';
+                    if (!hasLocation && node.type === 'phone') {
+                        // Extract phone number from node name (typically ends with phone number)
+                        const nameParts = node.name.split(' ');
+                        const lastPart = nameParts[nameParts.length - 1];
+                        // Check if last part looks like a phone number (contains digits)
+                        if (/\d/.test(lastPart)) {
+                            latDisplay = '<em>' + lastPart + '</em>';
+                        } else {
+                            latDisplay = '<em>' + node.name + '</em>';
+                        }
+                    }
+
                     html += '<tr' + rowStyle + '>' +
                            '<td>' + (node.name || '-') + '</td>' +
                            '<td>' + (node.ip || '-') + '</td>' +
                            '<td>' + (node.type || '-') + '</td>' +
                            '<td>' + (node.status || '-') + '</td>' +
-                           '<td>' + (node.lat || '<em>missing</em>') + '</td>' +
+                           '<td>' + latDisplay + '</td>' +
                            '<td>' + (node.lon || '<em>missing</em>') + '</td>' +
                            '<td>' + (node.grid_square || '-') + '</td>' +
                            '</tr>';
@@ -844,6 +863,7 @@ cat <<EOF
                 nodesTable.innerHTML = html;
             } else {
                 nodesTable.innerHTML = '<tr><td colspan="7" class="loading">No nodes found</td></tr>';
+                document.getElementById('nodeCountHeader').textContent = '(0 nodes)';
             }
 
             // Update connections table
