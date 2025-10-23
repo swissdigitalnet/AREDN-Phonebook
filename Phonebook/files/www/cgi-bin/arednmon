@@ -18,7 +18,6 @@ cat <<'EOF'
 <html>
 <head>
     <title>AREDNmon - Network Monitor</title>
-    <meta http-equiv="refresh" content="30">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -393,7 +392,7 @@ cat <<'EOF'
             </table>
         </div>
 
-        <h3 style="margin-top: 20px; color: #333;">Connections</h3>
+        <h3 style="margin-top: 20px; color: #333;">Connections <span id="connectionCountHeader" style="color: #666; font-size: 0.9em;">(0 connections)</span></h3>
         <div style="overflow-x: auto;">
             <table style="font-size: 0.85em;">
                 <thead>
@@ -879,6 +878,9 @@ cat <<EOF
             // Update connections table
             const connectionsTable = document.getElementById('debugConnectionsTable');
             if (data.connections && data.connections.length > 0) {
+                // Update connection count header
+                document.getElementById('connectionCountHeader').textContent = '(' + data.connections.length + ' connections)';
+
                 let html = '';
                 data.connections.forEach(conn => {
                     // Find node names for from and to IPs
@@ -898,6 +900,7 @@ cat <<EOF
                 connectionsTable.innerHTML = html;
             } else {
                 connectionsTable.innerHTML = '<tr><td colspan="5" class="loading">No connections found</td></tr>';
+                document.getElementById('connectionCountHeader').textContent = '(0 connections)';
             }
         }
 

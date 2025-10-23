@@ -652,17 +652,6 @@ static int fetch_lqm_links_from_node(const char *node_ip) {
 
         if (!in_trackers) continue;
 
-        // End of trackers section (closing brace followed by comma or end)
-        if (in_trackers && !in_tracker_entry && strchr(line, '}')) {
-            // Check if this is the end of the trackers object
-            char *brace = strchr(line, '}');
-            if (brace) {
-                // Count braces to determine nesting level
-                // If we see }, it might be end of trackers
-                break;
-            }
-        }
-
         // Detect tracker entry start: "MAC": {
         if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
             in_tracker_entry = true;
