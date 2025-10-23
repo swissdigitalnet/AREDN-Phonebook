@@ -593,20 +593,21 @@ static int fetch_hosts_from_node(const char *node_ip, char hosts[][INET_ADDRSTRL
         // Extract IP from: "ip": "10.x.x.x"
         char *ip_start = strstr(line, "\"ip\":");
         if (ip_start) {
-            ip_start = strchr(ip_start, '"');
+            // Move to the colon
+            ip_start = strchr(ip_start, ':');
             if (ip_start) {
-                ip_start = strchr(ip_start + 1, '"');
-                if (ip_start) {
-                    ip_start++;
-                    char *ip_end = strchr(ip_start, '"');
-                    if (ip_end) {
-                        int len = ip_end - ip_start;
-                        if (len > 0 && len < INET_ADDRSTRLEN) {
-                            strncpy(hosts[host_count], ip_start, len);
-                            hosts[host_count][len] = '\0';
-                            host_count++;
-                        }
-                    }
+                ip_start++; // Move past the colon
+                // Skip whitespace and opening quote
+                while (*ip_start == ' ' || *ip_start == '"') ip_start++;
+                // Find the end (closing quote or comma)
+                char *ip_end = ip_start;
+                while (*ip_end && *ip_end != '"' && *ip_end != ',' && *ip_end != '\n') ip_end++;
+
+                int len = ip_end - ip_start;
+                if (len > 0 && len < INET_ADDRSTRLEN) {
+                    strncpy(hosts[host_count], ip_start, len);
+                    hosts[host_count][len] = '\0';
+                    host_count++;
                 }
             }
         }
