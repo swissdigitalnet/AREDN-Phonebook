@@ -362,7 +362,7 @@ cat <<'EOF'
             <span style="color: #f44336;">━━━ Red (solid)</span> - Poor (&gt;200ms)<br>
             <span style="color: #9E9E9E;">╌╌╌ Grey (dashed)</span> - Unreachable (ping timeout)<br>
             <br>
-            <strong>Interaction:</strong> Click any node to highlight the route and show traceroute results below
+            <strong>Interaction:</strong> Click any node to show traceroute from server to that node
         </div>
     </div>
 
@@ -745,8 +745,8 @@ cat <<EOF
 
             rttLabels.forEach(labelInfo => {
                 const label = labelInfo.marker;
-                // Always show if distance > 5km, otherwise zoom-dependent
-                if (labelInfo.distance > 5 || showLabels) {
+                // Always show if distance > 1km, otherwise zoom-dependent
+                if (labelInfo.distance > 1 || showLabels) {
                     if (!topologyMap.hasLayer(label)) {
                         topologyMap.addLayer(label);
                     }
@@ -1048,23 +1048,41 @@ cat <<EOF
                         lineOptions.dashArray = dashArray;
                     }
 
+                    // Use lookup map for O(1) access instead of find() O(n)
+                    const fromNode = nodesByName[conn.source];
+                    const toNode = nodesByName[conn.target];
+
                     const line = L.polyline([
                         fromMarker.getLatLng(),
                         toMarker.getLatLng()
                     ], lineOptions).addTo(topologyMap);
 
-                    // Add tooltip with RTT info (on hover)
+                    // Add tooltip with RTT info and endpoints (on hover)
+                    // Clean up endpoint names
+                    let fromName = fromNode ? fromNode.name : conn.source;
+                    let toName = toNode ? toNode.name : conn.target;
+
+                    if (fromName.includes('.')) {
+                        const parts = fromName.split('.');
+                        if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
+                            fromName = parts.slice(1).join('.');
+                        }
+                    }
+
+                    if (toName.includes('.')) {
+                        const parts = toName.split('.');
+                        if (parts.length > 1 && parts[0].length < 8 && parts[0] === parts[0].toLowerCase()) {
+                            toName = parts.slice(1).join('.');
+                        }
+                    }
+
                     const tooltipText = isUnreachable ?
-                        'Unreachable (ping_success_time = 0)' :
-                        'RTT: ' + conn.rtt_avg_ms.toFixed(1) + ' ms' +
+                        fromName + ' ↔ ' + toName + '<br>Unreachable (ping_success_time = 0)' :
+                        fromName + ' ↔ ' + toName + '<br>RTT: ' + conn.rtt_avg_ms.toFixed(1) + ' ms' +
                         ' (min: ' + conn.rtt_min_ms.toFixed(1) +
                         ', max: ' + conn.rtt_max_ms.toFixed(1) + ')';
 
                     line.bindTooltip(tooltipText, { sticky: true, permanent: false });
-
-                    // Use lookup map for O(1) access instead of find() O(n)
-                    const fromNode = nodesByName[conn.source];
-                    const toNode = nodesByName[conn.target];
 
                     // Add click handler to show connection details
                     line.on('click', function() {
@@ -1207,47 +1225,15 @@ cat <<EOF
             return []; // No path found
         }
 
-        // Highlight path to specific node (with live traceroute fallback)
+        // Highlight path to specific node using traceroute
         async function highlightPathToNode(data, targetHostname, targetDisplayName, marker) {
             // Clear previous highlights
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
 
-            // Find shortest path in topology database
-            const path = findShortestPath(data, targetHostname);
-
-            if (path.length === 0) {
-                console.log('No path found in topology database for', targetHostname, '- triggering live traceroute');
-
-                // Trigger live traceroute with popup (traceroute needs hostname)
-                await fetchTraceroute(targetHostname, targetDisplayName, marker);
-                return;
-            }
-
-            console.log('Path to', targetHostname, ':', path);
-
-            // Draw highlighted path with thicker, brighter line
-            for (let i = 0; i < path.length - 1; i++) {
-                const fromMarker = nodeMarkers[path[i]];
-                const toMarker = nodeMarkers[path[i + 1]];
-
-                if (fromMarker && toMarker) {
-                    const line = L.polyline([
-                        fromMarker.getLatLng(),
-                        toMarker.getLatLng()
-                    ], {
-                        color: '#FF0000',
-                        weight: 6,
-                        opacity: 0.9,
-                        dashArray: '10, 5'  // Dashed line for visibility
-                    }).addTo(topologyMap);
-
-                    // Bring to front to ensure visibility
-                    line.bringToFront();
-
-                    highlightedPath.push(line);
-                }
-            }
+            // Always use traceroute to show actual network path
+            console.log('Triggering live traceroute to', targetHostname);
+            await fetchTraceroute(targetHostname, targetDisplayName, marker);
         }
 
         // Refresh topology data (without auto-zoom)
