@@ -660,6 +660,18 @@ cat <<EOF
             }
         }
 
+        // Calculate distance between two lat/lon points using Haversine formula (returns km)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Earth radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
         // Update RTT label visibility based on zoom level
         function updateRttLabelsVisibility() {
             if (!topologyMap) return;
@@ -667,8 +679,10 @@ cat <<EOF
             const zoomLevel = topologyMap.getZoom();
             const showLabels = zoomLevel >= 10;  // Show labels when zoomed in to level 10+
 
-            rttLabels.forEach(label => {
-                if (showLabels) {
+            rttLabels.forEach(labelInfo => {
+                const label = labelInfo.marker;
+                // Always show if distance > 5km, otherwise zoom-dependent
+                if (labelInfo.distance > 5 || showLabels) {
                     if (!topologyMap.hasLayer(label)) {
                         topologyMap.addLayer(label);
                     }
@@ -765,9 +779,9 @@ cat <<EOF
             // Clear existing markers, lines, and RTT labels
             Object.values(nodeMarkers).forEach(marker => topologyMap.removeLayer(marker));
             connectionLines.forEach(line => topologyMap.removeLayer(line));
-            rttLabels.forEach(label => {
-                if (topologyMap.hasLayer(label)) {
-                    topologyMap.removeLayer(label);
+            rttLabels.forEach(labelInfo => {
+                if (topologyMap.hasLayer(labelInfo.marker)) {
+                    topologyMap.removeLayer(labelInfo.marker);
                 }
             });
             nodeMarkers = {};
@@ -900,10 +914,18 @@ cat <<EOF
                                             fromNode.type === 'router' && toNode.type === 'router';
 
                     if (isRouterToRouter) {
-                        // Create RTT label at midpoint (will be shown/hidden based on zoom)
+                        // Calculate distance between nodes
+                        const fromLatLng = fromMarker.getLatLng();
+                        const toLatLng = toMarker.getLatLng();
+                        const distance = calculateDistance(
+                            fromLatLng.lat, fromLatLng.lng,
+                            toLatLng.lat, toLatLng.lng
+                        );
+
+                        // Create RTT label at midpoint (will be shown/hidden based on zoom and distance)
                         const midpoint = [
-                            (fromMarker.getLatLng().lat + toMarker.getLatLng().lat) / 2,
-                            (fromMarker.getLatLng().lng + toMarker.getLatLng().lng) / 2
+                            (fromLatLng.lat + toLatLng.lat) / 2,
+                            (fromLatLng.lng + toLatLng.lng) / 2
                         ];
 
                         const rttLabel = L.marker(midpoint, {
@@ -918,8 +940,21 @@ cat <<EOF
                             })
                         });
 
-                        // Store in array for zoom-dependent visibility (don't add to map yet)
-                        rttLabels.push(rttLabel);
+                        // Add tooltip showing full details on hover
+                        rttLabel.bindTooltip(
+                            '<strong>RTT Statistics:</strong><br>' +
+                            '• Minimum: ' + conn.rtt_min_ms.toFixed(1) + ' ms<br>' +
+                            '• Average: ' + conn.rtt_avg_ms.toFixed(1) + ' ms<br>' +
+                            '• Maximum: ' + conn.rtt_max_ms.toFixed(1) + ' ms<br>' +
+                            '• Distance: ' + distance.toFixed(1) + ' km',
+                            { permanent: false, direction: 'top' }
+                        );
+
+                        // Store in array with distance info for zoom-dependent visibility
+                        rttLabels.push({
+                            marker: rttLabel,
+                            distance: distance
+                        });
                     }
 
                     connectionLines.push(line);
@@ -993,7 +1028,7 @@ cat <<EOF
 
             console.log('Path to', targetIp, ':', path);
 
-            // Draw highlighted path
+            // Draw highlighted path with thicker, brighter line
             for (let i = 0; i < path.length - 1; i++) {
                 const fromMarker = nodeMarkers[path[i]];
                 const toMarker = nodeMarkers[path[i + 1]];
@@ -1003,10 +1038,14 @@ cat <<EOF
                         fromMarker.getLatLng(),
                         toMarker.getLatLng()
                     ], {
-                        color: '#f44336',
-                        weight: 4,
-                        opacity: 0.8
+                        color: '#FF0000',
+                        weight: 6,
+                        opacity: 0.9,
+                        dashArray: '10, 5'  // Dashed line for visibility
                     }).addTo(topologyMap);
+
+                    // Bring to front to ensure visibility
+                    line.bringToFront();
 
                     highlightedPath.push(line);
                 }
