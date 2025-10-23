@@ -437,6 +437,11 @@ cat <<EOF
     <script>
         // Health data update interval (60 seconds to match local file updates)
         const HEALTH_UPDATE_INTERVAL = 60000;
+        // Topology data update interval (10 seconds for real-time node discovery)
+        const TOPOLOGY_UPDATE_INTERVAL = 10000;
+        // Track previously seen nodes to highlight new discoveries
+        let previousNodeIPs = new Set();
+        let newNodeHighlights = new Map(); // IP -> timestamp when added
 
         // Load and display software health
         async function loadHealthStatus() {
@@ -810,12 +815,17 @@ cat <<EOF
             }
         }
 
-        // Get icon for node type and status
-        function getNodeIcon(type, status) {
+        // Get icon for node type and status with optional highlight for new nodes
+        function getNodeIcon(type, status, isNew) {
             const color = getNodeColor(type, status);
+            const borderColor = isNew ? '#FFD700' : 'white';  // Gold border for new nodes
+            const borderWidth = isNew ? '3px' : '2px';
+            const pulseAnimation = isNew ? 'animation: pulse 1s ease-in-out infinite;' : '';
             return L.divIcon({
                 className: 'custom-div-icon',
-                html: '<div style="background-color:' + color + '; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+                html: '<style>@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }</style>' +
+                      '<div style="background-color:' + color + '; width: 12px; height: 12px; border-radius: 50%; ' +
+                      'border: ' + borderWidth + ' solid ' + borderColor + '; ' + pulseAnimation + '"></div>',
                 iconSize: [16, 16],
                 iconAnchor: [8, 8]
             });
@@ -915,8 +925,28 @@ cat <<EOF
             // Find map bounds
             let bounds = [];
 
+            // Detect new nodes
+            const currentNodeIPs = new Set();
+            const now = Date.now();
+
+            // Clean up old highlights (older than 30 seconds)
+            for (const [ip, timestamp] of newNodeHighlights.entries()) {
+                if (now - timestamp > 30000) {
+                    newNodeHighlights.delete(ip);
+                }
+            }
+
             // Add nodes
             data.nodes.forEach(node => {
+                currentNodeIPs.add(node.ip);
+
+                // Check if this is a new node
+                const isNewNode = !previousNodeIPs.has(node.ip);
+                if (isNewNode) {
+                    newNodeHighlights.set(node.ip, now);
+                    console.log('New node discovered:', node.name, '(' + node.ip + ')');
+                }
+
                 // Skip nodes without location
                 if (!node.lat || !node.lon || node.lat === '' || node.lon === '') {
                     return;
@@ -941,9 +971,10 @@ cat <<EOF
                     }
                 }
 
-                // Create marker
+                // Create marker with highlight for new nodes
+                const isHighlighted = newNodeHighlights.has(node.ip);
                 const marker = L.marker([lat, lon], {
-                    icon: getNodeIcon(node.type, node.status),
+                    icon: getNodeIcon(node.type, node.status, isHighlighted),
                     title: cleanName
                 }).addTo(topologyMap);
 
@@ -958,6 +989,9 @@ cat <<EOF
 
                 nodeMarkers[node.ip] = marker;
             });
+
+            // Update the set of previously seen nodes
+            previousNodeIPs = currentNodeIPs;
 
             // Get color for RTT (same as table color coding)
             function getRttColor(rtt) {
@@ -1201,6 +1235,14 @@ cat <<EOF
 
             // Set up button event listener
             document.getElementById('refreshMapBtn').addEventListener('click', refreshTopology);
+
+            // Set up periodic topology updates (every 10 seconds for real-time discovery)
+            setInterval(async function() {
+                const data = await loadTopologyData();
+                if (data) {
+                    renderTopology(data);
+                }
+            }, TOPOLOGY_UPDATE_INTERVAL);
         }
 
         // ============================================================
