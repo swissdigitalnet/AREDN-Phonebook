@@ -658,9 +658,18 @@ static int fetch_hosts_from_node(const char *node_ip, char hosts[][INET_ADDRSTRL
 
                 int len = ip_end - ip_start;
                 if (len > 0 && len < INET_ADDRSTRLEN) {
-                    strncpy(hosts[host_count], ip_start, len);
-                    hosts[host_count][len] = '\0';
-                    host_count++;
+                    char temp_ip[INET_ADDRSTRLEN];
+                    strncpy(temp_ip, ip_start, len);
+                    temp_ip[len] = '\0';
+
+                    // Skip tunnel IPs (172.31.x.x) - these are not main mesh IPs
+                    if (strncmp(temp_ip, "172.31.", 7) != 0) {
+                        strncpy(hosts[host_count], temp_ip, INET_ADDRSTRLEN - 1);
+                        hosts[host_count][INET_ADDRSTRLEN - 1] = '\0';
+                        host_count++;
+                    } else {
+                        LOG_DEBUG("Skipping tunnel IP: %s", temp_ip);
+                    }
                 }
             }
         }
@@ -672,8 +681,109 @@ static int fetch_hosts_from_node(const char *node_ip, char hosts[][INET_ADDRSTRL
 }
 
 /**
+ * Helper: Resolve hostname to main mesh IP using hosts database
+ * Queries sysinfo.json?hosts=1 from the source node
+ * Returns 0 on success, -1 on error
+ */
+static int resolve_hostname_to_ip(const char *source_node_ip, const char *hostname,
+                                   char *resolved_ip, size_t resolved_ip_len) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json?hosts=1' 2>/dev/null",
+             source_node_ip);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        LOG_DEBUG("Failed to fetch hosts from %s for resolution", source_node_ip);
+        return -1;
+    }
+
+    // Simple JSON parsing to find hostname -> IP mapping
+    char line[4096];
+    bool in_hosts = false;
+    bool found = false;
+    char current_name[256] = "";
+    char current_ip[INET_ADDRSTRLEN] = "";
+
+    while (fgets(line, sizeof(line), fp)) {
+        // Look for "hosts": [
+        if (strstr(line, "\"hosts\"")) {
+            in_hosts = true;
+            continue;
+        }
+
+        if (!in_hosts) continue;
+
+        // End of hosts array
+        if (strstr(line, "]")) {
+            break;
+        }
+
+        // Extract "name": "hostname"
+        char *name_start = strstr(line, "\"name\":");
+        if (name_start) {
+            name_start = strchr(name_start, ':');
+            if (name_start) {
+                name_start++;
+                while (*name_start == ' ' || *name_start == '"') name_start++;
+                char *name_end = strchr(name_start, '"');
+                if (name_end) {
+                    int len = name_end - name_start;
+                    if (len > 0 && len < (int)sizeof(current_name)) {
+                        strncpy(current_name, name_start, len);
+                        current_name[len] = '\0';
+                    }
+                }
+            }
+        }
+
+        // Extract "ip": "10.x.x.x"
+        char *ip_start = strstr(line, "\"ip\":");
+        if (ip_start) {
+            ip_start = strchr(ip_start, ':');
+            if (ip_start) {
+                ip_start++;
+                while (*ip_start == ' ' || *ip_start == '"') ip_start++;
+                char *ip_end = ip_start;
+                while (*ip_end && *ip_end != '"' && *ip_end != ',' && *ip_end != '\n') ip_end++;
+                int len = ip_end - ip_start;
+                if (len > 0 && len < INET_ADDRSTRLEN) {
+                    strncpy(current_ip, ip_start, len);
+                    current_ip[len] = '\0';
+                }
+            }
+        }
+
+        // Check if we have both name and IP, and if name matches
+        if (current_name[0] != '\0' && current_ip[0] != '\0') {
+            if (strcmp(current_name, hostname) == 0) {
+                // Found the hostname!
+                strncpy(resolved_ip, current_ip, resolved_ip_len - 1);
+                resolved_ip[resolved_ip_len - 1] = '\0';
+                found = true;
+                LOG_DEBUG("Resolved hostname '%s' to IP '%s'", hostname, resolved_ip);
+                break;
+            }
+            // Reset for next entry
+            current_name[0] = '\0';
+            current_ip[0] = '\0';
+        }
+    }
+
+    pclose(fp);
+
+    if (!found) {
+        LOG_DEBUG("Failed to resolve hostname '%s' in hosts database", hostname);
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
  * Helper: Fetch LQM links from a node
  * Extracts neighbor connections from LQM tracker data
+ * Resolves hostnames to main mesh IPs to handle tunnels and DTD links
  * Returns number of links found, or -1 on error
  */
 static int fetch_lqm_links_from_node(const char *node_ip) {
@@ -693,6 +803,7 @@ static int fetch_lqm_links_from_node(const char *node_ip) {
     int link_count = 0;
     bool in_trackers = false;
     bool in_tracker_entry = false;
+    char neighbor_hostname[256] = "";
     char neighbor_ip[INET_ADDRSTRLEN] = "";
     float ping_time_ms = 0.0;
 
@@ -708,6 +819,7 @@ static int fetch_lqm_links_from_node(const char *node_ip) {
         // Detect tracker entry start: "MAC": {
         if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
             in_tracker_entry = true;
+            neighbor_hostname[0] = '\0';
             neighbor_ip[0] = '\0';
             ping_time_ms = 0.0;
             continue;
@@ -715,7 +827,24 @@ static int fetch_lqm_links_from_node(const char *node_ip) {
 
         // Inside a tracker entry
         if (in_tracker_entry) {
-            // Extract canonical_ip or ip
+            // Extract hostname
+            if (strstr(line, "\"hostname\":")) {
+                char *name_start = strchr(line, ':');
+                if (name_start) {
+                    name_start++;
+                    while (*name_start == ' ' || *name_start == '"') name_start++;
+                    char *name_end = strchr(name_start, '"');
+                    if (name_end) {
+                        int len = name_end - name_start;
+                        if (len > 0 && len < (int)sizeof(neighbor_hostname)) {
+                            strncpy(neighbor_hostname, name_start, len);
+                            neighbor_hostname[len] = '\0';
+                        }
+                    }
+                }
+            }
+
+            // Extract canonical_ip or ip (fallback if hostname resolution fails)
             if (strstr(line, "\"canonical_ip\":") || strstr(line, "\"ip\":")) {
                 char *ip_start = strchr(line, ':');
                 if (ip_start) {
@@ -746,11 +875,26 @@ static int fetch_lqm_links_from_node(const char *node_ip) {
 
             // End of tracker entry
             if (strchr(line, '}')) {
-                // If we have both IP and ping time, add connection
-                if (neighbor_ip[0] != '\0' && ping_time_ms > 0.0) {
-                    topology_db_add_connection(node_ip, neighbor_ip, ping_time_ms);
-                    link_count++;
-                    LOG_DEBUG("Added LQM link: %s -> %s (%.2f ms)", node_ip, neighbor_ip, ping_time_ms);
+                // If we have hostname and ping time, resolve and add connection
+                if (neighbor_hostname[0] != '\0' && ping_time_ms > 0.0) {
+                    char resolved_ip[INET_ADDRSTRLEN] = "";
+
+                    // Try to resolve hostname to main mesh IP
+                    if (resolve_hostname_to_ip(node_ip, neighbor_hostname, resolved_ip, sizeof(resolved_ip)) == 0) {
+                        // Successfully resolved - use main mesh IP
+                        topology_db_add_connection(node_ip, resolved_ip, ping_time_ms);
+                        link_count++;
+                        LOG_DEBUG("Added LQM link: %s -> %s (resolved from hostname '%s', %.2f ms)",
+                                 node_ip, resolved_ip, neighbor_hostname, ping_time_ms);
+                    } else if (neighbor_ip[0] != '\0') {
+                        // Resolution failed - fall back to IP from tracker
+                        topology_db_add_connection(node_ip, neighbor_ip, ping_time_ms);
+                        link_count++;
+                        LOG_DEBUG("Added LQM link: %s -> %s (fallback IP, hostname '%s' not resolved, %.2f ms)",
+                                 node_ip, neighbor_ip, neighbor_hostname, ping_time_ms);
+                    } else {
+                        LOG_WARN("Failed to add LQM link for hostname '%s': no IP available", neighbor_hostname);
+                    }
                 }
                 in_tracker_entry = false;
             }
