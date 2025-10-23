@@ -828,7 +828,50 @@ void topology_db_crawl_mesh_network(const char *seed_ip) {
     int nodes_discovered = 0;
     int nodes_processed = 0;
 
-    // BFS loop
+    // Optimization: Fetch hosts list from seed node only (OLSR maintains global routing table)
+    // This populates the BFS queue with all mesh nodes immediately
+    LOG_INFO("Fetching global hosts list from seed node %s...", seed_ip);
+    char hosts[200][INET_ADDRSTRLEN];  // Max 200 hosts per node
+    int num_hosts = fetch_hosts_from_node(seed_ip, hosts, 200);
+
+    if (num_hosts > 0) {
+        LOG_INFO("Seed node returned %d total hosts in mesh", num_hosts);
+
+        // Add all hosts to BFS queue (except seed, which is already there)
+        for (int i = 0; i < num_hosts && queue_tail < MAX_TOPOLOGY_NODES; i++) {
+            // Check if already visited (skip seed)
+            if (strcmp(hosts[i], seed_ip) == 0) {
+                continue;
+            }
+
+            bool already_visited = false;
+            for (int v = 0; v < visited_count; v++) {
+                if (strcmp(visited[v], hosts[i]) == 0) {
+                    already_visited = true;
+                    break;
+                }
+            }
+
+            if (!already_visited) {
+                // Add to queue
+                strncpy(queue[queue_tail], hosts[i], INET_ADDRSTRLEN - 1);
+                queue[queue_tail][INET_ADDRSTRLEN - 1] = '\0';
+                queue_tail++;
+
+                // Mark as visited
+                if (visited_count < MAX_TOPOLOGY_NODES) {
+                    strncpy(visited[visited_count], hosts[i], INET_ADDRSTRLEN - 1);
+                    visited[visited_count][INET_ADDRSTRLEN - 1] = '\0';
+                    visited_count++;
+                }
+            }
+        }
+        LOG_INFO("BFS queue initialized with %d nodes from hosts list", queue_tail);
+    } else {
+        LOG_WARN("Failed to fetch hosts list from seed, falling back to LQM-only discovery");
+    }
+
+    // BFS loop - now only fetches node details and LQM links (no redundant hosts list calls)
     while (queue_head < queue_tail && queue_tail < MAX_TOPOLOGY_NODES) {
         char current_ip[INET_ADDRSTRLEN];
         strncpy(current_ip, queue[queue_head], sizeof(current_ip) - 1);
@@ -858,40 +901,6 @@ void topology_db_crawl_mesh_network(const char *seed_ip) {
         int num_links = fetch_lqm_links_from_node(current_ip);
         if (num_links > 0) {
             LOG_DEBUG("Extracted %d LQM links from %s", num_links, current_ip);
-        }
-
-        // Fetch hosts list from this node
-        char hosts[200][INET_ADDRSTRLEN];  // Max 200 hosts per node
-        int num_hosts = fetch_hosts_from_node(current_ip, hosts, 200);
-
-        if (num_hosts > 0) {
-            LOG_DEBUG("Node %s has %d hosts", current_ip, num_hosts);
-
-            // Add unvisited hosts to queue
-            for (int i = 0; i < num_hosts && queue_tail < MAX_TOPOLOGY_NODES; i++) {
-                // Check if already visited
-                bool already_visited = false;
-                for (int v = 0; v < visited_count; v++) {
-                    if (strcmp(visited[v], hosts[i]) == 0) {
-                        already_visited = true;
-                        break;
-                    }
-                }
-
-                if (!already_visited) {
-                    // Add to queue
-                    strncpy(queue[queue_tail], hosts[i], INET_ADDRSTRLEN - 1);
-                    queue[queue_tail][INET_ADDRSTRLEN - 1] = '\0';
-                    queue_tail++;
-
-                    // Mark as visited
-                    if (visited_count < MAX_TOPOLOGY_NODES) {
-                        strncpy(visited[visited_count], hosts[i], INET_ADDRSTRLEN - 1);
-                        visited[visited_count][INET_ADDRSTRLEN - 1] = '\0';
-                        visited_count++;
-                    }
-                }
-            }
         }
 
         // Small delay to avoid overwhelming the network
