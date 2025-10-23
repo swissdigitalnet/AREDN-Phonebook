@@ -57,10 +57,11 @@ typedef struct {
 void topology_db_init(void);
 
 /**
- * Reset topology database
- * Clears all nodes and connections (start of new scan cycle)
+ * Clean up stale nodes and connections
+ * Removes nodes that haven't been seen for longer than g_topology_node_timeout_seconds
+ * and removes orphaned connections
  */
-void topology_db_reset(void);
+void topology_db_cleanup_stale_nodes(void);
 
 /**
  * Add or update a node in the topology database

@@ -78,8 +78,8 @@ void *uac_bulk_tester_thread(void *arg) {
         // Initialize topology database for this cycle
         if (g_uac_traceroute_enabled) {
             topology_db_init();
-            topology_db_reset();
-            LOG_INFO("Topology database initialized for scan cycle");
+            topology_db_cleanup_stale_nodes();
+            LOG_INFO("Topology database cleaned up for scan cycle");
         }
 
         // Open results file for writing (truncate existing)
@@ -587,7 +587,7 @@ void *topology_crawler_thread(void *arg) {
 
         // Initialize topology database
         topology_db_init();
-        topology_db_reset();
+        topology_db_cleanup_stale_nodes();
 
         // Crawl the mesh starting from localhost
         topology_db_crawl_mesh_network("127.0.0.1");

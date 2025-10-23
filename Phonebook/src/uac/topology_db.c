@@ -45,19 +45,72 @@ void topology_db_init(void) {
 }
 
 /**
- * Reset topology database
+ * Clean up stale nodes and connections
+ * Removes nodes that haven't been seen for longer than g_topology_node_timeout_seconds
  */
-void topology_db_reset(void) {
+void topology_db_cleanup_stale_nodes(void) {
+    extern int g_topology_node_timeout_seconds;
+
     pthread_mutex_lock(&g_topology_mutex);
 
-    memset(g_nodes, 0, sizeof(g_nodes));
-    g_node_count = 0;
-    memset(g_connections, 0, sizeof(g_connections));
-    g_connection_count = 0;
+    time_t now = time(NULL);
+    int removed_nodes = 0;
+    int removed_connections = 0;
+
+    // Remove stale nodes (compact array by shifting)
+    int write_idx = 0;
+    for (int read_idx = 0; read_idx < g_node_count; read_idx++) {
+        time_t age = now - g_nodes[read_idx].last_seen;
+
+        if (age <= g_topology_node_timeout_seconds) {
+            // Keep this node - copy if needed
+            if (write_idx != read_idx) {
+                memcpy(&g_nodes[write_idx], &g_nodes[read_idx], sizeof(TopologyNode));
+            }
+            write_idx++;
+        } else {
+            // Node is stale - will be removed
+            removed_nodes++;
+            LOG_DEBUG("Removing stale node: %s (%s), last seen %ld seconds ago",
+                     g_nodes[read_idx].ip, g_nodes[read_idx].name, age);
+        }
+    }
+    g_node_count = write_idx;
+
+    // Remove connections that reference non-existent nodes
+    write_idx = 0;
+    for (int read_idx = 0; read_idx < g_connection_count; read_idx++) {
+        bool from_exists = false;
+        bool to_exists = false;
+
+        // Check if both endpoints still exist
+        for (int i = 0; i < g_node_count; i++) {
+            if (strcmp(g_nodes[i].ip, g_connections[read_idx].from_ip) == 0) {
+                from_exists = true;
+            }
+            if (strcmp(g_nodes[i].ip, g_connections[read_idx].to_ip) == 0) {
+                to_exists = true;
+            }
+            if (from_exists && to_exists) break;
+        }
+
+        if (from_exists && to_exists) {
+            // Keep this connection
+            if (write_idx != read_idx) {
+                memcpy(&g_connections[write_idx], &g_connections[read_idx], sizeof(TopologyConnection));
+            }
+            write_idx++;
+        } else {
+            // Connection references removed node
+            removed_connections++;
+        }
+    }
+    g_connection_count = write_idx;
 
     pthread_mutex_unlock(&g_topology_mutex);
 
-    LOG_DEBUG("Topology database reset");
+    LOG_INFO("Cleanup complete: removed %d stale nodes, %d orphaned connections (timeout: %d seconds)",
+             removed_nodes, removed_connections, g_topology_node_timeout_seconds);
 }
 
 /**
