@@ -170,4 +170,20 @@ void topology_db_calculate_aggregate_stats(void);
  */
 int topology_db_write_to_file(const char *filepath);
 
+/**
+ * Crawl the entire mesh network starting from a seed node
+ *
+ * Uses BFS (Breadth-First Search) to discover all reachable nodes:
+ * 1. Fetches sysinfo.json?hosts=1 from each node to get its host list
+ * 2. For each discovered node, fetches sysinfo.json to get details
+ * 3. Adds all discovered nodes and their details to topology database
+ * 4. Continues until no new nodes are found
+ *
+ * This provides complete network visibility instead of just nodes
+ * in traceroute paths.
+ *
+ * @param seed_ip IP address to start crawling from (e.g., "127.0.0.1")
+ */
+void topology_db_crawl_mesh_network(const char *seed_ip);
+
 #endif // TOPOLOGY_DB_H

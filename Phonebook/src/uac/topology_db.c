@@ -554,3 +554,252 @@ int topology_db_write_to_file(const char *filepath) {
              filepath, g_node_count, g_connection_count);
     return 0;
 }
+
+/**
+ * Helper: Fetch hosts list from a node using curl
+ * Returns number of hosts found, or -1 on error
+ */
+static int fetch_hosts_from_node(const char *node_ip, char hosts[][INET_ADDRSTRLEN], int max_hosts) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json?hosts=1' 2>/dev/null",
+             node_ip);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        LOG_DEBUG("Failed to fetch hosts from %s", node_ip);
+        return -1;
+    }
+
+    // Read response (simple JSON parsing for hosts array)
+    char line[4096];
+    int host_count = 0;
+    bool in_hosts = false;
+
+    while (fgets(line, sizeof(line), fp) && host_count < max_hosts) {
+        // Look for "hosts": [
+        if (strstr(line, "\"hosts\"")) {
+            in_hosts = true;
+            continue;
+        }
+
+        if (!in_hosts) continue;
+
+        // End of hosts array
+        if (strstr(line, "]")) {
+            break;
+        }
+
+        // Extract IP from: "ip": "10.x.x.x"
+        char *ip_start = strstr(line, "\"ip\":");
+        if (ip_start) {
+            ip_start = strchr(ip_start, '"');
+            if (ip_start) {
+                ip_start = strchr(ip_start + 1, '"');
+                if (ip_start) {
+                    ip_start++;
+                    char *ip_end = strchr(ip_start, '"');
+                    if (ip_end) {
+                        int len = ip_end - ip_start;
+                        if (len > 0 && len < INET_ADDRSTRLEN) {
+                            strncpy(hosts[host_count], ip_start, len);
+                            hosts[host_count][len] = '\0';
+                            host_count++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pclose(fp);
+    LOG_DEBUG("Fetched %d hosts from %s", host_count, node_ip);
+    return host_count;
+}
+
+/**
+ * Helper: Fetch node details from sysinfo.json
+ * Returns 0 on success, -1 on error
+ */
+static int fetch_node_details(const char *node_ip, char *name, size_t name_len,
+                              char *lat, size_t lat_len, char *lon, size_t lon_len) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json' 2>/dev/null",
+             node_ip);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        return -1;
+    }
+
+    // Simple JSON parsing
+    char line[1024];
+    name[0] = '\0';
+    lat[0] = '\0';
+    lon[0] = '\0';
+
+    while (fgets(line, sizeof(line), fp)) {
+        // Extract node name
+        if (strstr(line, "\"node\":")) {
+            char *val_start = strchr(line, ':');
+            if (val_start) {
+                val_start = strchr(val_start, '"');
+                if (val_start) {
+                    val_start++;
+                    char *val_end = strchr(val_start, '"');
+                    if (val_end) {
+                        int len = val_end - val_start;
+                        if (len > 0 && len < (int)name_len) {
+                            strncpy(name, val_start, len);
+                            name[len] = '\0';
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract latitude
+        if (strstr(line, "\"lat\":")) {
+            char *val_start = strchr(line, ':');
+            if (val_start) {
+                val_start++;
+                while (*val_start == ' ' || *val_start == '"') val_start++;
+                char *val_end = val_start;
+                while (*val_end && *val_end != ',' && *val_end != '"' && *val_end != '\n') val_end++;
+                int len = val_end - val_start;
+                if (len > 0 && len < (int)lat_len) {
+                    strncpy(lat, val_start, len);
+                    lat[len] = '\0';
+                }
+            }
+        }
+
+        // Extract longitude
+        if (strstr(line, "\"lon\":")) {
+            char *val_start = strchr(line, ':');
+            if (val_start) {
+                val_start++;
+                while (*val_start == ' ' || *val_start == '"') val_start++;
+                char *val_end = val_start;
+                while (*val_end && *val_end != ',' && *val_end != '"' && *val_end != '\n') val_end++;
+                int len = val_end - val_start;
+                if (len > 0 && len < (int)lon_len) {
+                    strncpy(lon, val_start, len);
+                    lon[len] = '\0';
+                }
+            }
+        }
+    }
+
+    pclose(fp);
+
+    if (name[0] != '\0') {
+        LOG_DEBUG("Fetched details for %s: name=%s, lat=%s, lon=%s", node_ip, name, lat, lon);
+        return 0;
+    }
+
+    return -1;
+}
+
+/**
+ * Crawl the entire mesh network using BFS
+ */
+void topology_db_crawl_mesh_network(const char *seed_ip) {
+    if (!seed_ip) {
+        LOG_ERROR("Invalid seed IP for mesh crawl");
+        return;
+    }
+
+    LOG_INFO("Starting mesh network crawl from %s...", seed_ip);
+
+    // BFS queue (simple array-based queue)
+    char queue[MAX_TOPOLOGY_NODES][INET_ADDRSTRLEN];
+    int queue_head = 0;
+    int queue_tail = 0;
+
+    // Visited set (simple array for O(n) lookup - good enough for mesh networks)
+    static char visited[MAX_TOPOLOGY_NODES][INET_ADDRSTRLEN];
+    static int visited_count = 0;
+    visited_count = 0;  // Reset for each crawl
+
+    // Add seed to queue
+    strncpy(queue[queue_tail], seed_ip, INET_ADDRSTRLEN - 1);
+    queue[queue_tail][INET_ADDRSTRLEN - 1] = '\0';
+    queue_tail++;
+
+    // Mark seed as visited
+    strncpy(visited[visited_count], seed_ip, INET_ADDRSTRLEN - 1);
+    visited[visited_count][INET_ADDRSTRLEN - 1] = '\0';
+    visited_count++;
+
+    int nodes_discovered = 0;
+    int nodes_processed = 0;
+
+    // BFS loop
+    while (queue_head < queue_tail && queue_tail < MAX_TOPOLOGY_NODES) {
+        char current_ip[INET_ADDRSTRLEN];
+        strncpy(current_ip, queue[queue_head], sizeof(current_ip) - 1);
+        current_ip[sizeof(current_ip) - 1] = '\0';
+        queue_head++;
+        nodes_processed++;
+
+        LOG_DEBUG("Crawling node %d/%d: %s", nodes_processed, queue_tail, current_ip);
+
+        // Fetch node details
+        char node_name[256] = "";
+        char lat[32] = "";
+        char lon[32] = "";
+
+        if (fetch_node_details(current_ip, node_name, sizeof(node_name),
+                              lat, sizeof(lat), lon, sizeof(lon)) == 0) {
+            // Add node to topology database
+            // Type is "router" for now (phones will be added by traceroute)
+            topology_db_add_node(current_ip, "router", node_name, lat, lon, "ONLINE");
+            nodes_discovered++;
+        } else {
+            LOG_DEBUG("Failed to fetch details for %s, skipping", current_ip);
+            continue;
+        }
+
+        // Fetch hosts list from this node
+        char hosts[200][INET_ADDRSTRLEN];  // Max 200 hosts per node
+        int num_hosts = fetch_hosts_from_node(current_ip, hosts, 200);
+
+        if (num_hosts > 0) {
+            LOG_DEBUG("Node %s has %d hosts", current_ip, num_hosts);
+
+            // Add unvisited hosts to queue
+            for (int i = 0; i < num_hosts && queue_tail < MAX_TOPOLOGY_NODES; i++) {
+                // Check if already visited
+                bool already_visited = false;
+                for (int v = 0; v < visited_count; v++) {
+                    if (strcmp(visited[v], hosts[i]) == 0) {
+                        already_visited = true;
+                        break;
+                    }
+                }
+
+                if (!already_visited) {
+                    // Add to queue
+                    strncpy(queue[queue_tail], hosts[i], INET_ADDRSTRLEN - 1);
+                    queue[queue_tail][INET_ADDRSTRLEN - 1] = '\0';
+                    queue_tail++;
+
+                    // Mark as visited
+                    if (visited_count < MAX_TOPOLOGY_NODES) {
+                        strncpy(visited[visited_count], hosts[i], INET_ADDRSTRLEN - 1);
+                        visited[visited_count][INET_ADDRSTRLEN - 1] = '\0';
+                        visited_count++;
+                    }
+                }
+            }
+        }
+
+        // Small delay to avoid overwhelming the network
+        usleep(100000);  // 100ms delay between nodes
+    }
+
+    LOG_INFO("Mesh crawl complete: processed %d nodes, discovered %d nodes with details",
+             nodes_processed, nodes_discovered);
+}

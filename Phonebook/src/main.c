@@ -51,6 +51,7 @@ char g_server_ip[64] = {0};
 pthread_t fetcher_tid = 0;
 pthread_t status_updater_tid = 0;
 pthread_t bulk_tester_tid = 0;
+pthread_t topology_crawler_tid = 0;
 pthread_t health_reporter_tid = 0;
 
 // Mutexes and Condition Variables (DEFINED here)
@@ -290,6 +291,15 @@ int main(int argc, char *argv[]) {
     }
     LOG_DEBUG("UAC bulk tester thread launched.");
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
+
+    // Phase 4.2: Topology Crawler Thread Creation
+    LOG_INFO("Creating topology crawler thread...");
+    if (pthread_create(&topology_crawler_tid, NULL, topology_crawler_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create topology crawler thread.");
+        return EXIT_FAILURE;
+    }
+    LOG_DEBUG("Topology crawler thread launched.");
+    LOG_DEBUG("Topology crawler thread TID: %lu", (unsigned long)topology_crawler_tid);
 
     // Phase 4.5: Health Reporter Thread Creation
     LOG_INFO("Creating health reporter thread...");

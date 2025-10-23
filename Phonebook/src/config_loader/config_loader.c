@@ -35,6 +35,8 @@ int g_crash_reporting_enabled = 1;             // Default: enabled
 int g_uac_traceroute_enabled = 1;              // Default: enabled
 int g_uac_traceroute_max_hops = 20;            // Default: 20 hops
 int g_topology_fetch_locations = 1;            // Default: enabled
+int g_topology_crawler_enabled = 1;            // Default: enabled
+int g_topology_crawler_interval_seconds = 3600; // Default: 3600 seconds (1 hour)
 
 // Helper function to trim leading/trailing whitespace (static to this file)
 static char* trim_whitespace(char *str) {
@@ -243,6 +245,18 @@ int load_configuration(const char *config_filepath) {
             int parsed_value = atoi(value);
             g_topology_fetch_locations = (parsed_value != 0) ? 1 : 0;
             LOG_DEBUG("Config: TOPOLOGY_FETCH_LOCATIONS = %d", g_topology_fetch_locations);
+        } else if (strcmp(key, "TOPOLOGY_CRAWLER_ENABLED") == 0) {
+            int parsed_value = atoi(value);
+            g_topology_crawler_enabled = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: TOPOLOGY_CRAWLER_ENABLED = %d", g_topology_crawler_enabled);
+        } else if (strcmp(key, "TOPOLOGY_CRAWLER_INTERVAL_SECONDS") == 0) {
+            int parsed_value = atoi(value);
+            if (parsed_value >= 60 && parsed_value <= 86400) { // 1 minute to 24 hours
+                g_topology_crawler_interval_seconds = parsed_value;
+                LOG_DEBUG("Config: TOPOLOGY_CRAWLER_INTERVAL_SECONDS = %d", g_topology_crawler_interval_seconds);
+            } else {
+                LOG_WARN("Invalid TOPOLOGY_CRAWLER_INTERVAL_SECONDS value '%s'. Using default %d.", value, g_topology_crawler_interval_seconds);
+            }
         } else {
             LOG_WARN("Unknown configuration key: '%s'. Skipping.", key);
         }

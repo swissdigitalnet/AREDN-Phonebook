@@ -30,6 +30,8 @@ extern int g_crash_reporting_enabled;       // Enable crash detection
 extern int g_uac_traceroute_enabled;        // Enable traceroute-based topology mapping
 extern int g_uac_traceroute_max_hops;       // Maximum hops for traceroute
 extern int g_topology_fetch_locations;      // Fetch location data from sysinfo.json
+extern int g_topology_crawler_enabled;      // Enable mesh network crawler
+extern int g_topology_crawler_interval_seconds; // Crawler interval in seconds
 
 /**
  * @brief Loads configuration parameters from a specified file.
