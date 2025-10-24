@@ -115,6 +115,7 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/uac_test_db_json $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/health_status $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/topology_json $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/traceroute_json $(1)/www/cgi-bin/
 endef
 
 $(eval $(call BuildPackage,AREDN-Phonebook))
