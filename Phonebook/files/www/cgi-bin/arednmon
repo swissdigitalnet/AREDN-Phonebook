@@ -629,7 +629,7 @@ cat <<EOF
             const titleEl = document.getElementById('tracerouteTitle');
             const contentEl = document.getElementById('tracerouteContent');
 
-            titleEl.textContent = targetName;
+            titleEl.textContent = 'Here to ' + targetName;
             contentEl.innerHTML = '<div class="traceroute-loading">Running traceroute...</div>';
             panel.classList.add('visible');
 
