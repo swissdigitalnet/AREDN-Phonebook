@@ -18,7 +18,7 @@ cat <<'EOF'
 <html>
 <head>
     <title>AREDNmon - Network Monitor</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%234CAF50' width='100' height='100' rx='15'/><path fill='white' d='M50 25 L30 45 L40 45 L40 70 L60 70 L60 45 L70 45 Z'/><circle fill='%23FF9800' cx='50' cy='35' r='6'/></svg>" type="image/svg+xml">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%232196F3' width='100' height='100' rx='10'/><text x='50' y='75' font-size='70' font-weight='bold' font-family='Arial,sans-serif' fill='white' text-anchor='middle'>A</text></svg>" type="image/svg+xml">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -321,37 +321,6 @@ cat <<'EOF'
 EOF
 
 cat <<'EOF'
-    <!-- Software Health Panel -->
-    <div class="health-panel" id="healthPanel">
-        <div class="health-header">
-            <div class="health-title">Software Health Status</div>
-        </div>
-        <div class="health-metrics">
-            <div class="health-metric">
-                <div class="health-metric-label">CPU Usage</div>
-                <div class="health-metric-value" id="healthCpu">-</div>
-            </div>
-            <div class="health-metric">
-                <div class="health-metric-label">Memory Usage</div>
-                <div class="health-metric-value" id="healthMemory">-</div>
-            </div>
-            <div class="health-metric">
-                <div class="health-metric-label">Uptime</div>
-                <div class="health-metric-value" id="healthUptime">-</div>
-            </div>
-            <div class="health-metric">
-                <div class="health-metric-label">SIP Service</div>
-                <div class="health-metric-value" id="healthSipUsers">-</div>
-            </div>
-        </div>
-        <div class="health-checks" id="healthChecks">
-            <!-- Health checks will be populated by JavaScript -->
-        </div>
-        <div class="health-threads" id="healthThreads">
-            <strong>Thread Status:</strong> <span id="threadStatus">Loading...</span>
-        </div>
-    </div>
-
     <!-- Network Topology Map -->
     <div class="map-panel" id="mapPanel">
         <div class="map-title">Network Topology Map</div>
@@ -384,52 +353,9 @@ cat <<'EOF'
             <span style="color: #FF9800;">━━━ Orange (solid)</span> - Medium (100-200ms)<br>
             <span style="color: #f44336;">━━━ Red (solid)</span> - Poor (&gt;200ms)<br>
             <span style="color: #9E9E9E;">╌╌╌ Grey (dashed)</span> - Unreachable (ping timeout)<br>
-            <span style="color: #9C27B0;">╍╍╍ Purple (thick dashed)</span> - Active traceroute path<br>
+            <span style="color: #9C27B0;">━━━ Purple (thick solid)</span> - Active traceroute path<br>
             <br>
             <strong>Interaction:</strong> Click any node to show traceroute from server to that node
-        </div>
-    </div>
-
-    <!-- Debug: Topology Data Tables -->
-    <div class="map-panel" id="debugPanel" style="margin-top: 20px;">
-        <div class="map-title">Debug: Topology Data</div>
-
-        <h3 style="margin-top: 15px; color: #333;">Nodes <span id="nodeCountHeader" style="color: #666; font-size: 0.9em;">(0 nodes)</span></h3>
-        <div style="overflow-x: auto;">
-            <table style="font-size: 0.85em;">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>IP</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Latitude</th>
-                        <th>Longitude</th>
-                        <th>Grid Square</th>
-                    </tr>
-                </thead>
-                <tbody id="debugNodesTable">
-                    <tr><td colspan="7" class="loading">No topology data loaded</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        <h3 style="margin-top: 20px; color: #333;">Connections <span id="connectionCountHeader" style="color: #666; font-size: 0.9em;">(0 connections)</span></h3>
-        <div style="overflow-x: auto;">
-            <table style="font-size: 0.85em;">
-                <thead>
-                    <tr>
-                        <th>From Node</th>
-                        <th>To Node</th>
-                        <th>RTT Min (ms)</th>
-                        <th>RTT Avg (ms)</th>
-                        <th>RTT Max (ms)</th>
-                    </tr>
-                </thead>
-                <tbody id="debugConnectionsTable">
-                    <tr><td colspan="5" class="loading">No topology data loaded</td></tr>
-                </tbody>
-            </table>
         </div>
     </div>
 EOF
@@ -456,85 +382,11 @@ cat <<EOF
     </table>
 
     <script>
-        // Health data update interval (60 seconds to match local file updates)
-        const HEALTH_UPDATE_INTERVAL = 60000;
         // Topology data update interval (30 seconds for real-time node discovery)
         const TOPOLOGY_UPDATE_INTERVAL = 30000;
         // Track previously seen nodes to highlight new discoveries
         let previousNodeNames = new Set();
         let newNodeHighlights = new Map(); // hostname -> timestamp when added
-
-        // Load and display software health
-        async function loadHealthStatus() {
-            try {
-                const response = await fetch('/cgi-bin/health_status');
-                const data = await response.json();
-
-                if (data.error) {
-                    return;
-                }
-
-                // Update metrics
-                document.getElementById('healthCpu').textContent =
-                    (data.cpu_pct || 0).toFixed(1) + '%';
-                document.getElementById('healthMemory').textContent =
-                    (data.mem_mb || 0).toFixed(1) + ' MB';
-
-                // Format uptime
-                const uptimeSeconds = data.uptime_seconds || 0;
-                const hours = Math.floor(uptimeSeconds / 3600);
-                const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-                document.getElementById('healthUptime').textContent =
-                    hours + 'h ' + minutes + 'm';
-
-                // SIP service metrics
-                const users = data.sip_service?.registered_users || 0;
-                const entries = data.sip_service?.directory_entries || 0;
-                const calls = data.sip_service?.active_calls || 0;
-                document.getElementById('healthSipUsers').textContent =
-                    users + ' users, ' + calls + ' calls';
-
-                // Update health checks
-                const checks = data.checks || {};
-                const checksHtml = [
-                    { label: 'Memory', pass: checks.memory_stable },
-                    { label: 'No Crashes', pass: checks.no_recent_crashes },
-                    { label: 'SIP Service', pass: checks.sip_service_ok },
-                    { label: 'Phonebook', pass: checks.phonebook_current },
-                    { label: 'CPU', pass: checks.cpu_normal }
-                ].map(check =>
-                    '<span class="health-check ' + (check.pass ? 'pass' : 'fail') + '">' +
-                    check.label + ': ' + (check.pass ? '✓' : '✗') + '</span>'
-                ).join('');
-                document.getElementById('healthChecks').innerHTML = checksHtml;
-
-                // Update thread status
-                const threads = data.threads || {};
-                const allResponsive = threads.all_responsive;
-                let threadHtml = '';
-
-                if (allResponsive) {
-                    threadHtml = '<span class="thread-status responsive">All threads responsive ✓</span>';
-                } else {
-                    // Show individual thread status
-                    const threadNames = ['phonebook_fetcher', 'status_updater', 'passive_safety',
-                                       'uac_bulk_tester', 'health_reporter'];
-                    threadHtml = threadNames
-                        .filter(name => threads[name])
-                        .map(name => {
-                            const thread = threads[name];
-                            const responsive = thread.responsive;
-                            return '<span class="thread-status ' +
-                                   (responsive ? 'responsive' : 'unresponsive') + '">' +
-                                   name + ': ' + (responsive ? '✓' : '✗') + '</span>';
-                        }).join('');
-                }
-                document.getElementById('threadStatus').innerHTML = threadHtml;
-
-            } catch (error) {
-                console.error('Failed to load health status:', error);
-            }
-        }
 
         // Phonebook data (loaded from server)
         let phonebook = {};
@@ -691,6 +543,40 @@ cat <<EOF
         let highlightedPath = [];
         let rttLabels = [];  // Store RTT label markers for zoom-dependent visibility
 
+        // Find node marker by hostname (handles partial matching)
+        function findNodeMarkerByHostname(hostname) {
+            if (!hostname) return null;
+
+            // Try exact match first
+            if (nodeMarkers[hostname]) {
+                return nodeMarkers[hostname];
+            }
+
+            // Try without .local.mesh suffix
+            const withoutSuffix = hostname.replace(/\.local\.mesh$/, '');
+            if (nodeMarkers[withoutSuffix]) {
+                return nodeMarkers[withoutSuffix];
+            }
+
+            // Try matching by the base hostname (after removing prefixes like "mid2.", "dtdlink.")
+            const cleanedHostname = cleanHostname(hostname.replace(/\.local\.mesh$/, ''));
+
+            // Search through all markers for a match
+            for (const [markerKey, marker] of Object.entries(nodeMarkers)) {
+                // Check if cleaned names match
+                if (cleanHostname(markerKey) === cleanedHostname) {
+                    return marker;
+                }
+
+                // Check if marker key is contained in hostname or vice versa
+                if (markerKey.includes(withoutSuffix) || withoutSuffix.includes(markerKey)) {
+                    return marker;
+                }
+            }
+
+            return null;
+        }
+
         // Highlight traceroute path on the map
         function highlightTraceroutePath(hostnames) {
             if (!topologyMap || !topologyData || !hostnames || hostnames.length < 2) {
@@ -701,31 +587,39 @@ cat <<EOF
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
 
+            console.log('Highlighting traceroute path with hostnames:', hostnames);
+
             // For each consecutive pair of hostnames in the path, highlight the connection
             for (let i = 0; i < hostnames.length - 1; i++) {
                 const fromHostname = hostnames[i];
                 const toHostname = hostnames[i + 1];
 
-                const fromMarker = nodeMarkers[fromHostname];
-                const toMarker = nodeMarkers[toHostname];
+                const fromMarker = findNodeMarkerByHostname(fromHostname);
+                const toMarker = findNodeMarkerByHostname(toHostname);
+
+                console.log('Hop', i + 1, ':', fromHostname, '->', toHostname,
+                           'Markers:', fromMarker ? 'found' : 'NOT FOUND', '->',
+                           toMarker ? 'found' : 'NOT FOUND');
 
                 if (fromMarker && toMarker) {
-                    // Create highlighted line (thick purple line)
+                    // Create highlighted line (thick purple solid line)
                     const highlightLine = L.polyline([
                         fromMarker.getLatLng(),
                         toMarker.getLatLng()
                     ], {
                         color: '#9C27B0',  // Purple
                         weight: 6,
-                        opacity: 0.8,
-                        dashArray: '10, 5'  // Dashed pattern
+                        opacity: 0.8
                     }).addTo(topologyMap);
 
                     highlightedPath.push(highlightLine);
+                } else {
+                    console.warn('Could not find markers for hop:', fromHostname, '->', toHostname);
                 }
             }
 
-            console.log('Highlighted traceroute path with', highlightedPath.length, 'segments');
+            console.log('Highlighted traceroute path with', highlightedPath.length, 'segments out of',
+                       hostnames.length - 1, 'hops');
         }
 
         // Fetch and display traceroute for a node (displays in top-left panel)
@@ -735,7 +629,7 @@ cat <<EOF
             const titleEl = document.getElementById('tracerouteTitle');
             const contentEl = document.getElementById('tracerouteContent');
 
-            titleEl.textContent = 'Traceroute to ' + targetName;
+            titleEl.textContent = targetName;
             contentEl.innerHTML = '<div class="traceroute-loading">Running traceroute...</div>';
             panel.classList.add('visible');
 
@@ -918,88 +812,6 @@ cat <<EOF
             });
         }
 
-        // Update debug tables with topology data
-        function updateDebugTables(data) {
-            if (!data) return;
-
-            // Create node lookup map once (O(1) lookups instead of O(n))
-            const nodesByName = {};
-            if (data.nodes) {
-                data.nodes.forEach(node => {
-                    nodesByName[node.name] = node;
-                });
-            }
-
-            // Update nodes table
-            const nodesTable = document.getElementById('debugNodesTable');
-            if (data.nodes && data.nodes.length > 0) {
-                // Update node count header
-                document.getElementById('nodeCountHeader').textContent = '(' + data.nodes.length + ' nodes)';
-
-                let html = '';
-                data.nodes.forEach(node => {
-                    const hasLocation = node.lat && node.lon && node.lat !== '' && node.lon !== '';
-                    const rowStyle = hasLocation ? '' : ' style="background-color: #ffe0e0;"';
-
-                    // For phones without location, show phone number in latitude column
-                    let latDisplay = node.lat || '<em>missing</em>';
-                    if (!hasLocation && node.type === 'phone') {
-                        // Extract phone number from node name (typically ends with phone number)
-                        const nameParts = node.name.split(' ');
-                        const lastPart = nameParts[nameParts.length - 1];
-                        // Check if last part looks like a phone number (contains digits)
-                        if (/\d/.test(lastPart)) {
-                            latDisplay = '<em>' + lastPart + '</em>';
-                        } else {
-                            latDisplay = '<em>' + node.name + '</em>';
-                        }
-                    }
-
-                    html += '<tr' + rowStyle + '>' +
-                           '<td>' + cleanHostname(node.name || '-') + '</td>' +
-                           '<td>' + (node.ip || '-') + '</td>' +
-                           '<td>' + (node.type || '-') + '</td>' +
-                           '<td>' + (node.status || '-') + '</td>' +
-                           '<td>' + latDisplay + '</td>' +
-                           '<td>' + (node.lon || '<em>missing</em>') + '</td>' +
-                           '<td>' + (node.grid_square || '-') + '</td>' +
-                           '</tr>';
-                });
-                nodesTable.innerHTML = html;
-            } else {
-                nodesTable.innerHTML = '<tr><td colspan="7" class="loading">No nodes found</td></tr>';
-                document.getElementById('nodeCountHeader').textContent = '(0 nodes)';
-            }
-
-            // Update connections table
-            const connectionsTable = document.getElementById('debugConnectionsTable');
-            if (data.connections && data.connections.length > 0) {
-                // Update connection count header
-                document.getElementById('connectionCountHeader').textContent = '(' + data.connections.length + ' connections)';
-
-                let html = '';
-                data.connections.forEach(conn => {
-                    // Use lookup map for O(1) access instead of find() O(n)
-                    const fromNode = nodesByName[conn.source];
-                    const toNode = nodesByName[conn.target];
-                    const fromName = cleanHostname(fromNode ? fromNode.name : conn.source);
-                    const toName = cleanHostname(toNode ? toNode.name : conn.target);
-
-                    html += '<tr>' +
-                           '<td>' + fromName + '</td>' +
-                           '<td>' + toName + '</td>' +
-                           '<td>' + (conn.rtt_min_ms ? conn.rtt_min_ms.toFixed(1) : '-') + '</td>' +
-                           '<td>' + (conn.rtt_avg_ms ? conn.rtt_avg_ms.toFixed(1) : '-') + '</td>' +
-                           '<td>' + (conn.rtt_max_ms ? conn.rtt_max_ms.toFixed(1) : '-') + '</td>' +
-                           '</tr>';
-                });
-                connectionsTable.innerHTML = html;
-            } else {
-                connectionsTable.innerHTML = '<tr><td colspan="5" class="loading">No connections found</td></tr>';
-                document.getElementById('connectionCountHeader').textContent = '(0 connections)';
-            }
-        }
-
         // Render topology on map
         function renderTopology(data) {
             if (!topologyMap || !data) {
@@ -1013,9 +825,6 @@ cat <<EOF
                     nodesByName[node.name] = node;
                 });
             }
-
-            // Update debug tables
-            updateDebugTables(data);
 
             // Clear existing markers, lines, and RTT labels
             Object.values(nodeMarkers).forEach(marker => topologyMap.removeLayer(marker));
@@ -1073,9 +882,12 @@ cat <<EOF
 
                 // Create marker with highlight for new nodes
                 const isHighlighted = newNodeHighlights.has(node.name);
+                // Routers get higher z-index to appear on top of phones
+                const zIndexOffset = node.type === 'router' ? 1000 : 0;
                 const marker = L.marker([lat, lon], {
                     icon: getNodeIcon(node.type, node.status, isHighlighted),
-                    title: cleanName
+                    title: cleanName,
+                    zIndexOffset: zIndexOffset
                 }).addTo(topologyMap);
 
                 // Add simple popup with just the name
@@ -1153,7 +965,6 @@ cat <<EOF
                             '<strong>Connection Details</strong><br><br>' +
                             '<strong>From:</strong> ' + fromName + '<br>' +
                             '<strong>To:</strong> ' + toName + '<br><br>' +
-                            '<strong>RTT Statistics:</strong><br>' +
                             '• Minimum: ' + conn.rtt_min_ms.toFixed(1) + ' ms<br>' +
                             '• Average: ' + conn.rtt_avg_ms.toFixed(1) + ' ms<br>' +
                             '• Maximum: ' + conn.rtt_max_ms.toFixed(1) + ' ms<br>' +
@@ -1206,7 +1017,6 @@ cat <<EOF
 
                         rttLabel.bindTooltip(
                             '<strong>' + fromNodeName + ' ↔ ' + toNodeName + '</strong><br>' +
-                            '<strong>RTT Statistics:</strong><br>' +
                             '• Minimum: ' + conn.rtt_min_ms.toFixed(1) + ' ms<br>' +
                             '• Average: ' + conn.rtt_avg_ms.toFixed(1) + ' ms<br>' +
                             '• Maximum: ' + conn.rtt_max_ms.toFixed(1) + ' ms<br>' +
@@ -1320,12 +1130,6 @@ cat <<EOF
 
         // Initialize page
         async function init() {
-            // Load health status first (independent of test data)
-            loadHealthStatus();
-
-            // Set up periodic health updates (every 60 seconds)
-            setInterval(loadHealthStatus, HEALTH_UPDATE_INTERVAL);
-
             // Initialize topology map (independent of test data)
             initTopologyMap();
 
