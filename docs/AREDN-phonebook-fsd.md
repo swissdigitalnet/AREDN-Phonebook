@@ -1736,6 +1736,26 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    - Prevents duplicate nodes for multi-interface devices
    - Example: `10.167.247.74` (dtdlink) → `HB9BLA-VM-1`
 
+8. **Boundary Filtering** (Swiss HB Prefix):
+   - Prevents database overflow by filtering international supernode connections
+   - Only crawls nodes with Swiss call sign prefix (HB*) or phones (numeric)
+   - Blocks international supernodes like `m0mfs-eng-supernode`, `g7uod-eng-supernode`
+   - Implementation in `should_crawl_node()`:
+   ```c
+   static bool should_crawl_node(const char *hostname) {
+       // Always crawl phones (numeric)
+       if (is_numeric(hostname)) return true;
+
+       // Only crawl Swiss nodes (HB* prefix)
+       if (hostname[0] == 'H' && hostname[1] == 'B') return true;
+
+       return false;  // Skip international nodes
+   }
+   ```
+   - Logs boundary decisions: `LOG_INFO("BOUNDARY: Skipping international node %s")`
+   - Prevents 500-node database limit from filling with foreign routers
+   - Swiss supernodes (e.g., `HB9BLA-BASEL-SUPERNODE`) are included but their international neighbors are filtered
+
 **Crawler Workflow:**
 ```
 1. Fetch hosts list from 127.0.0.1 (seed only)
@@ -1752,6 +1772,9 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    d. Fetch LQM links:
       └─ HTTP GET: http://{hostname}/cgi-bin/sysinfo.json?lqm=1
       └─ Parse all tracker entries (RF, DTD, Tunnel, xlink*)
+      └─ For each neighbor: check should_crawl_node()
+         • If HB* prefix or numeric: add to crawl queue
+         • Otherwise: log "BOUNDARY: Skipping international node"
       └─ Add connections to topology database
    e. Log results (one line):
       OK {progress}: {hostname} (idx={i},num={flag},links={n},nbrs={list}) {lat},{lon}
