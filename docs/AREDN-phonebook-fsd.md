@@ -2072,327 +2072,9 @@ Health Monitoring Thread
 - If local file write fails: Remote reporting continues
 - Both outputs use identical JSON format (no duplication of logic)
 
-### 5.6 Local Dashboard Integration
+### 5.6 Remote Collector Integration
 
-> **⚠️ DEPRECATED IN v2.2.0**: The Software Health Status panel and Debug Topology Data tables described in this section were removed from AREDNmon in Release 2.2.0 to streamline the user interface. The dashboard now focuses on network topology visualization, traceroute path tracing, and phone connectivity testing. This documentation is preserved for historical reference only.
-
-> **Current AREDNmon Features (v2.2.0+)**:
-> - Interactive network topology map with geographic visualization
-> - Real-time connection quality monitoring with RTT-based color coding
-> - Traceroute visualization with purple path overlay on map
-> - Phone connectivity testing table (ICMP ping + SIP OPTIONS)
-> - Automatic node discovery with visual highlights
-
-#### 5.6.1 Health Status File (REMOVED in v2.2.0)
-
-**Path**: `/tmp/software_health.json`
-
-**Format** (agent_health message schema):
-```json
-{
-  "schema": "meshmon.v2",
-  "type": "agent_health",
-  "node": "HB9BLA-HAP-2",
-  "timestamp": 1760979845,
-  "sent_at": "2025-10-20T17:04:05Z",
-  "reporting_reason": "scheduled",
-  "cpu_pct": 0.5,
-  "mem_mb": 0.3,
-  "uptime_seconds": 120,
-  "restart_count": 0,
-  "health_score": 100,
-  "threads": {
-    "all_responsive": true,
-    "status_updater": {
-      "responsive": true,
-      "last_heartbeat": "2025-10-20T16:49:39Z",
-      "heartbeat_age_seconds": 34
-    },
-    "passive_safety": {
-      "responsive": true,
-      "last_heartbeat": "2025-10-20T17:03:51Z",
-      "heartbeat_age_seconds": 44
-    },
-    "uac_bulk_tester": {
-      "responsive": true,
-      "last_heartbeat": "2025-10-20T17:04:05Z",
-      "heartbeat_age_seconds": 0
-    },
-    "health_reporter": {
-      "responsive": true,
-      "last_heartbeat": "2025-10-20T17:04:05Z",
-      "heartbeat_age_seconds": 0
-    },
-    "phonebook_fetcher": {
-      "responsive": true,
-      "last_heartbeat": "2025-10-20T16:47:52Z",
-      "heartbeat_age_seconds": 973
-    }
-  },
-  "sip_service": {
-    "registered_users": 0,
-    "directory_entries": 226,
-    "active_calls": 0
-  },
-  "phonebook": {
-    "last_updated": "2025-10-20T16:47:51Z",
-    "fetch_status": "BOOT",
-    "csv_hash": "00000000F5C4180A",
-    "entries_loaded": 226
-  },
-  "checks": {
-    "memory_stable": true,
-    "no_recent_crashes": true,
-    "sip_service_ok": true,
-    "phonebook_current": true,
-    "cpu_normal": true,
-    "all_threads_responsive": true
-  }
-}
-```
-
-**Update frequency**: Every 60 seconds (configurable via `HEALTH_LOCAL_UPDATE_SECONDS`)
-
-**Storage rationale**:
-- RAM-only (no flash writes) preserves router lifespan
-- Survives process restarts (updated immediately on startup)
-- Single file simplifies CGI endpoint implementation
-
-#### 5.6.2 CGI Endpoint (REMOVED in v2.2.0)
-
-**Endpoint**: `GET /cgi-bin/health_status` _(no longer included in package)_
-
-**Implementation**: Shell script
-```bash
-#!/bin/sh
-echo "Content-Type: application/json"
-echo ""
-cat /tmp/software_health.json 2>/dev/null || echo '{"error": "No health data"}'
-```
-
-**Response**:
-- Success: Returns contents of `/tmp/software_health.json`
-- Error: Returns `{"error": "No health data"}` if file missing
-
-**Installation**: Deployed as part of AREDN-Phonebook package to `/www/cgi-bin/`
-
-#### 5.6.3 AREDNmon Dashboard Enhancement (REMOVED in v2.2.0)
-
-The existing AREDNmon dashboard (`/cgi-bin/arednmon`) **was previously enhanced** with a Software Health Panel displayed above the phone monitoring table. This panel was **removed in v2.2.0** to streamline the interface:
-
-**Visual Layout:**
-```
-┌──────────────────────────────────────────────────────┐
-│ AREDNmon - Network Monitor                           │
-├──────────────────────────────────────────────────────┤
-│                                                       │
-│ ┌─────────────────────────────────────────────────┐ │
-│ │ Software Health Status                          │ │ ← NEW
-│ │ ─────────────────────────────────────────────── │ │
-│ │ CPU: 0.5% │ Memory: 0.3 MB │ Uptime: 2h 15m  │ │
-│ │ SIP: 0 users, 0 calls                          │ │
-│ │ ✓ Memory  ✓ No Crashes  ✓ SIP  ✓ Phonebook    │ │
-│ │ ✓ CPU  ✓ All threads responsive                │ │
-│ └─────────────────────────────────────────────────┘ │
-│                                                       │
-│ Phone Monitoring (existing table)                    │
-│ ┌─────────────────────────────────────────────────┐ │
-│ │ Phone Number │ Name │ Status │ RTT │ Jitter   │ │
-│ │ 441530       │ ...  │ ONLINE │ 52  │ 8.3     │ │
-│ └─────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
-```
-
-**HTML Structure:**
-```html
-<!-- Added before phone monitoring table -->
-<div class="health-panel">
-    <div class="health-header">
-        <div class="health-title">Software Health Status</div>
-    </div>
-    <div class="health-metrics">
-        <div class="health-metric">
-            <div class="health-metric-label">CPU Usage</div>
-            <div class="health-metric-value" id="healthCpu">-</div>
-        </div>
-        <div class="health-metric">
-            <div class="health-metric-label">Memory Usage</div>
-            <div class="health-metric-value" id="healthMemory">-</div>
-        </div>
-        <div class="health-metric">
-            <div class="health-metric-label">Uptime</div>
-            <div class="health-metric-value" id="healthUptime">-</div>
-        </div>
-        <div class="health-metric">
-            <div class="health-metric-label">SIP Service</div>
-            <div class="health-metric-value" id="healthSipUsers">-</div>
-        </div>
-    </div>
-    <div class="health-checks" id="healthChecks">
-        <!-- Health checks populated by JavaScript -->
-    </div>
-    <div class="thread-status" id="threadStatus">
-        <!-- Thread status populated by JavaScript -->
-    </div>
-</div>
-```
-
-**JavaScript Integration:**
-```javascript
-// Load health status from CGI endpoint
-async function loadHealthStatus() {
-    try {
-        const response = await fetch('/cgi-bin/health_status');
-        const data = await response.json();
-
-        if (data.error) {
-            return;
-        }
-
-        // Update metrics
-        document.getElementById('healthCpu').textContent =
-            (data.cpu_pct || 0).toFixed(1) + '%';
-        document.getElementById('healthMemory').textContent =
-            (data.mem_mb || 0).toFixed(1) + ' MB';
-
-        // Format uptime
-        const uptimeSeconds = data.uptime_seconds || 0;
-        const hours = Math.floor(uptimeSeconds / 3600);
-        const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-        document.getElementById('healthUptime').textContent =
-            hours + 'h ' + minutes + 'm';
-
-        // SIP service metrics
-        const users = data.sip_service?.registered_users || 0;
-        const calls = data.sip_service?.active_calls || 0;
-        document.getElementById('healthSipUsers').textContent =
-            users + ' users, ' + calls + ' calls';
-
-        // Update health checks
-        const checks = data.checks || {};
-        const checksHtml = [
-            { label: 'Memory', pass: checks.memory_stable },
-            { label: 'No Crashes', pass: checks.no_recent_crashes },
-            { label: 'SIP Service', pass: checks.sip_service_ok },
-            { label: 'Phonebook', pass: checks.phonebook_current },
-            { label: 'CPU', pass: checks.cpu_normal }
-        ].map(check =>
-            '<span class="health-check ' + (check.pass ? 'pass' : 'fail') + '">' +
-            check.label + ': ' + (check.pass ? '✓' : '✗') + '</span>'
-        ).join('');
-        document.getElementById('healthChecks').innerHTML = checksHtml;
-
-        // Update thread status
-        const threads = data.threads || {};
-        const allResponsive = threads.all_responsive;
-        let threadHtml = '';
-
-        if (allResponsive) {
-            threadHtml = '<span class="thread-status responsive">All threads responsive ✓</span>';
-        } else {
-            // Show individual unresponsive threads
-            const threadNames = ['phonebook_fetcher', 'status_updater', 'passive_safety',
-                               'uac_bulk_tester', 'health_reporter'];
-            threadHtml = threadNames
-                .filter(name => threads[name] && !threads[name].responsive)
-                .map(name => '<span class="thread-status unresponsive">' + name + ' ✗</span>')
-                .join('');
-        }
-        document.getElementById('threadStatus').innerHTML = threadHtml;
-
-    } catch (error) {
-        console.error('Failed to load health status:', error);
-    }
-}
-```
-
-**CSS Styling:**
-```css
-.health-panel {
-    background-color: #ffffff;
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.health-metrics {
-    display: flex;
-    gap: 20px;
-    margin: 10px 0;
-}
-
-.metric {
-    display: flex;
-    gap: 5px;
-}
-
-.health-excellent { color: #4CAF50; font-weight: bold; }
-.health-good { color: #8BC34A; font-weight: bold; }
-.health-degraded { color: #FF9800; font-weight: bold; }
-.health-critical { color: #f44336; font-weight: bold; }
-
-.thread-indicator {
-    display: inline-block;
-    margin: 0 5px;
-    padding: 2px 8px;
-    border-radius: 4px;
-}
-
-.thread-indicator.responsive {
-    background-color: #4CAF50;
-    color: white;
-}
-
-.thread-indicator.unresponsive {
-    background-color: #f44336;
-    color: white;
-    animation: blink 1s infinite;
-}
-
-@keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0.3; }
-}
-```
-
-**Update frequency**: JavaScript fetches health status every 30 seconds (matches existing AREDNmon refresh)
-
-#### 5.6.4 Crash Reporting Integration (REMOVED in v2.2.0)
-
-When a crash occurs and the process restarts, crash information is also made available locally:
-
-**Crash state file**: `/tmp/last_crash.json`
-
-**Format** (crash_report message schema):
-```json
-{
-  "schema": "meshmon.v2",
-  "type": "crash_report",
-  "node": "node-A",
-  "sent_at": "2025-10-13T12:05:00Z",
-  "crash_time": "2025-10-13T12:02:13Z",
-  "signal": 11,
-  "signal_name": "SIGSEGV",
-  "description": "Segmentation fault",
-  "thread_id": "fetcher",
-  "uptime_at_crash": 3600,
-  "memory_at_crash_mb": 8.2,
-  "crash_count_24h": 2
-}
-```
-
-**Dashboard display**: If crash file exists and is recent (<24h), AREDNmon shows warning banner:
-```html
-<div class="crash-alert">
-  ⚠ Service crashed 2 times in last 24h (last: 3 minutes ago)
-  <a href="#" onclick="showCrashDetails()">Details</a>
-</div>
-```
-
-### 5.7 Remote Collector Integration
-
-#### 5.7.1 HTTP Client Implementation
+#### 5.6.1 HTTP Client Implementation
 
 Health data is transmitted to the remote collector via HTTP POST:
 
@@ -2431,7 +2113,7 @@ int http_post_json(const char *url, const char *json_data, int timeout_seconds) 
 }
 ```
 
-#### 5.7.2 Event-Driven Transmission
+#### 5.6.2 Event-Driven Transmission
 
 **Baseline heartbeat**: Every 4 hours (configurable)
 ```c
@@ -2477,7 +2159,7 @@ if (is_first_report) {
 - `health_degraded`: Health score dropped > 15 points
 - `crash`: Crash detected (from crash_report message)
 
-#### 5.7.3 Network Efficiency
+#### 5.6.3 Network Efficiency
 
 **Bandwidth usage**:
 - Normal operation: 6 reports/day × 5 KB = 30 KB/day
@@ -2491,7 +2173,7 @@ if (is_first_report) {
 
 **Mesh impact**: 30 KB/day = 0.003 kbps average (negligible)
 
-### 5.8 Configuration
+### 5.7 Configuration
 
 Health reporting configuration parameters in `/etc/phonebook.conf`:
 
@@ -2530,7 +2212,7 @@ CRASH_BACKTRACE_DEPTH=5
 - `COLLECTOR_URL`: Must be reachable mesh address
 - Thresholds: Validated at runtime, warnings logged if invalid
 
-### 5.9 File Paths Summary
+### 5.8 File Paths Summary
 
 **Health monitoring files**:
 
@@ -2544,8 +2226,8 @@ CRASH_BACKTRACE_DEPTH=5
 
 | Endpoint | Purpose | Consumer |
 |----------|---------|----------|
-| `/cgi-bin/health_status` | Serve health JSON | AREDNmon dashboard |
-| `/cgi-bin/arednmon` | Network monitoring dashboard | Browser (enhanced with health panel) |
+| `/cgi-bin/health_status` | Serve health JSON | Remote health monitoring (backend only) |
+| `/cgi-bin/arednmon` | Network topology & phone monitoring dashboard | Browser |
 
 **No flash writes**: All health files stored in `/tmp/` (RAM) to preserve router lifespan
 
