@@ -941,105 +941,151 @@ UAC: Traceroute completed: 2 hops discovered
 
 **Data Structures:**
 
-**TopologyNode:**
+**TopologyNode:** (Hostname-Based, v2.5.39+)
 ```c
 typedef struct {
-    char ip[INET_ADDRSTRLEN];        // 10.47.245.209
-    char type[16];                   // "server", "router", "phone"
-    char name[256];                  // "441530" or "router-1.local.mesh"
+    char name[256];                  // Hostname (unique key, e.g., "HB9BLA-VM-1", "196630")
+    char type[16];                   // "phone", "router", "server"
     char lat[32];                    // "47.47446" (decimal degrees)
     char lon[32];                    // "7.76728" (decimal degrees)
-    char status[16];                 // "ONLINE", "OFFLINE"
+    char status[16];                 // "ONLINE", "OFFLINE", "NO_DNS"
     time_t last_seen;                // Unix timestamp
 } TopologyNode;
 ```
 
-**TopologyConnection:**
+**TopologyConnection:** (Hostname-Based, v2.5.39+)
 ```c
 typedef struct {
-    char from_ip[INET_ADDRSTRLEN];   // 10.47.245.209
-    char to_ip[INET_ADDRSTRLEN];     // 10.167.247.74
-    double rtt_avg_ms;               // 1.450 (average)
-    double rtt_min_ms;               // 0.370 (minimum)
-    double rtt_max_ms;               // 2.100 (maximum)
-    int sample_count;                // 10 (number of measurements)
-    time_t last_seen;                // Unix timestamp
+    char from_name[256];             // Source node hostname (e.g., "HB9BLA-VM-1")
+    char to_name[256];               // Destination node hostname (e.g., "196630")
+    RTT_Sample samples[MAX_RTT_SAMPLES]; // Circular buffer (last 10 samples)
+    int sample_count;                // Number of samples stored (0-10)
+    int next_sample_index;           // Next position in circular buffer
+    float rtt_avg_ms;                // Calculated average RTT
+    float rtt_min_ms;                // Minimum RTT
+    float rtt_max_ms;                // Maximum RTT
+    time_t last_updated;             // Timestamp of last update
 } TopologyConnection;
+```
+
+**RTT_Sample:**
+```c
+typedef struct {
+    float rtt_ms;                    // RTT measurement in milliseconds
+    time_t timestamp;                // When this sample was recorded
+} RTT_Sample;
 ```
 
 **Storage Capacity:**
 ```c
-#define TOPOLOGY_MAX_NODES 500
-#define TOPOLOGY_MAX_CONNECTIONS 2000
+#define MAX_TOPOLOGY_NODES 500
+#define MAX_TOPOLOGY_CONNECTIONS 2000
+#define MAX_RTT_SAMPLES 10
 
-static TopologyNode g_nodes[TOPOLOGY_MAX_NODES];
-static TopologyConnection g_connections[TOPOLOGY_MAX_CONNECTIONS];
+static TopologyNode g_nodes[MAX_TOPOLOGY_NODES];
+static TopologyConnection g_connections[MAX_TOPOLOGY_CONNECTIONS];
 static pthread_mutex_t g_topology_mutex;  // Thread-safe access
 ```
 
 **Key Functions:**
 
-- `topology_db_add_node()`: Adds or updates a node
-  - Deduplicates by IP address
+- `topology_db_add_node(name, type, lat, lon, status)`: Adds or updates a node
+  - Deduplicates by hostname (name field is unique key)
   - Updates status and last_seen timestamp
   - Mutex-protected for thread safety
 
-- `topology_db_add_connection()`: Adds or updates a connection
-  - Deduplicates by (from_ip, to_ip) pair
-  - Calculates min/avg/max RTT statistics
-  - Increments sample_count for statistical accuracy
+- `topology_db_add_connection(from_name, to_name, rtt_ms)`: Adds RTT sample to connection
+  - Deduplicates by (from_name, to_name) hostname pair
+  - Stores up to 10 RTT samples in circular buffer
+  - Updates sample_count and next_sample_index
 
-- `topology_db_export_json()`: Exports entire topology as JSON
-  - Writes to `/tmp/arednmon/network_topology.json`
+- `topology_db_calculate_aggregate_stats()`: Calculates min/avg/max RTT for all connections
+  - Called after crawl completes, before JSON export
+  - Computes statistics from circular buffer samples
+
+- `topology_db_write_to_file(filepath)`: Exports entire topology as JSON
+  - Writes to `/tmp/topology.json`
   - Includes version, timestamp, nodes, connections, statistics
   - Consumed by map visualization
 
-**Example JSON Output:**
+- `topology_db_crawl_mesh_network()`: BFS mesh crawler
+  - Fetches hosts list from localhost seed
+  - Discovers nodes recursively via LQM neighbor links
+  - Filters international nodes (HB prefix boundary)
+  - Fetches phones separately from OLSR services
+
+- `topology_db_strip_hostname_prefix(hostname, buffer, size)`: Removes interface prefixes
+  - Strips mid1., mid2., dtdlink., etc. from hostnames
+  - Prevents duplicate nodes for multi-interface devices
+
+**Example JSON Output:** (Hostname-Based, v2.5.39+)
 ```json
 {
   "version": "2.0",
   "generated_at": "2025-10-22T22:01:00Z",
   "source_node": {
-    "ip": "10.47.245.209",
-    "name": "this-node",
+    "name": "HB9BLA-VM-1",
     "type": "server"
   },
   "nodes": [
     {
-      "ip": "10.47.245.209",
+      "name": "HB9BLA-VM-1",
       "type": "server",
-      "name": "this-node",
       "lat": "47.47446",
       "lon": "7.76728",
       "status": "ONLINE",
       "last_seen": 1761170453
     },
     {
-      "ip": "10.197.143.20",
-      "type": "phone",
-      "name": "441530",
+      "name": "HB9BLA-HAP-2",
+      "type": "router",
       "lat": "47.47456",
       "lon": "7.76718",
+      "status": "ONLINE",
+      "last_seen": 1761170450
+    },
+    {
+      "name": "196630",
+      "type": "phone",
+      "lat": "47.47458",
+      "lon": "7.76720",
       "status": "ONLINE",
       "last_seen": 1761170212
     }
   ],
   "connections": [
     {
-      "from": "10.47.245.209",
-      "to": "10.167.247.74",
+      "source": "HB9BLA-VM-1",
+      "target": "HB9BLA-HAP-2",
       "rtt_avg_ms": 1.450,
       "rtt_min_ms": 0.370,
       "rtt_max_ms": 2.100,
-      "sample_count": 10
+      "sample_count": 10,
+      "last_updated": 1761170450
+    },
+    {
+      "source": "HB9BLA-HAP-2",
+      "target": "196630",
+      "rtt_avg_ms": 0.100,
+      "rtt_min_ms": 0.100,
+      "rtt_max_ms": 0.100,
+      "sample_count": 1,
+      "last_updated": 1761170212
     }
   ],
   "statistics": {
-    "total_nodes": 56,
-    "total_connections": 28
+    "total_nodes": 186,
+    "total_connections": 413
   }
 }
 ```
+
+**Key Changes from v2.5.38:**
+- Nodes identified by hostname (`name` field) instead of IP address
+- Connections use `source` and `target` (hostnames) instead of `from` and `to` (IPs)
+- No `ip` field - hostname is the unique key
+- Connections include `last_updated` timestamp
+- Matches industry-standard graph terminology
 
 #### 4.12.4 Two-Phase Location Fetching
 
@@ -1684,26 +1730,32 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    - Eliminates redundant fetches from every discovered node
    - Reduces network traffic by 95%+
 
-4. **Enhanced Debug Logging** (v2.5.40+):
-   Compact one-line format per node with comprehensive diagnostic data:
-   ```
-   OK 206/215: HB9BLA-HAP-2 (idx=205,num=0,links=1,nbrs=hb9bla-vm-1) 47.47446,7.76728
-   ```
+4. **Crawler Logging** (Minimal):
+   Simple INFO-level messages for major crawler events only:
 
-   **Log Fields:**
-   - `OK/FAIL`: Node crawl status
-   - `206/215`: Progress counter (current/total)
-   - `HB9BLA-HAP-2`: Hostname
-   - `idx=205`: Array index (detect gaps/truncation)
-   - `num=0`: Numeric flag (0=router, 1=phone)
-   - `links=1`: LQM neighbor count
-   - `nbrs=...`: Comma-separated neighbor hostnames
-   - `47.47446,7.76728`: GPS coordinates (lat,lon)
+   **BFS Crawl Messages:**
+   - `Starting BFS mesh network crawl from localhost...`
+   - `Seeding crawl queue with %d initial hostnames...`
+   - `Starting BFS crawl with %d nodes in queue...`
+   - `BOUNDARY: Skipping international node %s` (for filtered nodes)
+   - `BFS mesh crawl complete: processed %d nodes, discovered %d nodes with details, %d total in queue`
+   - `Added %d phones from OLSR services to topology`
+
+   **Location & Statistics:**
+   - `Fetching location data for %d nodes...`
+   - `Location fetch complete: %d routers fetched, %d failed, %d phones propagated`
+   - `Calculating aggregate statistics for %d connections...`
+   - `Statistics calculation complete`
+
+   **JSON Export:**
+   - `Writing topology to %s...`
+   - `Topology written to %s (%d nodes, %d connections)`
 
    **Benefits:**
-   - Single line per node (preserves log buffer)
-   - All key metrics for diagnosis
-   - Easy grep filtering for analysis
+   - Minimal log buffer usage
+   - Clear major operation boundaries
+   - BOUNDARY messages for debugging filtering logic
+   - No per-node detailed diagnostics (use web UI instead)
 
 5. **Node Aging System** (v2.5.40+):
    - Configuration: `TOPOLOGY_NODE_TIMEOUT_SECONDS` (default: 3600s)
@@ -1756,37 +1808,58 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    - Prevents 500-node database limit from filling with foreign routers
    - Swiss supernodes (e.g., `HB9BLA-BASEL-SUPERNODE`) are included but their international neighbors are filtered
 
-**Crawler Workflow:**
+**Crawler Workflow (BFS Algorithm):**
 ```
-1. Fetch hosts list from 127.0.0.1 (seed only)
-   └─ Parses sysinfo.json?hosts=1
-   └─ Filters to canonical hostnames
-   └─ Capacity: 500 entries (40 bytes each)
+1. Initialize BFS queues (heap-allocated)
+   └─ crawl_queue[1000]: Nodes to be crawled
+   └─ visited[1000]: Nodes already crawled
+   └─ initial_hostnames[500]: Seed from localhost
 
-2. For each hostname (1-500):
-   a. Check if numeric (phone vs router)
-   b. Fetch node details:
-      └─ HTTP GET: http://{hostname}/cgi-bin/sysinfo.json
-      └─ Extract: lat, lon, node type
-   c. Add node to topology database
-   d. Fetch LQM links:
-      └─ HTTP GET: http://{hostname}/cgi-bin/sysinfo.json?lqm=1
+2. Fetch seed hostnames from localhost only
+   └─ HTTP GET: http://127.0.0.1/cgi-bin/sysinfo.json?hosts=1
+   └─ Parse up to 500 canonical hostnames
+   └─ Add all to crawl_queue
+
+3. BFS crawl loop (while queue not empty and visited < 1000):
+   a. Pop next hostname from queue
+   b. Skip if already visited, then mark as visited
+   c. Check if numeric (phone) → skip phones during crawl
+   d. Fetch router details:
+      └─ HTTP GET: http://{hostname}.local.mesh/cgi-bin/sysinfo.json
+      └─ Extract: lat, lon
+      └─ Add router to topology database
+   e. Fetch LQM neighbor links:
+      └─ HTTP GET: http://{hostname}.local.mesh/cgi-bin/sysinfo.json?lqm=1
       └─ Parse all tracker entries (RF, DTD, Tunnel, xlink*)
-      └─ For each neighbor: check should_crawl_node()
-         • If HB* prefix or numeric: add to crawl queue
-         • Otherwise: log "BOUNDARY: Skipping international node"
+      └─ Strip prefixes (mid1., dtdlink., etc.) from neighbor hostnames
       └─ Add connections to topology database
-   e. Log results (one line):
-      OK {progress}: {hostname} (idx={i},num={flag},links={n},nbrs={list}) {lat},{lon}
-   f. 100ms delay between nodes
+   f. Filter and queue neighbors for recursive discovery:
+      └─ For each neighbor: check should_crawl_node()
+         • If HB* prefix or numeric → add to crawl_queue (if not already queued/visited)
+         • Otherwise → log "BOUNDARY: Skipping international node"
+   g. 100ms delay (usleep)
 
-3. After all nodes crawled:
-   └─ Age out stale nodes (> TOPOLOGY_NODE_TIMEOUT_SECONDS)
-   └─ Fetch location data (Phase 1: routers, Phase 2: phones)
-   └─ Export topology JSON
-   └─ Log summary: X nodes, Y connections, Z locations
+4. After BFS complete, fetch phones separately:
+   └─ Parse /var/run/services_olsr for [phone] tags
+   └─ Extract phone numbers and router associations
+   └─ Add phone nodes and connections to topology
 
-4. Sleep until next interval
+5. Fetch location data:
+   └─ Phase 1: Fetch GPS coordinates for routers (http://{router}.local.mesh/cgi-bin/sysinfo.json)
+   └─ Phase 2: Propagate router locations to phones (with random offset)
+
+6. Calculate aggregate RTT statistics:
+   └─ Compute avg/min/max for each connection from samples
+
+7. Age out stale nodes:
+   └─ Remove nodes not seen for > TOPOLOGY_NODE_TIMEOUT_SECONDS
+   └─ Remove orphaned connections
+
+8. Export topology JSON:
+   └─ Write to /tmp/topology.json
+   └─ Log summary: X nodes, Y connections
+
+9. Sleep until next interval (TOPOLOGY_CRAWLER_INTERVAL_SECONDS)
    └─ Repeat cycle
 ```
 
@@ -1816,19 +1889,23 @@ TOPOLOGY_FETCH_LOCATIONS=1
 
 **Example Logs:**
 ```
-TOPOLOGY_DB: Fetching hosts from seed: 127.0.0.1
-TOPOLOGY_DB: Filtered 215 hostnames (out of 437 OLSR entries)
-TOPOLOGY_DB: Starting mesh crawl...
-OK 1/215: HB9BLA-VM-1 (idx=0,num=0,links=3,nbrs=hb9bla-hap-2,hb9edi-vm-gw,hb9gno-hap) 47.47446,7.76728
-OK 2/215: HB9BLA-HAP-2 (idx=1,num=0,links=1,nbrs=hb9bla-vm-1) 47.47456,7.76718
-FAIL 3/215: 441530 (idx=2,num=1)
-OK 206/215: HB9BLA-HAP-2 (idx=205,num=0,links=1,nbrs=hb9bla-vm-1) 47.47446,7.76728
-...
-TOPOLOGY_DB: Mesh crawl complete: 189/215 nodes discovered
-TOPOLOGY_DB: Aged out 3 stale nodes (last seen > 3600s ago)
-TOPOLOGY_DB: Phase 1: Fetching locations for routers...
-TOPOLOGY_DB: Phase 2: Propagating router locations to phones...
-TOPOLOGY_DB: Location fetch complete: 156 routers, 33 phones, 189 total
+TOPOLOGY_DB: Starting BFS mesh network crawl from localhost...
+TOPOLOGY_DB: Fetched 215 hostnames from localhost
+TOPOLOGY_DB: Seeding crawl queue with 215 initial hostnames...
+TOPOLOGY_DB: Starting BFS crawl with 215 nodes in queue...
+TOPOLOGY_DB: BOUNDARY: Skipping international node m0mfs-eng-supernode
+TOPOLOGY_DB: BOUNDARY: Skipping international node g7uod-eng-supernode
+TOPOLOGY_DB: BOUNDARY: Skipping international node n2mh-nj-supernode
+TOPOLOGY_DB: BFS mesh crawl complete: processed 189 nodes, discovered 156 nodes with details, 215 total in queue
+TOPOLOGY_DB: Fetched 33 phones from OLSR services
+TOPOLOGY_DB: Added 33 phones from OLSR services to topology
+TOPOLOGY_DB: Fetching location data for 189 nodes...
+TOPOLOGY_DB: Location fetch complete: 156 routers fetched, 0 failed, 33 phones propagated
+TOPOLOGY_DB: Calculating aggregate statistics for 425 connections...
+TOPOLOGY_DB: Statistics calculation complete
+TOPOLOGY_DB: Cleanup complete: removed 3 stale nodes, 12 orphaned connections
+TOPOLOGY_DB: Writing topology to /tmp/topology.json...
+TOPOLOGY_DB: Topology written to /tmp/topology.json (186 nodes, 413 connections)
 ```
 
 #### 4.12.14 AREDNmon UI Enhancements (v2.5.38+)
