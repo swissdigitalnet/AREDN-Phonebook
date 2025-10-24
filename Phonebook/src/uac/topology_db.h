@@ -181,4 +181,17 @@ int topology_db_write_to_file(const char *filepath);
  */
 void topology_db_crawl_mesh_network(void);
 
+/**
+ * Strip hostname prefix (mid1., mid2., dtdlink., etc.)
+ *
+ * Removes interface prefixes from hostnames to avoid duplicates.
+ * Since hostnames are unique, we always strip prefixes.
+ *
+ * @param hostname Hostname to strip (e.g., "mid1.HB9HFM-HAP-1")
+ * @param buffer Output buffer for cleaned hostname
+ * @param buffer_size Size of output buffer
+ * @return Pointer to cleaned hostname in buffer
+ */
+const char* topology_db_strip_hostname_prefix(const char *hostname, char *buffer, size_t buffer_size);
+
 #endif // TOPOLOGY_DB_H

@@ -60,7 +60,30 @@ int reverse_dns_lookup(const char *ip, char *hostname, size_t hostname_len) {
         if (dot) {
             *dot = '\0';
         }
-        strncpy(hostname, host, hostname_len - 1);
+
+        // Strip hostname prefix (mid1., mid2., dtdlink., etc.)
+        // Import the stripping logic inline to avoid circular dependency
+        const char *final_hostname = host;
+        const char *prefix_dot = strchr(host, '.');
+        if (prefix_dot) {
+            int prefix_len = prefix_dot - host;
+            // Check if it looks like a prefix (short, lowercase+digits)
+            if (prefix_len > 0 && prefix_len < 10) {
+                bool is_prefix = true;
+                for (int i = 0; i < prefix_len; i++) {
+                    char c = host[i];
+                    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) {
+                        is_prefix = false;
+                        break;
+                    }
+                }
+                if (is_prefix) {
+                    final_hostname = prefix_dot + 1;  // Skip prefix
+                }
+            }
+        }
+
+        strncpy(hostname, final_hostname, hostname_len - 1);
         hostname[hostname_len - 1] = '\0';
         LOG_DEBUG("Reverse DNS: %s -> %s", ip, hostname);
         return 0;

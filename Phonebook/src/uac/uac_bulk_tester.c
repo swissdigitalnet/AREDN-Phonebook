@@ -291,7 +291,11 @@ void *uac_bulk_tester_thread(void *arg) {
                                     if (gethostname(source_hostname, sizeof(source_hostname)) != 0) {
                                         strncpy(source_hostname, "localhost", sizeof(source_hostname));
                                     }
-                                    strncpy(prev_hostname, source_hostname, sizeof(prev_hostname));
+
+                                    // Strip prefix from source hostname
+                                    char clean_source[256];
+                                    topology_db_strip_hostname_prefix(source_hostname, clean_source, sizeof(clean_source));
+                                    strncpy(prev_hostname, clean_source, sizeof(prev_hostname));
 
                                     for (int h = 0; h < hop_count; h++) {
                                         if (hops[h].timeout) {
@@ -307,6 +311,10 @@ void *uac_bulk_tester_thread(void *arg) {
                                             continue;
                                         }
 
+                                        // Strip prefix from hostname
+                                        char clean_hostname[256];
+                                        topology_db_strip_hostname_prefix(hops[h].hostname, clean_hostname, sizeof(clean_hostname));
+
                                         // Determine node type
                                         const char *node_type;
                                         if (strcmp(hops[h].ip_address, ip_str) == 0) {
@@ -315,17 +323,17 @@ void *uac_bulk_tester_thread(void *arg) {
                                             node_type = "router"; // Intermediate hop (or source)
                                         }
 
-                                        // Add this hop as a node using hostname as key
-                                        topology_db_add_node(hops[h].hostname, node_type,
+                                        // Add this hop as a node using cleaned hostname as key
+                                        topology_db_add_node(clean_hostname, node_type,
                                                            NULL, NULL, "ONLINE");
 
                                         // Add connection from previous hop to this hop
                                         if (prev_hostname[0] != '\0') {
-                                            topology_db_add_connection(prev_hostname, hops[h].hostname,
+                                            topology_db_add_connection(prev_hostname, clean_hostname,
                                                                      hops[h].rtt_ms);
                                         }
 
-                                        strncpy(prev_hostname, hops[h].hostname, sizeof(prev_hostname));
+                                        strncpy(prev_hostname, clean_hostname, sizeof(prev_hostname));
                                     }
 
                                     LOG_INFO("Topology updated: %d hops added for %s",

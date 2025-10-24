@@ -252,17 +252,26 @@ cat <<'EOF'
             border-radius: 4px;
             font-size: 0.9em;
         }
-        /* Traceroute Display Styles */
+        /* Traceroute Display Styles - Top-left overlay on map */
         .traceroute-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
             background-color: white;
             border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            max-width: 400px;
+            max-height: 500px;
+            overflow-y: auto;
             display: none;
         }
         .traceroute-panel.visible {
             display: block;
+        }
+        .map-panel {
+            position: relative;
         }
         .traceroute-title {
             font-size: 1.3em;
@@ -346,6 +355,19 @@ cat <<'EOF'
     <div class="map-panel" id="mapPanel">
         <div class="map-title">Network Topology Map</div>
         <div id="topologyMap"></div>
+
+        <!-- Traceroute Panel - Overlay on map -->
+        <div class="traceroute-panel" id="traceroutePanel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div class="traceroute-title" id="tracerouteTitle" style="margin: 0;">Traceroute Results</div>
+                <button onclick="document.getElementById('traceroutePanel').classList.remove('visible')"
+                        style="background: none; border: none; font-size: 20px; cursor: pointer; color: #666;">&times;</button>
+            </div>
+            <div class="traceroute-content" id="tracerouteContent">
+                <div class="traceroute-loading">Click on a node to view traceroute</div>
+            </div>
+        </div>
+
         <div class="map-controls">
             <button class="map-btn" id="refreshMapBtn">Refresh Topology</button>
             <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
@@ -361,16 +383,9 @@ cat <<'EOF'
             <span style="color: #FF9800;">━━━ Orange (solid)</span> - Medium (100-200ms)<br>
             <span style="color: #f44336;">━━━ Red (solid)</span> - Poor (&gt;200ms)<br>
             <span style="color: #9E9E9E;">╌╌╌ Grey (dashed)</span> - Unreachable (ping timeout)<br>
+            <span style="color: #9C27B0;">╍╍╍ Purple (thick dashed)</span> - Active traceroute path<br>
             <br>
             <strong>Interaction:</strong> Click any node to show traceroute from server to that node
-        </div>
-    </div>
-
-    <!-- Traceroute Panel -->
-    <div class="traceroute-panel" id="traceroutePanel">
-        <div class="traceroute-title" id="tracerouteTitle">Traceroute Results</div>
-        <div class="traceroute-content" id="tracerouteContent">
-            <div class="traceroute-loading">Click on a node to view traceroute</div>
         </div>
     </div>
 
@@ -675,67 +690,100 @@ cat <<EOF
         let highlightedPath = [];
         let rttLabels = [];  // Store RTT label markers for zoom-dependent visibility
 
-        // Fetch and display traceroute for a node (returns popup HTML)
-        async function fetchTraceroute(targetIp, targetName, marker) {
-            // Show loading popup
-            const loadingPopup = L.popup({ maxWidth: 900 })
-                .setLatLng(marker.getLatLng())
-                .setContent('<div style="font-family: monospace; padding: 15px; min-width: 650px;">' +
-                           '<strong style="font-size: 1.4em;">Traceroute to ' + targetName + '</strong><br>' +
-                           '<div style="padding: 10px; color: #666; font-size: 1.1em;">Running traceroute...</div>' +
-                           '</div>')
-                .openOn(topologyMap);
+        // Highlight traceroute path on the map
+        function highlightTraceroutePath(hostnames) {
+            if (!topologyMap || !topologyData || !hostnames || hostnames.length < 2) {
+                return;
+            }
+
+            // Clear previous highlights
+            highlightedPath.forEach(line => topologyMap.removeLayer(line));
+            highlightedPath = [];
+
+            // For each consecutive pair of hostnames in the path, highlight the connection
+            for (let i = 0; i < hostnames.length - 1; i++) {
+                const fromHostname = hostnames[i];
+                const toHostname = hostnames[i + 1];
+
+                const fromMarker = nodeMarkers[fromHostname];
+                const toMarker = nodeMarkers[toHostname];
+
+                if (fromMarker && toMarker) {
+                    // Create highlighted line (thick purple line)
+                    const highlightLine = L.polyline([
+                        fromMarker.getLatLng(),
+                        toMarker.getLatLng()
+                    ], {
+                        color: '#9C27B0',  // Purple
+                        weight: 6,
+                        opacity: 0.8,
+                        dashArray: '10, 5'  // Dashed pattern
+                    }).addTo(topologyMap);
+
+                    highlightedPath.push(highlightLine);
+                }
+            }
+
+            console.log('Highlighted traceroute path with', highlightedPath.length, 'segments');
+        }
+
+        // Fetch and display traceroute for a node (displays in top-left panel)
+        async function fetchTraceroute(targetNode, targetName) {
+            // Show panel with loading message
+            const panel = document.getElementById('traceroutePanel');
+            const titleEl = document.getElementById('tracerouteTitle');
+            const contentEl = document.getElementById('tracerouteContent');
+
+            titleEl.textContent = 'Traceroute to ' + targetName;
+            contentEl.innerHTML = '<div class="traceroute-loading">Running traceroute...</div>';
+            panel.classList.add('visible');
+
+            // Use hostname.local.mesh for DNS resolution (traceroute will resolve to IP)
+            const targetParam = targetNode.name + '.local.mesh';
 
             try {
-                const response = await fetch('/cgi-bin/traceroute_json?ip=' + encodeURIComponent(targetIp));
+                const response = await fetch('/cgi-bin/traceroute_json?ip=' + encodeURIComponent(targetParam));
                 const data = await response.json();
 
-                let html = '<div style="font-family: monospace; max-width: 800px; min-width: 650px; padding: 5px;">' +
-                          '<strong style="font-size: 1.4em;">Traceroute to ' + targetName + '</strong><br>' +
-                          '<div style="font-size: 1.1em; color: #666; margin-bottom: 10px;">' + targetIp + '</div>';
+                let html = '';
+                let pathHostnames = [];  // Collect hostnames for path highlighting
 
                 if (data.error) {
-                    html += '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">No active route: ' + data.error + '</div>';
+                    html += '<div style="color: #f44336; padding: 8px;">No active route: ' + data.error + '</div>';
                 } else if (!data.hops || data.hops.length === 0) {
-                    html += '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">No active route: No hops found</div>';
+                    html += '<div style="color: #f44336; padding: 8px;">No active route: No hops found</div>';
                 } else {
                     const allTimeouts = data.hops.every(hop => hop.timeout);
                     if (allTimeouts) {
-                        html += '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">No active route: All hops timed out</div>';
+                        html += '<div style="color: #f44336; padding: 8px;">No active route: All hops timed out</div>';
                     } else {
-                        // Display hops in compact format
-                        html += '<div style="margin-top: 10px; font-size: 1.05em;">';
+                        // Display hops in compact format and collect hostnames
+                        html += '<div style="margin-top: 10px;">';
                         data.hops.forEach(hop => {
                             if (!hop.timeout) {
-                                html += '<div style="padding: 5px 0; border-bottom: 1px solid #eee;">' +
-                                       '<span style="color: #2196F3; font-weight: bold; display: inline-block; width: 25px;">' + hop.hop + '</span>' +
-                                       '<span style="color: #333;">' + hop.hostname + ' (' + hop.ip + ')</span>  ' +
-                                       '<span style="color: #4CAF50; font-weight: bold; float: right;">' + hop.rtt_ms.toFixed(2) + ' ms</span>' +
+                                html += '<div class="traceroute-hop">' +
+                                       '<span class="traceroute-hop-number">' + hop.hop + '</span>' +
+                                       '<span class="traceroute-hop-host">' + hop.hostname + '</span><br>' +
+                                       '<span style="margin-left: 40px; color: #999; font-size: 0.85em;">' + hop.ip + '</span>  ' +
+                                       '<span class="traceroute-hop-rtt">' + hop.rtt_ms.toFixed(2) + ' ms</span>' +
                                        '</div>';
+
+                                // Add hostname to path (for highlighting on map)
+                                pathHostnames.push(hop.hostname);
                             }
                         });
                         html += '</div>';
+
+                        // Highlight the path on the map
+                        highlightTraceroutePath(pathHostnames);
                     }
                 }
 
-                html += '</div>';
-
-                // Update popup with results
-                L.popup({ maxWidth: 900 })
-                    .setLatLng(marker.getLatLng())
-                    .setContent(html)
-                    .openOn(topologyMap);
+                contentEl.innerHTML = html;
 
             } catch (error) {
                 console.error('Failed to fetch traceroute:', error);
-                const errorHtml = '<div style="font-family: monospace; padding: 15px; min-width: 650px;">' +
-                                '<strong style="font-size: 1.4em;">Traceroute to ' + targetName + '</strong><br>' +
-                                '<div style="color: #f44336; padding: 8px; font-size: 1.05em;">Failed to run traceroute: ' + error.message + '</div>' +
-                                '</div>';
-                L.popup({ maxWidth: 900 })
-                    .setLatLng(marker.getLatLng())
-                    .setContent(errorHtml)
-                    .openOn(topologyMap);
+                contentEl.innerHTML = '<div style="color: #f44336; padding: 8px;">Failed to run traceroute: ' + error.message + '</div>';
             }
         }
 
@@ -1019,7 +1067,7 @@ cat <<EOF
 
                 // Add click handler for route highlighting and traceroute
                 marker.on('click', async function() {
-                    await highlightPathToNode(data, node.name, cleanName, marker);
+                    await highlightPathToNode(data, node, cleanName);
                 });
 
                 nodeMarkers[node.name] = marker;
@@ -1136,7 +1184,12 @@ cat <<EOF
                         });
 
                         // Add tooltip showing full details on hover
+                        // Clean up node names
+                        const fromNodeName = cleanHostname(fromNode ? fromNode.name : conn.source);
+                        const toNodeName = cleanHostname(toNode ? toNode.name : conn.target);
+
                         rttLabel.bindTooltip(
+                            '<strong>' + fromNodeName + ' ↔ ' + toNodeName + '</strong><br>' +
                             '<strong>RTT Statistics:</strong><br>' +
                             '• Minimum: ' + conn.rtt_min_ms.toFixed(1) + ' ms<br>' +
                             '• Average: ' + conn.rtt_avg_ms.toFixed(1) + ' ms<br>' +
@@ -1209,14 +1262,14 @@ cat <<EOF
         }
 
         // Highlight path to specific node using traceroute
-        async function highlightPathToNode(data, targetHostname, targetDisplayName, marker) {
+        async function highlightPathToNode(data, targetNode, targetDisplayName) {
             // Clear previous highlights
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
 
             // Always use traceroute to show actual network path
-            console.log('Triggering live traceroute to', targetHostname);
-            await fetchTraceroute(targetHostname, targetDisplayName, marker);
+            console.log('Triggering live traceroute to', targetNode.name);
+            await fetchTraceroute(targetNode, targetDisplayName);
         }
 
         // Refresh topology data (without auto-zoom)

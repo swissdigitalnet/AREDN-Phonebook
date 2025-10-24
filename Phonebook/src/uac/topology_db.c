@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <libgen.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 // Global topology database
 static TopologyNode g_nodes[MAX_TOPOLOGY_NODES];
@@ -70,8 +71,6 @@ void topology_db_cleanup_stale_nodes(void) {
             write_idx++;
         } else {
             removed_nodes++;
-            LOG_DEBUG("Removing stale node: %s, last seen %ld seconds ago",
-                     g_nodes[read_idx].name, age);
         }
     }
     g_node_count = write_idx;
@@ -139,7 +138,6 @@ int topology_db_add_node(const char *name, const char *type,
         existing->last_seen = time(NULL);
 
         pthread_mutex_unlock(&g_topology_mutex);
-        LOG_DEBUG("Updated node: %s", name);
         return 0;
     }
 
@@ -163,8 +161,6 @@ int topology_db_add_node(const char *name, const char *type,
     g_node_count++;
 
     pthread_mutex_unlock(&g_topology_mutex);
-
-    LOG_DEBUG("Added node: %s (type=%s, status=%s)", name, type, status);
     return 0;
 }
 
@@ -232,7 +228,6 @@ int topology_db_add_connection(const char *from_name, const char *to_name, float
         existing->last_updated = time(NULL);
 
         pthread_mutex_unlock(&g_topology_mutex);
-        LOG_DEBUG("Added RTT sample %s -> %s: %.2f ms", from_name, to_name, rtt_ms);
         return 0;
     }
 
@@ -260,8 +255,6 @@ int topology_db_add_connection(const char *from_name, const char *to_name, float
     g_connection_count++;
 
     pthread_mutex_unlock(&g_topology_mutex);
-
-    LOG_DEBUG("Added connection: %s -> %s (RTT: %.2f ms)", from_name, to_name, rtt_ms);
     return 0;
 }
 
@@ -324,7 +317,6 @@ void topology_db_fetch_all_locations(void) {
             strncpy(node->lat, lat, sizeof(node->lat) - 1);
             strncpy(node->lon, lon, sizeof(node->lon) - 1);
             fetched++;
-            LOG_DEBUG("Fetched location for %s: %s, %s", node->name, lat, lon);
         } else {
             failed++;
         }
@@ -386,7 +378,7 @@ void topology_db_fetch_all_locations(void) {
  * Helper: Strip hostname prefix (mid1., mid2., dtdlink., etc.)
  * Since hostnames are unique, we always strip prefixes to avoid duplicates.
  */
-static const char* strip_hostname_prefix(const char *hostname, char *buffer, size_t buffer_size) {
+static const char* strip_hostname_prefix_internal(const char *hostname, char *buffer, size_t buffer_size) {
     if (!hostname || !buffer || buffer_size == 0) {
         return hostname;
     }
@@ -504,7 +496,6 @@ static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostnam
     pclose(fp);
 
     if (hostname[0] != '\0') {
-        LOG_DEBUG("Resolved IP %s to hostname '%s'", ip, hostname);
         return 0;
     }
 
@@ -563,7 +554,6 @@ static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
     pclose(fp);
 
     if (lat[0] != '\0') {
-        LOG_DEBUG("Fetched details for %s: lat=%s, lon=%s", hostname, lat, lon);
         return 0;
     }
 
@@ -582,7 +572,6 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
 
     FILE *fp = popen(cmd, "r");
     if (!fp) {
-        LOG_DEBUG("Failed to fetch LQM data from %s", hostname);
         return -1;
     }
 
@@ -656,7 +645,7 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
                 if (neighbor_hostname[0] != '\0') {
                     // Strip prefix from neighbor hostname
                     char clean_neighbor[256];
-                    strip_hostname_prefix(neighbor_hostname, clean_neighbor, sizeof(clean_neighbor));
+                    strip_hostname_prefix_internal(neighbor_hostname, clean_neighbor, sizeof(clean_neighbor));
 
                     // Use 0.0 RTT for unreachable neighbors to distinguish them
                     float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
@@ -673,7 +662,7 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
                     if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
                         // Strip prefix from resolved hostname
                         char clean_resolved[256];
-                        strip_hostname_prefix(resolved_hostname, clean_resolved, sizeof(clean_resolved));
+                        strip_hostname_prefix_internal(resolved_hostname, clean_resolved, sizeof(clean_resolved));
 
                         float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
                         topology_db_add_connection(hostname, clean_resolved, rtt);
@@ -754,15 +743,12 @@ static int fetch_phones_from_olsr_services(void) {
 
         // Strip prefix from router hostname
         char clean_router[256];
-        strip_hostname_prefix(router_hostname, clean_router, sizeof(clean_router));
+        strip_hostname_prefix_internal(router_hostname, clean_router, sizeof(clean_router));
 
         // Add phone node with no location (will be positioned near router later)
         if (topology_db_add_node(phone_number, "phone", NULL, NULL, "ONLINE") == 0) {
-            // Create connection from router to phone
-            // Use RTT 0.1ms as dummy value for phones
             topology_db_add_connection(clean_router, phone_number, 0.1);
             phone_count++;
-            LOG_DEBUG("Added phone: %s connected to router %s", phone_number, clean_router);
         }
     }
 
@@ -822,6 +808,34 @@ static int fetch_hostnames(char hostnames[][40], int max_hostnames) {
 }
 
 /**
+ * Helper: Check if hostname should be crawled
+ * Only crawl Swiss nodes (HB* prefix) and phones (numeric)
+ */
+static bool should_crawl_node(const char *hostname) {
+    if (!hostname || !hostname[0]) return false;
+
+    // Check if hostname is numeric (phone) - always crawl phones
+    bool is_numeric = true;
+    for (const char *p = hostname; *p; p++) {
+        if (!isdigit(*p)) {
+            is_numeric = false;
+            break;
+        }
+    }
+    if (is_numeric) {
+        return true;  // Phones are always crawled
+    }
+
+    // Check if hostname starts with "HB" (Swiss call sign prefix)
+    if ((hostname[0] == 'H' || hostname[0] == 'h') &&
+        (hostname[1] == 'B' || hostname[1] == 'b')) {
+        return true;  // Swiss node - crawl it
+    }
+
+    return false;  // Non-Swiss node (international)
+}
+
+/**
  * Helper: Check if hostname is already visited
  */
 static bool is_hostname_visited(const char *hostname, char visited[][64], int visited_count) {
@@ -855,7 +869,6 @@ static void add_to_queue_if_new(const char *hostname, char queue[][64], int *que
         strncpy(queue[*queue_count], hostname, 63);
         queue[*queue_count][63] = '\0';
         (*queue_count)++;
-        LOG_DEBUG("Added to crawl queue: %s (queue size: %d)", hostname, *queue_count);
     } else {
         LOG_WARN("Crawl queue full, cannot add: %s", hostname);
     }
@@ -933,7 +946,6 @@ void topology_db_crawl_mesh_network(void) {
             if (!isdigit(*p)) { is_numeric = false; break; }
         }
         if (is_numeric) {
-            LOG_DEBUG("SKIP %d/%d: %s (numeric/phone)", processed, queue_count, hostname);
             continue;
         }
 
@@ -949,21 +961,18 @@ void topology_db_crawl_mesh_network(void) {
             char neighbors_buf[2048] = "";
             int links = fetch_lqm_links_from_host(hostname, neighbors_buf, sizeof(neighbors_buf));
 
-            // Parse neighbors and add to crawl queue
+            // Parse neighbors and add to crawl queue (only Swiss HB* nodes)
             if (strlen(neighbors_buf) > 0) {
                 char *neighbor = strtok(neighbors_buf, ",");
                 while (neighbor != NULL) {
-                    add_to_queue_if_new(neighbor, crawl_queue, &queue_count, visited, visited_count, 1000);
+                    if (should_crawl_node(neighbor)) {
+                        add_to_queue_if_new(neighbor, crawl_queue, &queue_count, visited, visited_count, 1000);
+                    } else {
+                        LOG_INFO("BOUNDARY: Skipping international node %s", neighbor);
+                    }
                     neighbor = strtok(NULL, ",");
                 }
             }
-
-            LOG_DEBUG("OK %d/%d (Q:%d): %s (links=%d,nbrs=%s) %s,%s",
-                     processed, queue_count, queue_count - queue_head, hostname, links,
-                     strlen(neighbors_buf) > 0 ? neighbors_buf : "none", lat, lon);
-        } else {
-            LOG_DEBUG("FAIL %d/%d (Q:%d): %s",
-                     processed, queue_count, queue_count - queue_head, hostname);
         }
 
         usleep(100000);  // 100ms delay
@@ -1090,4 +1099,11 @@ int topology_db_write_to_file(const char *filepath) {
     LOG_INFO("Topology written to %s (%d nodes, %d connections)",
              filepath, g_node_count, g_connection_count);
     return 0;
+}
+
+/**
+ * Public wrapper: Strip hostname prefix (mid1., mid2., dtdlink., etc.)
+ */
+const char* topology_db_strip_hostname_prefix(const char *hostname, char *buffer, size_t buffer_size) {
+    return strip_hostname_prefix_internal(hostname, buffer, buffer_size);
 }
