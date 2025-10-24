@@ -757,6 +757,21 @@ cat <<EOF
                     if (allTimeouts) {
                         html += '<div style="color: #f44336; padding: 8px;">No active route: All hops timed out</div>';
                     } else {
+                        // Calculate total delay (sum of all RTTs)
+                        let totalDelay = 0;
+                        data.hops.forEach(hop => {
+                            if (!hop.timeout) {
+                                totalDelay += hop.rtt_ms;
+                            }
+                        });
+
+                        // Display total delay as first line
+                        html += '<div style="background-color: #e3f2fd; padding: 8px; margin-bottom: 10px; border-radius: 4px; border-left: 4px solid #2196F3;">' +
+                               '<strong>Total Delay:</strong> ' +
+                               '<span style="color: #2196F3; font-weight: bold; font-size: 1.1em;">' +
+                               totalDelay.toFixed(2) + ' ms</span>' +
+                               '</div>';
+
                         // Display hops in compact format and collect hostnames
                         html += '<div style="margin-top: 10px;">';
                         data.hops.forEach(hop => {
