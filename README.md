@@ -12,10 +12,11 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 - 🔌 **Plug-and-Play**: Works immediately after installation
 - 📱 **Phone Integration**: Provides XML directory for SIP phones (tested with Yealink)
 - 🔧 **Passive Safety**: Self-healing with automatic error recovery
-- 📊 **AREDNmon Dashboard**: Real-time web-based network monitoring with visual status display
+- 📊 **AREDNmon Dashboard**: Real-time network topology visualization with interactive map
+- 🗺️ **Network Topology**: Visual map showing routers, phones, and connections with RTT metrics
+- 🔍 **Traceroute Visualization**: Interactive path tracing from server to any node on the map
 - 🎯 **Dual-Mode Testing**: ICMP ping + SIP OPTIONS tests with RTT/jitter measurement
-- 📈 **Performance Metrics**: Color-coded latency indicators and progress tracking
-- 🏥 **Software Health Monitoring**: Real-time CPU, memory, uptime, and service health tracking
+- 📈 **Performance Metrics**: Color-coded latency indicators for network quality assessment
 
 > 🌐 **Access AREDNmon**: `http://[your-node].local.mesh/cgi-bin/arednmon`
 
@@ -121,28 +122,47 @@ Configure your SIP phone to use the node's directory:
 2. 📡 **SIP Server**: `localnode.local.mesh`
 3. 🔄 **Refresh**: Directory updates automatically every xx seconds from router (your Update Time Interval)
 
-## 📊 AREDNmon - Network Monitoring Dashboard
+## 📊 AREDNmon - Network Topology & Monitoring Dashboard
 
 **Access**: `http://[your-node].local.mesh/cgi-bin/arednmon`
 
 ![AREDNmon Dashboard](images/AREDNmon.png)
 
-AREDNmon provides real-time network monitoring with a web-based dashboard showing the status of all phones on your mesh network.
+AREDNmon provides real-time network topology visualization and monitoring with an interactive web-based dashboard showing your mesh network structure and phone connectivity status.
 
 ### 🌐 Access Dashboard
 - **URL**: `http://[your-node].local.mesh/cgi-bin/arednmon`
-- **Auto-refresh**: Updates every 30 seconds automatically
+- **Auto-refresh**: Topology updates every 30 seconds automatically
 
 ### ✨ Dashboard Features
+
+#### 🗺️ Network Topology Map
+- 📍 **Interactive Map**: Switzerland-focused map showing all nodes with geographic locations
+- 🔵 **Node Types**: Orange markers for routers, green for phones, grey for offline nodes
+- 🔗 **Connection Lines**: Visual representation of network connections with RTT-based color coding
+  - Green: Excellent (<100ms RTT)
+  - Orange: Medium (100-200ms RTT)
+  - Red: Poor (>200ms RTT)
+  - Grey dashed: Unreachable connections
+- 📊 **RTT Labels**: Shows round-trip times on router-to-router connections (visible when zoomed in)
+- 🔍 **Interactive Features**: Click nodes to see details, hover over connections for RTT statistics
+- 🎯 **New Node Discovery**: Automatically highlights newly discovered nodes in real-time
+
+#### 🔍 Traceroute Visualization
+- 🛣️ **Path Tracing**: Click any node to run traceroute from server to that node
+- 💜 **Visual Path**: Purple solid lines overlay on map showing actual network path
+- ⏱️ **Total Delay**: Displays cumulative RTT for entire path
+- 📝 **Hop Details**: Shows each hop with hostname, IP address, and individual RTT
+
+#### 📱 Phone Connectivity Testing
 - 📈 **Real-time Status Display**: See all phones with ONLINE/OFFLINE/NO_DNS status
 - 📊 **Performance Metrics**: RTT (round-trip time) and jitter measurements
 - 🎨 **Color-coded Results**: Green (<100ms), Orange (100-200ms), Red (>200ms)
 - 📱 **Contact Names**: Automatically shows names from phonebook
-- 📉 **Progress Tracking**: Visual progress bar showing test completion
 - 🔄 **Smart Caching**: Phonebook data cached in browser for performance
 - ⚡ **Dual Testing**: Both ICMP ping and SIP OPTIONS tests
 
-### 📋 Dashboard Columns
+### 📋 Phone Status Table Columns
 | Column | Description |
 |--------|-------------|
 | **Phone Number** | SIP extension number |

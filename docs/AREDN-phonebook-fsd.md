@@ -2074,7 +2074,16 @@ Health Monitoring Thread
 
 ### 5.6 Local Dashboard Integration
 
-#### 5.6.1 Health Status File
+> **⚠️ DEPRECATED IN v2.2.0**: The Software Health Status panel and Debug Topology Data tables described in this section were removed from AREDNmon in Release 2.2.0 to streamline the user interface. The dashboard now focuses on network topology visualization, traceroute path tracing, and phone connectivity testing. This documentation is preserved for historical reference only.
+
+> **Current AREDNmon Features (v2.2.0+)**:
+> - Interactive network topology map with geographic visualization
+> - Real-time connection quality monitoring with RTT-based color coding
+> - Traceroute visualization with purple path overlay on map
+> - Phone connectivity testing table (ICMP ping + SIP OPTIONS)
+> - Automatic node discovery with visual highlights
+
+#### 5.6.1 Health Status File (REMOVED in v2.2.0)
 
 **Path**: `/tmp/software_health.json`
 
@@ -2149,9 +2158,9 @@ Health Monitoring Thread
 - Survives process restarts (updated immediately on startup)
 - Single file simplifies CGI endpoint implementation
 
-#### 5.6.2 CGI Endpoint
+#### 5.6.2 CGI Endpoint (REMOVED in v2.2.0)
 
-**Endpoint**: `GET /cgi-bin/health_status`
+**Endpoint**: `GET /cgi-bin/health_status` _(no longer included in package)_
 
 **Implementation**: Shell script
 ```bash
@@ -2167,9 +2176,9 @@ cat /tmp/software_health.json 2>/dev/null || echo '{"error": "No health data"}'
 
 **Installation**: Deployed as part of AREDN-Phonebook package to `/www/cgi-bin/`
 
-#### 5.6.3 AREDNmon Dashboard Enhancement
+#### 5.6.3 AREDNmon Dashboard Enhancement (REMOVED in v2.2.0)
 
-The existing AREDNmon dashboard (`/cgi-bin/arednmon`) is enhanced with a **Software Health Panel** displayed above the phone monitoring table:
+The existing AREDNmon dashboard (`/cgi-bin/arednmon`) **was previously enhanced** with a Software Health Panel displayed above the phone monitoring table. This panel was **removed in v2.2.0** to streamline the interface:
 
 **Visual Layout:**
 ```
@@ -2349,7 +2358,7 @@ async function loadHealthStatus() {
 
 **Update frequency**: JavaScript fetches health status every 30 seconds (matches existing AREDNmon refresh)
 
-#### 5.6.4 Crash Reporting Integration
+#### 5.6.4 Crash Reporting Integration (REMOVED in v2.2.0)
 
 When a crash occurs and the process restarts, crash information is also made available locally:
 
