@@ -47,6 +47,8 @@ Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swi
 
 4. ⚡ **Install**: Click **Fetch and Install**
 
+5. Sometimes it is necessary to **power-cycle** the router after installation.
+
 ## ⚙️ Configuration (optional, not needed for most users)
 
 The phonebook server automatically configures itself. Default settings:
@@ -130,9 +132,8 @@ Configure your SIP phone to use the node's directory:
 
 AREDNmon provides real-time network topology visualization and monitoring with an interactive web-based dashboard showing your mesh network structure and phone connectivity status.
 
-### 🌐 Access Dashboard
-- **URL**: `http://[your-node].local.mesh/cgi-bin/arednmon`
-- **Auto-refresh**: Topology updates every 30 seconds automatically
+### 🌐 Delay after Start of AREDNmon
+- The crawler begins the search  at your node and discovers the entire Network from there. So give it about one hour after the start of the router.
 
 ### ✨ Dashboard Features
 
