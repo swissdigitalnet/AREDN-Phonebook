@@ -15,7 +15,7 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 - 📊 **AREDNmon Dashboard**: Real-time network topology visualization with interactive map
 - 🗺️ **Network Topology**: Visual map showing routers, phones, and connections with RTT metrics
 - 🔍 **Traceroute Visualization**: Interactive path tracing from server to any node on the map
-- 🎯 **Dual-Mode Testing**: ICMP ping + SIP OPTIONS tests with RTT/jitter measurement
+- 🎯 **Testing**: ICMP ping tests with RTT/jitter measurement
 - 📈 **Performance Metrics**: Color-coded latency indicators for network quality assessment
 
 > 🌐 **Access AREDNmon**: `http://[your-node].local.mesh/cgi-bin/arednmon`
@@ -47,10 +47,7 @@ Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swi
 
 4. ⚡ **Install**: Click **Fetch and Install**
 
-5. ⚡ **Important**: After installation or upgrade, restart the service:
-   ```bash
-   /etc/init.d/AREDN-Phonebook restart
-   ```
+5. ⚡ **Important**: After installation or upgrade, sometimes a power-cycle of the router is needed
 
 ## ⚙️ Configuration (optional, not needed for most users)
 
@@ -136,9 +133,7 @@ Configure your SIP phone to use the node's directory:
 AREDNmon provides real-time network topology visualization and monitoring with an interactive web-based dashboard showing your mesh network structure and phone connectivity status.
 
 ### 🌐 Network Discovery Timeline
-- **Immediate**: Phones are discovered via traceroute during first test cycle (10 minutes after start)
-- **Background**: Network crawler continuously discovers routers and topology
-- **Full visibility**: Complete network topology typically available within 30-60 minutes
+- **Full visibility**: The crawler begins the search at your node... So give it about one hour after the start of the router
 
 ### ✨ Dashboard Features
 
