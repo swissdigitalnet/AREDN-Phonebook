@@ -26,7 +26,7 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 
 Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
 
-1. Go to the [📥 Releases page](https://github.com/dhamstack/AREDN-Phonebook/releases)
+1. Go to the [📥 Releases page](https://github.com/swissdigitalnet/AREDN-Phonebook/releases)
 2. Download the latest `AREDN-Phonebook-x.x.x-x_[architecture].ipk` file for your device:
    - 🏠 **ath79**: Most common AREDN routers (e.g., Ubiquiti, MikroTik)
    - 💻 **x86**: PC-based AREDN nodes
@@ -47,7 +47,10 @@ Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swi
 
 4. ⚡ **Install**: Click **Fetch and Install**
 
-5. Sometimes it is necessary to **power-cycle** the router after installation.
+5. ⚡ **Important**: After installation or upgrade, restart the service:
+   ```bash
+   /etc/init.d/AREDN-Phonebook restart
+   ```
 
 ## ⚙️ Configuration (optional, not needed for most users)
 
@@ -132,8 +135,10 @@ Configure your SIP phone to use the node's directory:
 
 AREDNmon provides real-time network topology visualization and monitoring with an interactive web-based dashboard showing your mesh network structure and phone connectivity status.
 
-### 🌐 Delay after Start of AREDNmon
-- The crawler begins the search  at your node and discovers the entire Network from there. So give it about one hour after the start of the router.
+### 🌐 Network Discovery Timeline
+- **Immediate**: Phones are discovered via traceroute during first test cycle (10 minutes after start)
+- **Background**: Network crawler continuously discovers routers and topology
+- **Full visibility**: Complete network topology typically available within 30-60 minutes
 
 ### ✨ Dashboard Features
 
@@ -249,7 +254,7 @@ curl http://localhost/arednstack/phonebook_generic_direct.xml
 
 ## 🆘 Support
 
-- 🐛 **Issues**: [GitHub Issues](https://github.com/dhamstack/AREDN-Phonebook/issues)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/swissdigitalnet/AREDN-Phonebook/issues)
 - 📚 **Documentation**: [Functional Specification](docs/AREDN-phonebook-fsd.md)
 - 📖 **Setup Guide**: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
 - 🌐 **AREDN Community**: [AREDN Forums](https://www.arednmesh.org/)
