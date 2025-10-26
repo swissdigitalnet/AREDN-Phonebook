@@ -609,8 +609,12 @@ cat <<EOF
                     ], {
                         color: '#9C27B0',  // Purple
                         weight: 6,
-                        opacity: 0.8
+                        opacity: 0.8,
+                        interactive: false  // Don't capture clicks/hovers
                     }).addTo(topologyMap);
+
+                    // Bring to front to ensure it's always visible above connection lines
+                    highlightLine.bringToFront();
 
                     highlightedPath.push(highlightLine);
                 } else {
@@ -1040,6 +1044,13 @@ cat <<EOF
 
             // Update RTT label visibility based on current zoom level
             updateRttLabelsVisibility();
+
+            // Bring highlighted traceroute path back to front after re-rendering topology
+            highlightedPath.forEach(line => {
+                if (topologyMap.hasLayer(line)) {
+                    line.bringToFront();
+                }
+            });
 
             console.log('Rendered', Object.keys(nodeMarkers).length, 'nodes and',
                        connectionLines.length, 'connections');
