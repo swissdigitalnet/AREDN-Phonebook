@@ -24,9 +24,9 @@
 #include "user_manager/user_manager.h"   // For user management functions
 #include "call-sessions/call_sessions.h" // For call session management functions
 #include "passive_safety/passive_safety.h" // For passive safety and self-healing
-#include "uac/uac.h"                    // For UAC load testing module
-#include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread
-#include "uac/uac_ping.h"               // For UAC ping/options testing
+#include "softphone/softphone.h"        // For softphone SIP client library
+#include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread (temporary)
+#include "uac/uac_ping.h"               // For UAC ping/options testing (temporary)
 // Full health monitoring re-enabled with instrumentation for crash debugging
 #include "software_health/software_health.h" // Full health monitoring system
 
@@ -339,22 +339,22 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("Successfully bound to UDP port %d.", SIP_PORT);
 
-    // Phase 5: Initialize UAC module (after SIP server is bound)
-    LOG_INFO("[MAIN] Initializing UAC module");
+    // Phase 5: Initialize softphone module (after SIP server is bound)
+    LOG_INFO("[MAIN] Initializing softphone module");
     int have_server_ip = 0;
 
-    // Try to get server IP for UAC
-    syslog(6, "[UAC_INIT] Detecting server IP for UAC binding");
+    // Try to get server IP for softphone
+    syslog(6, "[SOFTPHONE_INIT] Detecting server IP for softphone binding");
     if (get_server_ip(g_server_ip, sizeof(g_server_ip)) == 0) {
-        syslog(6, "[UAC_INIT] Server IP detected: %s", g_server_ip);
-        if (uac_init(g_server_ip) == 0) {
+        syslog(6, "[SOFTPHONE_INIT] Server IP detected: %s", g_server_ip);
+        if (softphone_init(g_server_ip) == 0) {
             have_server_ip = 1;
-            syslog(6, "[UAC_INIT] ✓ UAC initialized on %s:%d (have_server_ip=%d)", g_server_ip, UAC_SIP_PORT, have_server_ip);
+            syslog(6, "[SOFTPHONE_INIT] ✓ Softphone initialized on %s:%d (have_server_ip=%d)", g_server_ip, SOFTPHONE_SIP_PORT, have_server_ip);
         } else {
-            syslog(4, "[UAC_INIT] ✗ uac_init() failed");
+            syslog(4, "[SOFTPHONE_INIT] ✗ softphone_init() failed");
         }
     } else {
-        syslog(4, "[UAC_INIT] ✗ get_server_ip() failed - UAC not initialized");
+        syslog(4, "[SOFTPHONE_INIT] ✗ get_server_ip() failed - softphone not initialized");
     }
 
     syslog(6, "[MAIN_LOOP] Server listening on UDP port %d", SIP_PORT);
@@ -367,12 +367,12 @@ int main(int argc, char *argv[]) {
         FD_ZERO(&readfds);
         FD_SET(sockfd, &readfds);
 
-        // Phase 5: Add UAC socket to select if initialized
+        // Phase 5: Add softphone socket to select if initialized
         int max_fd = sockfd;
-        if (have_server_ip && uac_get_sockfd() >= 0) {
-            FD_SET(uac_get_sockfd(), &readfds);
-            if (uac_get_sockfd() > max_fd) {
-                max_fd = uac_get_sockfd();
+        if (have_server_ip && softphone_get_sockfd() >= 0) {
+            FD_SET(softphone_get_sockfd(), &readfds);
+            if (softphone_get_sockfd() > max_fd) {
+                max_fd = softphone_get_sockfd();
             }
         }
 
@@ -405,29 +405,29 @@ int main(int argc, char *argv[]) {
             process_incoming_sip_message(sockfd, buffer, n, &cliaddr, len);
         }
 
-        // Phase 5: Handle UAC socket responses
-        if (have_server_ip && uac_get_sockfd() >= 0 && FD_ISSET(uac_get_sockfd(), &readfds)) {
-            char uac_buffer[MAX_SIP_MSG_LEN];
-            n = recvfrom(uac_get_sockfd(), uac_buffer, sizeof(uac_buffer) - 1, 0, NULL, NULL);
+        // Phase 5: Handle softphone socket responses
+        if (have_server_ip && softphone_get_sockfd() >= 0 && FD_ISSET(softphone_get_sockfd(), &readfds)) {
+            char softphone_buffer[MAX_SIP_MSG_LEN];
+            n = recvfrom(softphone_get_sockfd(), softphone_buffer, sizeof(softphone_buffer) - 1, 0, NULL, NULL);
             if (n > 0) {
-                uac_buffer[n] = '\0';
-                uac_process_response(uac_buffer, n);
+                softphone_buffer[n] = '\0';
+                softphone_process_response(softphone_buffer, n);
             } else if (n < 0) {
-                LOG_ERROR("recvfrom failed on UAC socket.");
+                LOG_ERROR("recvfrom failed on softphone socket.");
             }
         }
 
-        // Phase 5: Check UAC timeout periodically (every select cycle)
+        // Phase 5: Check softphone timeout periodically (every select cycle)
         if (have_server_ip) {
-            uac_check_timeout();
+            softphone_check_timeout();
         }
     }
     // This code block will now only be reached if an unrecoverable error in the main loop occurs.
     LOG_WARN("Main SIP message processing loop unexpectedly terminated.");
 
-    // Phase 5: Shutdown UAC if initialized
+    // Phase 5: Shutdown softphone if initialized
     if (have_server_ip) {
-        uac_shutdown();
+        softphone_shutdown();
     }
 
     close(sockfd);
