@@ -2,8 +2,8 @@
 // Simple HTTP GET Client for Location Data Fetching
 // Fetches sysinfo.json from AREDN nodes to get lat/lon coordinates
 
-#ifndef UAC_HTTP_CLIENT_H
-#define UAC_HTTP_CLIENT_H
+#ifndef HTTP_CLIENT_H
+#define HTTP_CLIENT_H
 
 #include <stddef.h>
 
@@ -28,4 +28,4 @@ int http_get_location(
     size_t lon_len
 );
 
-#endif // UAC_HTTP_CLIENT_H
+#endif // HTTP_CLIENT_H

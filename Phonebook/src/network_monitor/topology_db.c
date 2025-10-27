@@ -4,7 +4,7 @@
 #define MODULE_NAME "TOPOLOGY_DB"
 
 #include "topology_db.h"
-#include "uac_http_client.h"
+#include "http_client.h"
 #include "../common.h"
 #include <string.h>
 #include <stdlib.h>
@@ -313,7 +313,7 @@ void topology_db_fetch_all_locations(void) {
         char lat[32] = "";
         char lon[32] = "";
 
-        if (uac_http_get_location(url, lat, sizeof(lat), lon, sizeof(lon)) == 0) {
+        if (http_get_location(url, lat, sizeof(lat), lon, sizeof(lon)) == 0) {
             strncpy(node->lat, lat, sizeof(node->lat) - 1);
             strncpy(node->lon, lon, sizeof(node->lon) - 1);
             fetched++;

@@ -1,14 +1,14 @@
 #define MODULE_NAME "UAC_BULK"
 
 #include "uac_bulk_tester.h"
-#include "uac_test_db.h"
-#include "uac_traceroute.h"
-#include "topology_db.h"
+#include "../phone_monitoring/phone_test_db.h"
+#include "../network_monitor/traceroute.h"
+#include "../network_monitor/topology_db.h"
 #include "../common.h"
 #include "../config_loader/config_loader.h"
 #include "../passive_safety/passive_safety.h"
 #include "../software_health/software_health.h"
-#include "uac.h"
+#include "../softphone/softphone.h"
 #include "uac_ping.h"
 #include <netdb.h>
 #include <sys/socket.h>
@@ -34,7 +34,7 @@ void *uac_bulk_tester_thread(void *arg) {
     }
 
     // Initialize shared memory database
-    if (uac_test_db_init() != 0) {
+    if (phone_test_db_init() != 0) {
         LOG_ERROR("Failed to initialize test database. Thread exiting.");
         return NULL;
     }
@@ -111,7 +111,7 @@ void *uac_bulk_tester_thread(void *arg) {
 
         // Initialize header with previous cycle's online phone count for accurate display
         // This shows correct "X of Y" during the test cycle
-        uac_test_db_update_header(0, prev_phones_online, g_uac_test_interval_seconds);
+        phone_test_db_update_header(0, prev_phones_online, g_uac_test_interval_seconds);
         LOG_DEBUG("Initialized header with %d reachable phones (from previous cycle)", prev_phones_online);
 
         // Reset counters and lock for main testing loop
@@ -203,7 +203,7 @@ void *uac_bulk_tester_thread(void *arg) {
                         phones_offline++;
 
                         // Write results to database
-                        uac_test_result_t db_result = {0};
+                        phone_test_result_t db_result = {0};
                         strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
                         strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
                         db_result.ping_rtt = ping_rtt;
@@ -211,7 +211,7 @@ void *uac_bulk_tester_thread(void *arg) {
                         strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
                         db_result.options_rtt = options_rtt;
                         db_result.options_jitter = options_jitter;
-                        uac_test_db_write_result(&db_result);
+                        phone_test_db_write_result(&db_result);
 
                         // Write to file
                         if (results_file) {
@@ -273,7 +273,7 @@ void *uac_bulk_tester_thread(void *arg) {
                             TracerouteHop hops[30];
                             int hop_count = 0;
 
-                            if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
+                            if (traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
                                 LOG_DEBUG("Traced %d hops to %s", hop_count, user->user_id);
 
                                 // Get source IP for this route (for reverse DNS lookup)
@@ -347,7 +347,7 @@ void *uac_bulk_tester_thread(void *arg) {
                         }
 
                         // Write results to shared memory database
-                        uac_test_result_t db_result = {0};
+                        phone_test_result_t db_result = {0};
                         strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
                         strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
                         db_result.ping_rtt = ping_rtt;
@@ -355,7 +355,7 @@ void *uac_bulk_tester_thread(void *arg) {
                         strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
                         db_result.options_rtt = options_rtt;
                         db_result.options_jitter = options_jitter;
-                        uac_test_db_write_result(&db_result);
+                        phone_test_db_write_result(&db_result);
 
                         // Write results to file before continuing (keep for backwards compatibility)
                         if (results_file) {
@@ -387,19 +387,19 @@ void *uac_bulk_tester_thread(void *arg) {
                     // Wait for UAC to return to IDLE state before making call
                     // The UAC only supports one call at a time
                     int wait_count = 0;
-                    while (uac_get_state() != UAC_STATE_IDLE && wait_count < 10) {
+                    while (softphone_get_state() != SOFTPHONE_STATE_IDLE && wait_count < 10) {
                         sleep(1);
                         wait_count++;
                     }
 
-                    if (uac_get_state() != UAC_STATE_IDLE) {
+                    if (softphone_get_state() != SOFTPHONE_STATE_IDLE) {
                         LOG_WARN("✗ UAC busy (state: %s), forcing reset before testing %s (%s)",
-                                 uac_state_to_string(uac_get_state()), user->user_id, user->display_name);
-                        uac_reset_state();
+                                 softphone_state_to_string(softphone_get_state()), user->user_id, user->display_name);
+                        softphone_reset_state();
                     }
 
                     // Trigger UAC test call using global server IP
-                    if (uac_make_call(user->user_id, g_server_ip) == 0) {
+                    if (softphone_make_call(user->user_id, g_server_ip) == 0) {
                         tests_triggered++;
                         LOG_INFO("✓ UAC INVITE test triggered for %s (%s)", user->user_id, user->display_name);
 
@@ -407,52 +407,52 @@ void *uac_bulk_tester_thread(void *arg) {
                         // Cancel as soon as we detect RINGING state
                         int poll_count = 0;
                         int max_polls = 20; // 20 * 50ms = 1 second max (phones respond in <100ms)
-                        uac_call_state_t state = UAC_STATE_IDLE;
+                        softphone_call_state_t state = SOFTPHONE_STATE_IDLE;
 
                         while (poll_count < max_polls) {
                             usleep(50000); // Sleep 50ms between polls
                             poll_count++;
-                            state = uac_get_state();
+                            state = softphone_get_state();
 
-                            if (state == UAC_STATE_RINGING || state == UAC_STATE_ESTABLISHED) {
+                            if (state == SOFTPHONE_STATE_RINGING || state == SOFTPHONE_STATE_ESTABLISHED) {
                                 // Phone responded - cancel/hangup immediately
                                 break;
-                            } else if (state == UAC_STATE_IDLE) {
+                            } else if (state == SOFTPHONE_STATE_IDLE) {
                                 // Error response (like 488) - already reset
                                 break;
                             }
                         }
 
                         // Handle final state
-                        if (state == UAC_STATE_CALLING) {
+                        if (state == SOFTPHONE_STATE_CALLING) {
                             // Phone never responded - offline
                             LOG_WARN("✗ Phone %s OFFLINE (no INVITE response)", user->user_id);
                             phones_offline++;
-                        } else if (state == UAC_STATE_RINGING) {
+                        } else if (state == SOFTPHONE_STATE_RINGING) {
                             LOG_INFO("✓ Phone %s ONLINE (ringing) - canceling", user->user_id);
                             phones_online++;
-                            uac_cancel_call();
+                            softphone_cancel_call();
                             sleep(1); // Wait for CANCEL to be sent
-                        } else if (state == UAC_STATE_ESTABLISHED) {
+                        } else if (state == SOFTPHONE_STATE_ESTABLISHED) {
                             LOG_INFO("✓ Phone %s ONLINE (answered) - hanging up", user->user_id);
                             phones_online++;
-                            uac_hang_up();
+                            softphone_hang_up();
                             sleep(1); // Wait for BYE to be sent
-                        } else if (state == UAC_STATE_IDLE) {
+                        } else if (state == SOFTPHONE_STATE_IDLE) {
                             // Got error response (like 488) - phone is online but rejected
                             LOG_INFO("✓ Phone %s ONLINE (rejected call)", user->user_id);
                             phones_online++;
                         }
 
                         // Force reset to IDLE after test (for error responses like 488)
-                        if (uac_get_state() != UAC_STATE_IDLE) {
+                        if (softphone_get_state() != SOFTPHONE_STATE_IDLE) {
                             LOG_DEBUG("Force resetting UAC to IDLE after test (state: %s)",
-                                      uac_state_to_string(uac_get_state()));
-                            uac_reset_state();
+                                      softphone_state_to_string(softphone_get_state()));
+                            softphone_reset_state();
                         }
                     } else {
                         LOG_WARN("✗ Failed to trigger UAC INVITE test for %s (%s)", user->user_id, user->display_name);
-                        uac_reset_state(); // Reset even on failure
+                        softphone_reset_state(); // Reset even on failure
                     }
                 } else {
                     // INVITE testing disabled and OPTIONS failed - phone is offline
@@ -461,7 +461,7 @@ void *uac_bulk_tester_thread(void *arg) {
                 }
 
                 // Write results to shared memory database for offline phones
-                uac_test_result_t db_result = {0};
+                phone_test_result_t db_result = {0};
                 strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
                 strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
                 db_result.ping_rtt = ping_rtt;
@@ -469,7 +469,7 @@ void *uac_bulk_tester_thread(void *arg) {
                 strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
                 db_result.options_rtt = options_rtt;
                 db_result.options_jitter = options_jitter;
-                uac_test_db_write_result(&db_result);
+                phone_test_db_write_result(&db_result);
 
                 // Write results to file for offline phones (keep for backwards compatibility)
                 if (results_file) {
@@ -512,7 +512,7 @@ void *uac_bulk_tester_thread(void *arg) {
         // Update database header with reachable phone count (phones that are online/reachable)
         // User wants to see "X of X phones tested (all reachable telephones only)"
         int total_results = phones_online + phones_offline;
-        uac_test_db_update_header(total_results, phones_online, g_uac_test_interval_seconds);
+        phone_test_db_update_header(total_results, phones_online, g_uac_test_interval_seconds);
         LOG_DEBUG("Updated database header: %d results, %d reachable phones", total_results, phones_online);
 
         // ====================================================
