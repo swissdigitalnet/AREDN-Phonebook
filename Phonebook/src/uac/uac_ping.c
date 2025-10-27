@@ -3,7 +3,6 @@
 
 #include "uac_ping.h"
 #include "../common.h"
-#include "uac.h"
 #include <math.h>
 #include <sys/time.h>
 #include <errno.h>
