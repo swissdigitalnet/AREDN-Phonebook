@@ -2,8 +2,8 @@
 // ICMP Traceroute Implementation for Network Topology Discovery
 // Traces network path to phones and measures hop-by-hop RTT
 
-#ifndef UAC_TRACEROUTE_H
-#define UAC_TRACEROUTE_H
+#ifndef TRACEROUTE_H
+#define TRACEROUTE_H
 
 #include <stdbool.h>
 #include <netinet/in.h>
@@ -74,4 +74,4 @@ int get_source_ip_for_target(
     char *source_ip
 );
 
-#endif // UAC_TRACEROUTE_H
+#endif // TRACEROUTE_H

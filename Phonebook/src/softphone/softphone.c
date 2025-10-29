@@ -28,21 +28,21 @@ static softphone_context_t g_softphone_ctx = {
     }
 };
 
-// Initialize UAC module
+// Initialize softphone module
 int softphone_init(const char *local_ip) {
-    LOG_DEBUG("[SOFTPHONE_INIT] Starting UAC initialization");
+    LOG_DEBUG("[SOFTPHONE_INIT] Starting softphone initialization");
     LOG_DEBUG("[SOFTPHONE_INIT] Local IP parameter: %s", local_ip ? local_ip : "NULL");
 
     if (!local_ip || strlen(local_ip) == 0) {
-        LOG_ERROR("[SOFTPHONE_INIT] Invalid local IP provided to UAC");
+        LOG_ERROR("[SOFTPHONE_INIT] Invalid local IP provided to softphone");
         return -1;
     }
 
-    LOG_DEBUG("[SOFTPHONE_INIT] Creating UDP socket for UAC");
+    LOG_DEBUG("[SOFTPHONE_INIT] Creating UDP socket for softphone");
     // Create UDP socket
     g_softphone_ctx.sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (g_softphone_ctx.sockfd < 0) {
-        LOG_ERROR("[SOFTPHONE_INIT] Failed to create UAC socket: %s", strerror(errno));
+        LOG_ERROR("[SOFTPHONE_INIT] Failed to create softphone socket: %s", strerror(errno));
         return -1;
     }
     LOG_DEBUG("[SOFTPHONE_INIT] Socket created successfully (fd=%d)", g_softphone_ctx.sockfd);
@@ -56,7 +56,7 @@ int softphone_init(const char *local_ip) {
 
     LOG_DEBUG("[SOFTPHONE_INIT] Attempting to bind to %s:%d", local_ip, SOFTPHONE_SIP_PORT);
     if (bind(g_softphone_ctx.sockfd, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
-        LOG_ERROR("[SOFTPHONE_INIT] Failed to bind UAC socket to %s:%d: %s", local_ip, SOFTPHONE_SIP_PORT, strerror(errno));
+        LOG_ERROR("[SOFTPHONE_INIT] Failed to bind softphone socket to %s:%d: %s", local_ip, SOFTPHONE_SIP_PORT, strerror(errno));
         close(g_softphone_ctx.sockfd);
         g_softphone_ctx.sockfd = -1;
         return -1;
@@ -66,25 +66,25 @@ int softphone_init(const char *local_ip) {
     g_softphone_ctx.local_port = SOFTPHONE_SIP_PORT;
     g_softphone_ctx.call.state = SOFTPHONE_STATE_IDLE;
 
-    LOG_INFO("[SOFTPHONE_INIT] ✓ UAC initialized on %s:%d (Phone: %s)", local_ip, SOFTPHONE_SIP_PORT, SOFTPHONE_PHONE_NUMBER);
-    LOG_DEBUG("[SOFTPHONE_INIT] UAC context - sockfd=%d, local_ip=%s, local_port=%d, state=%s",
+    LOG_INFO("[SOFTPHONE_INIT] ✓ softphone initialized on %s:%d (Phone: %s)", local_ip, SOFTPHONE_SIP_PORT, SOFTPHONE_PHONE_NUMBER);
+    LOG_DEBUG("[SOFTPHONE_INIT] softphone context - sockfd=%d, local_ip=%s, local_port=%d, state=%s",
               g_softphone_ctx.sockfd, g_softphone_ctx.local_ip, g_softphone_ctx.local_port,
               softphone_state_to_string(g_softphone_ctx.call.state));
     return 0;
 }
 
-// Shutdown UAC module
+// Shutdown softphone module
 void softphone_shutdown(void) {
-    LOG_DEBUG("[SOFTPHONE_SHUTDOWN] Starting UAC shutdown");
+    LOG_DEBUG("[SOFTPHONE_SHUTDOWN] Starting softphone shutdown");
     if (g_softphone_ctx.sockfd >= 0) {
         LOG_DEBUG("[SOFTPHONE_SHUTDOWN] Closing socket fd=%d", g_softphone_ctx.sockfd);
         close(g_softphone_ctx.sockfd);
         g_softphone_ctx.sockfd = -1;
     }
-    LOG_INFO("[SOFTPHONE_SHUTDOWN] ✓ UAC shutdown complete");
+    LOG_INFO("[SOFTPHONE_SHUTDOWN] ✓ softphone shutdown complete");
 }
 
-// Get UAC socket file descriptor
+// Get softphone socket file descriptor
 int softphone_get_sockfd(void) {
     return g_softphone_ctx.sockfd;
 }
@@ -107,7 +107,7 @@ const char* softphone_state_to_string(softphone_call_state_t state) {
     }
 }
 
-// Reset UAC to IDLE state
+// Reset softphone to IDLE state
 void softphone_reset_state(void) {
     softphone_call_state_t old_state = g_softphone_ctx.call.state;
     g_softphone_ctx.call.state = SOFTPHONE_STATE_IDLE;
@@ -116,7 +116,7 @@ void softphone_reset_state(void) {
     g_softphone_ctx.call.state_timestamp = time(NULL);
 
     if (old_state != SOFTPHONE_STATE_IDLE) {
-        LOG_INFO("[SOFTPHONE_RESET] Reset UAC from %s to IDLE state", softphone_state_to_string(old_state));
+        LOG_INFO("[SOFTPHONE_RESET] Reset softphone from %s to IDLE state", softphone_state_to_string(old_state));
     }
 }
 
@@ -137,7 +137,7 @@ int softphone_make_call(const char *target_number, const char *server_ip) {
     }
 
     if (g_softphone_ctx.sockfd < 0) {
-        LOG_ERROR("[SOFTPHONE_CALL] UAC not initialized (sockfd=%d)", g_softphone_ctx.sockfd);
+        LOG_ERROR("[SOFTPHONE_CALL] softphone not initialized (sockfd=%d)", g_softphone_ctx.sockfd);
         return -1;
     }
 
@@ -431,7 +431,7 @@ int softphone_process_response(const char *response, size_t response_len) {
                 LOG_DEBUG("[SOFTPHONE_RESPONSE] Sending ACK for error response");
                 softphone_send_ack();
             }
-            LOG_DEBUG("[SOFTPHONE_RESPONSE] Resetting UAC to IDLE state after error response");
+            LOG_DEBUG("[SOFTPHONE_RESPONSE] Resetting softphone to IDLE state after error response");
             g_softphone_ctx.call.state = SOFTPHONE_STATE_IDLE;
             g_softphone_ctx.call.state_timestamp = time(NULL);
             break;
@@ -442,7 +442,7 @@ int softphone_process_response(const char *response, size_t response_len) {
 
 // Check for call timeout and force reset if needed
 int softphone_check_timeout(void) {
-    // No timeout check if UAC is idle
+    // No timeout check if softphone is idle
     if (g_softphone_ctx.call.state == SOFTPHONE_STATE_IDLE) {
         return 0;
     }

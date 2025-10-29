@@ -25,8 +25,8 @@
 #include "call-sessions/call_sessions.h" // For call session management functions
 #include "passive_safety/passive_safety.h" // For passive safety and self-healing
 #include "softphone/softphone.h"        // For softphone SIP client library
-#include "uac/uac_bulk_tester.h"        // For UAC bulk testing thread (temporary)
-#include "uac/uac_ping.h"               // For UAC ping/options testing (temporary)
+#include "uac/ping_bulk_test.h"        // For phone bulk testing thread
+#include "uac/ping_test.h"              // For phone ping/options testing
 // Full health monitoring re-enabled with instrumentation for crash debugging
 #include "software_health/software_health.h" // Full health monitoring system
 
@@ -44,7 +44,7 @@ volatile sig_atomic_t phonebook_reload_requested = 0; // For webhook-triggered r
 int num_registered_users = 0;
 int num_directory_entries = 0;
 
-// Global server IP for UAC
+// Global server IP for phone testing
 char g_server_ip[64] = {0};
 
 // Thread IDs for passive safety monitoring
@@ -60,8 +60,8 @@ pthread_mutex_t phonebook_file_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t updater_trigger_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t updater_trigger_cond = PTHREAD_COND_INITIALIZER;
 
-// Global flag for UAC test trigger
-static volatile sig_atomic_t uac_test_requested = 0;
+// Global flag for phone test trigger
+static volatile sig_atomic_t phone_test_requested = 0;
 
 // Signal handler for webhook-triggered phonebook reload
 void phonebook_reload_signal_handler(int sig) {
@@ -71,11 +71,11 @@ void phonebook_reload_signal_handler(int sig) {
     }
 }
 
-// Signal handler for UAC test trigger
-void uac_test_signal_handler(int sig) {
+// Signal handler for phone test trigger
+void phone_test_signal_handler(int sig) {
     if (sig == SIGUSR2) {
-        uac_test_requested = 1;
-        syslog(6, "[UAC_SIGNAL] SIGUSR2 received - setting uac_test_requested flag"); // 6 = LOG_INFO
+        phone_test_requested = 1;
+        syslog(6, "[PHONE_TEST_SIGNAL] SIGUSR2 received - setting phone_test_requested flag"); // 6 = LOG_INFO
     }
 }
 
@@ -87,9 +87,9 @@ const char* sockaddr_to_ip_str(const struct sockaddr_in* addr) {
     return ip_str;
 }
 
-// Get server IP address for UAC binding
+// Get server IP address for phone testing binding
 // AREDN nodes have multiple interfaces (DTD, WAN, LAN)
-// For SIP/UAC, we want the LAN address where phones connect
+// For SIP/softphone, we want the LAN address where phones connect
 static int get_server_ip(char *ip_buffer, size_t buffer_size) {
     // Try environment variable first (allows override)
     const char *env_ip = getenv("SIP_SERVER_IP");
@@ -188,8 +188,8 @@ int main(int argc, char *argv[]) {
     signal(SIGUSR1, phonebook_reload_signal_handler);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
 
-    signal(SIGUSR2, uac_test_signal_handler);
-    LOG_INFO("Registered SIGUSR2 handler for UAC test calls");
+    signal(SIGUSR2, phone_test_signal_handler);
+    LOG_INFO("Registered SIGUSR2 handler for phone test calls");
 
     LOG_INFO("Attempting to set process priority...");
     if (setpriority(PRIO_PROCESS, 0, SIP_HANDLER_NICE_VALUE) == -1) { // SIP_HANDLER_NICE_VALUE from common.h
@@ -283,13 +283,13 @@ int main(int argc, char *argv[]) {
     LOG_DEBUG("Passive safety thread launched (silent self-healing enabled).");
     LOG_DEBUG("Passive safety thread TID: %lu", (unsigned long)g_passive_safety_tid);
 
-    // Phase 4: UAC Thread Creation
-    LOG_INFO("Creating UAC bulk tester thread...");
-    if (pthread_create(&bulk_tester_tid, NULL, uac_bulk_tester_thread, NULL) != 0) {
-        LOG_ERROR("Failed to create UAC bulk tester thread.");
+    // Phase 4: Phone Bulk Testing Thread Creation
+    LOG_INFO("Creating phone bulk testing thread...");
+    if (pthread_create(&bulk_tester_tid, NULL, ping_bulk_test_thread, NULL) != 0) {
+        LOG_ERROR("Failed to create phone bulk testing thread.");
         return EXIT_FAILURE;
     }
-    LOG_DEBUG("UAC bulk tester thread launched.");
+    LOG_DEBUG("Phone bulk testing thread launched.");
     LOG_DEBUG("Bulk tester thread TID: %lu", (unsigned long)bulk_tester_tid);
 
     // Phase 4.2: Topology Crawler Thread Creation
@@ -387,7 +387,7 @@ int main(int argc, char *argv[]) {
             LOG_ERROR("select() error: %s", strerror(errno));
             break; // Exit on real select error
         } else if (retval == 0) {
-            // Timeout - UAC DISABLED
+            // Timeout - no activity
             continue;
         }
 

@@ -1,7 +1,7 @@
-// uac_ping.c - SIP OPTIONS and ICMP PING testing with RTT/jitter measurement
-#define MODULE_NAME "UAC_PING"
+// ping_test.c - SIP OPTIONS and ICMP PING testing with RTT/jitter measurement
+#define MODULE_NAME "PING_TEST"
 
-#include "uac_ping.h"
+#include "ping_test.h"
 #include "../common.h"
 #include <math.h>
 #include <sys/time.h>
@@ -40,7 +40,7 @@ static int build_options_message(char *buffer, size_t buffer_size,
         "CSeq: 1 OPTIONS\r\n"
         "Contact: <sip:999900@%s:%d>\r\n"
         "Max-Forwards: 70\r\n"
-        "User-Agent: AREDN-Phonebook-UAC/1.0\r\n"
+        "User-Agent: AREDN-Phonebook-Monitor/1.0\r\n"
         "Accept: application/sdp\r\n"
         "Content-Length: 0\r\n"
         "\r\n",
@@ -126,7 +126,7 @@ static int resolve_phone_to_ip(const char *phone_number, char *ip_address, size_
 }
 
 // Calculate statistics from RTT samples
-void uac_calculate_timing_stats(float *samples, int sample_count, uac_timing_result *result) {
+void ping_test_calculate_stats(float *samples, int sample_count, ping_test_result_t *result) {
     if (sample_count == 0 || !result) {
         return;
     }
@@ -160,10 +160,10 @@ void uac_calculate_timing_stats(float *samples, int sample_count, uac_timing_res
 }
 
 // Send multiple SIP OPTIONS requests and measure RTT/jitter
-uac_timing_result uac_options_test(const char *phone_number,
+ping_test_result_t ping_test_options(const char *phone_number,
                                     const char *server_ip,
                                     int ping_count) {
-    uac_timing_result result = {0};
+    ping_test_result_t result = {0};
 
     if (!phone_number || !server_ip || ping_count <= 0 || ping_count > MAX_PING_SAMPLES) {
         LOG_ERROR("Invalid parameters for OPTIONS ping test");
@@ -261,7 +261,7 @@ uac_timing_result uac_options_test(const char *phone_number,
 
     // Calculate statistics if we got any responses
     if (result.packets_received > 0) {
-        uac_calculate_timing_stats(result.samples, result.packets_received, &result);
+        ping_test_calculate_stats(result.samples, result.packets_received, &result);
 
         LOG_INFO("OPTIONS ping test complete: %s (%s)", phone_number, target_ip);
         LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
@@ -383,10 +383,10 @@ static float send_icmp_ping(int sockfd, struct sockaddr_in *dest_addr, int seq_n
 }
 
 // Send multiple ICMP ping requests and measure RTT/jitter
-uac_timing_result uac_ping_test(const char *phone_number,
+ping_test_result_t ping_test_icmp(const char *phone_number,
                                  const char *server_ip,
                                  int ping_count) {
-    uac_timing_result result = {0};
+    ping_test_result_t result = {0};
 
     if (!phone_number || ping_count <= 0 || ping_count > MAX_PING_SAMPLES) {
         LOG_ERROR("Invalid parameters for ICMP ping test");
@@ -441,7 +441,7 @@ uac_timing_result uac_ping_test(const char *phone_number,
 
     // Calculate statistics
     if (result.packets_received > 0) {
-        uac_calculate_timing_stats(result.samples, result.packets_received, &result);
+        ping_test_calculate_stats(result.samples, result.packets_received, &result);
 
         LOG_INFO("ICMP ping test complete: %s (%s)", phone_number, target_ip);
         LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",

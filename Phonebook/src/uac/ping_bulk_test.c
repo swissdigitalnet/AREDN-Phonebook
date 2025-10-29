@@ -1,7 +1,7 @@
-#define MODULE_NAME "UAC_BULK"
+#define MODULE_NAME "PING_BULK_TEST"
 
-#include "uac_bulk_tester.h"
-#include "../phone_monitoring/phone_test_db.h"
+#include "ping_bulk_test.h"
+#include "../phone_monitoring/phone_ping.h"
 #include "../network_monitor/traceroute.h"
 #include "../network_monitor/topology_db.h"
 #include "../common.h"
@@ -9,13 +9,13 @@
 #include "../passive_safety/passive_safety.h"
 #include "../software_health/software_health.h"
 #include "../softphone/softphone.h"
-#include "uac_ping.h"
+#include "ping_test.h"
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-void *uac_bulk_tester_thread(void *arg) {
+void *ping_bulk_test_thread(void *arg) {
     (void)arg;
 
     LOG_INFO("UAC Bulk Tester thread started. Interval: %d seconds", g_uac_test_interval_seconds);
@@ -34,7 +34,7 @@ void *uac_bulk_tester_thread(void *arg) {
     }
 
     // Initialize shared memory database
-    if (phone_test_db_init() != 0) {
+    if (phone_ping_init() != 0) {
         LOG_ERROR("Failed to initialize test database. Thread exiting.");
         return NULL;
     }
@@ -111,7 +111,7 @@ void *uac_bulk_tester_thread(void *arg) {
 
         // Initialize header with previous cycle's online phone count for accurate display
         // This shows correct "X of Y" during the test cycle
-        phone_test_db_update_header(0, prev_phones_online, g_uac_test_interval_seconds);
+        phone_ping_update_header(0, prev_phones_online, g_uac_test_interval_seconds);
         LOG_DEBUG("Initialized header with %d reachable phones (from previous cycle)", prev_phones_online);
 
         // Reset counters and lock for main testing loop
@@ -174,7 +174,7 @@ void *uac_bulk_tester_thread(void *arg) {
                     LOG_INFO("Testing %s (%s) with ping (%d pings)...",
                              user->user_id, user->display_name, g_uac_ping_count);
 
-                    uac_timing_result ping_result = uac_ping_test(
+                    ping_test_result_t ping_result = ping_test_icmp(
                         user->user_id, g_server_ip, g_uac_ping_count);
 
                     if (ping_result.online) {
@@ -211,7 +211,7 @@ void *uac_bulk_tester_thread(void *arg) {
                         strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
                         db_result.options_rtt = options_rtt;
                         db_result.options_jitter = options_jitter;
-                        phone_test_db_write_result(&db_result);
+                        phone_ping_write_result(&db_result);
 
                         // Write to file
                         if (results_file) {
@@ -238,7 +238,7 @@ void *uac_bulk_tester_thread(void *arg) {
                     LOG_INFO("Testing %s (%s) with options (%d requests)...",
                              user->user_id, user->display_name, g_uac_options_count);
 
-                    uac_timing_result options_result = uac_options_test(
+                    ping_test_result_t options_result = ping_test_options(
                         user->user_id, g_server_ip, g_uac_options_count);
 
                     if (options_result.online) {
@@ -355,7 +355,7 @@ void *uac_bulk_tester_thread(void *arg) {
                         strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
                         db_result.options_rtt = options_rtt;
                         db_result.options_jitter = options_jitter;
-                        phone_test_db_write_result(&db_result);
+                        phone_ping_write_result(&db_result);
 
                         // Write results to file before continuing (keep for backwards compatibility)
                         if (results_file) {
@@ -469,7 +469,7 @@ void *uac_bulk_tester_thread(void *arg) {
                 strncpy(db_result.options_status, options_status, sizeof(db_result.options_status) - 1);
                 db_result.options_rtt = options_rtt;
                 db_result.options_jitter = options_jitter;
-                phone_test_db_write_result(&db_result);
+                phone_ping_write_result(&db_result);
 
                 // Write results to file for offline phones (keep for backwards compatibility)
                 if (results_file) {
@@ -512,7 +512,7 @@ void *uac_bulk_tester_thread(void *arg) {
         // Update database header with reachable phone count (phones that are online/reachable)
         // User wants to see "X of X phones tested (all reachable telephones only)"
         int total_results = phones_online + phones_offline;
-        phone_test_db_update_header(total_results, phones_online, g_uac_test_interval_seconds);
+        phone_ping_update_header(total_results, phones_online, g_uac_test_interval_seconds);
         LOG_DEBUG("Updated database header: %d results, %d reachable phones", total_results, phones_online);
 
         // ====================================================

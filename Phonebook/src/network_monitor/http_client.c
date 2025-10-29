@@ -1,7 +1,7 @@
 // http_client.c
 // Simple HTTP GET Client Implementation
 
-#define MODULE_NAME "UAC_HTTP"
+#define MODULE_NAME "HTTP_CLIENT"
 
 #include "http_client.h"
 #include "../common.h"

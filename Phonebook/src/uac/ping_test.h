@@ -1,6 +1,6 @@
-// uac_ping.h - SIP OPTIONS and PING testing with RTT/jitter measurement
-#ifndef UAC_PING_H
-#define UAC_PING_H
+// ping_test.h - SIP OPTIONS and PING testing with RTT/jitter measurement
+#ifndef PING_TEST_H
+#define PING_TEST_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -20,7 +20,7 @@ typedef struct {
     float avg_rtt_ms;         // Average RTT in milliseconds
     float jitter_ms;          // Jitter (variance in RTT) in milliseconds
     float samples[MAX_PING_SAMPLES]; // Individual RTT samples
-} uac_timing_result;
+} ping_test_result_t;
 
 /**
  * Send multiple ICMP ping requests to a phone and measure RTT/jitter
@@ -30,9 +30,9 @@ typedef struct {
  * @param ping_count Number of ICMP ping requests to send
  * @return Timing test result
  */
-uac_timing_result uac_ping_test(const char *phone_number,
-                                 const char *server_ip,
-                                 int ping_count);
+ping_test_result_t ping_test_icmp(const char *phone_number,
+                                   const char *server_ip,
+                                   int ping_count);
 
 /**
  * Send multiple SIP OPTIONS requests to a phone and measure RTT/jitter
@@ -42,9 +42,9 @@ uac_timing_result uac_ping_test(const char *phone_number,
  * @param ping_count Number of OPTIONS requests to send
  * @return Timing test result
  */
-uac_timing_result uac_options_test(const char *phone_number,
-                                    const char *server_ip,
-                                    int ping_count);
+ping_test_result_t ping_test_options(const char *phone_number,
+                                      const char *server_ip,
+                                      int ping_count);
 
 /**
  * Calculate timing statistics from RTT samples
@@ -52,6 +52,6 @@ uac_timing_result uac_options_test(const char *phone_number,
  * @param sample_count Number of samples
  * @param result Output statistics structure
  */
-void uac_calculate_timing_stats(float *samples, int sample_count, uac_timing_result *result);
+void ping_test_calculate_stats(float *samples, int sample_count, ping_test_result_t *result);
 
-#endif // UAC_PING_H
+#endif // PING_TEST_H
