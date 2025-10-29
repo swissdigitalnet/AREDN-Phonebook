@@ -7,10 +7,10 @@
 // These global variables are DECLARED here (extern) and DEFINED in config_loader.c
 extern int g_pb_interval_seconds;
 extern int g_status_update_interval_seconds;
-extern int g_uac_test_interval_seconds;
-extern int g_uac_call_test_enabled;
-extern int g_uac_ping_count;      // ICMP ping count
-extern int g_uac_options_count;   // SIP OPTIONS count
+extern int g_phone_test_interval_seconds;
+extern int g_phone_call_test_enabled;
+extern int g_phone_ping_count;      // ICMP ping count
+extern int g_phone_options_count;   // SIP OPTIONS count
 extern ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 extern int g_num_phonebook_servers;
 
@@ -27,8 +27,8 @@ extern float g_health_score_threshold;      // Health score drop threshold
 extern int g_crash_reporting_enabled;       // Enable crash detection
 
 // Network topology mapping configuration
-extern int g_uac_traceroute_enabled;        // Enable traceroute-based topology mapping
-extern int g_uac_traceroute_max_hops;       // Maximum hops for traceroute
+extern int g_network_traceroute_enabled;        // Enable traceroute-based topology mapping
+extern int g_network_traceroute_max_hops;       // Maximum hops for traceroute
 extern int g_topology_fetch_locations;      // Fetch location data from sysinfo.json
 extern int g_topology_crawler_enabled;      // Enable mesh network crawler
 extern int g_topology_crawler_interval_seconds; // Crawler interval in seconds

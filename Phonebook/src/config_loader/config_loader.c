@@ -12,10 +12,10 @@
 // These are initialized with default values, which will be overwritten by the config file if present.
 int g_pb_interval_seconds = 3600; // Default: 1 hour
 int g_status_update_interval_seconds = 600; // Default: 10 minutes
-int g_uac_test_interval_seconds = 60; // Default: 60 seconds
-int g_uac_call_test_enabled = 0;
-int g_uac_ping_count = 5;      // ICMP ping count (default: 5)
-int g_uac_options_count = 5;   // SIP OPTIONS count (default: 5)
+int g_phone_test_interval_seconds = 60; // Default: 60 seconds
+int g_phone_call_test_enabled = 0;
+int g_phone_ping_count = 5;      // ICMP ping count (default: 5)
+int g_phone_options_count = 5;   // SIP OPTIONS count (default: 5)
 ConfigurableServer g_phonebook_servers_list[MAX_PB_SERVERS];
 int g_num_phonebook_servers = 0; // Will be populated by the loader
 
@@ -32,8 +32,8 @@ float g_health_score_threshold = 15.0f;        // Default: 15 point score drop
 int g_crash_reporting_enabled = 1;             // Default: enabled
 
 // Network topology mapping configuration
-int g_uac_traceroute_enabled = 1;              // Default: enabled
-int g_uac_traceroute_max_hops = 20;            // Default: 20 hops
+int g_network_traceroute_enabled = 1;              // Default: enabled
+int g_network_traceroute_max_hops = 20;            // Default: 20 hops
 int g_topology_fetch_locations = 1;            // Default: enabled
 int g_topology_crawler_enabled = 1;            // Default: enabled
 int g_topology_crawler_interval_seconds = 3600; // Default: 3600 seconds (1 hour)
@@ -108,33 +108,33 @@ int load_configuration(const char *config_filepath) {
             } else {
                 LOG_WARN("Invalid STATUS_UPDATE_INTERVAL_SECONDS value '%s'. Using default %d.", value, g_status_update_interval_seconds);
             }
-        } else if (strcmp(key, "UAC_TEST_INTERVAL_SECONDS") == 0) {
+        } else if (strcmp(key, "PHONE_TEST_INTERVAL_SECONDS") == 0) {
             int parsed_value = atoi(value);
             if (parsed_value >= 0) { // Allow 0 to disable
-                g_uac_test_interval_seconds = parsed_value;
-                LOG_DEBUG("Config: UAC_TEST_INTERVAL_SECONDS = %d", g_uac_test_interval_seconds);
+                g_phone_test_interval_seconds = parsed_value;
+                LOG_DEBUG("Config: PHONE_TEST_INTERVAL_SECONDS = %d", g_phone_test_interval_seconds);
             } else {
-                LOG_WARN("Invalid UAC_TEST_INTERVAL_SECONDS value '%s'. Using default %d.", value, g_uac_test_interval_seconds);
+                LOG_WARN("Invalid PHONE_TEST_INTERVAL_SECONDS value '%s'. Using default %d.", value, g_phone_test_interval_seconds);
             }
-        } else if (strcmp(key, "UAC_CALL_TEST_ENABLED") == 0) {
+        } else if (strcmp(key, "PHONE_CALL_TEST_ENABLED") == 0) {
             int parsed_value = atoi(value);
-            g_uac_call_test_enabled = (parsed_value != 0) ? 1 : 0;
-            LOG_DEBUG("Config: UAC_CALL_TEST_ENABLED = %d", g_uac_call_test_enabled);
-        } else if (strcmp(key, "UAC_PING_COUNT") == 0) {
+            g_phone_call_test_enabled = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: PHONE_CALL_TEST_ENABLED = %d", g_phone_call_test_enabled);
+        } else if (strcmp(key, "PHONE_PING_COUNT") == 0) {
             int parsed_value = atoi(value);
             if (parsed_value >= 0 && parsed_value <= 20) {
-                g_uac_ping_count = parsed_value;
-                LOG_DEBUG("Config: UAC_PING_COUNT = %d", g_uac_ping_count);
+                g_phone_ping_count = parsed_value;
+                LOG_DEBUG("Config: PHONE_PING_COUNT = %d", g_phone_ping_count);
             } else {
-                LOG_WARN("Invalid UAC_PING_COUNT value '%s'. Using default %d.", value, g_uac_ping_count);
+                LOG_WARN("Invalid PHONE_PING_COUNT value '%s'. Using default %d.", value, g_phone_ping_count);
             }
-        } else if (strcmp(key, "UAC_OPTIONS_COUNT") == 0) {
+        } else if (strcmp(key, "PHONE_OPTIONS_COUNT") == 0) {
             int parsed_value = atoi(value);
             if (parsed_value >= 0 && parsed_value <= 20) {
-                g_uac_options_count = parsed_value;
-                LOG_DEBUG("Config: UAC_OPTIONS_COUNT = %d", g_uac_options_count);
+                g_phone_options_count = parsed_value;
+                LOG_DEBUG("Config: PHONE_OPTIONS_COUNT = %d", g_phone_options_count);
             } else {
-                LOG_WARN("Invalid UAC_OPTIONS_COUNT value '%s'. Using default %d.", value, g_uac_options_count);
+                LOG_WARN("Invalid PHONE_OPTIONS_COUNT value '%s'. Using default %d.", value, g_phone_options_count);
             }
         } else if (strcmp(key, "PHONEBOOK_SERVER") == 0) {
             if (current_server_idx < MAX_PB_SERVERS) {
@@ -230,17 +230,17 @@ int load_configuration(const char *config_filepath) {
             int parsed_value = atoi(value);
             g_crash_reporting_enabled = (parsed_value != 0) ? 1 : 0;
             LOG_DEBUG("Config: CRASH_REPORTING_ENABLED = %d", g_crash_reporting_enabled);
-        } else if (strcmp(key, "UAC_TRACEROUTE_ENABLED") == 0) {
+        } else if (strcmp(key, "NETWORK_TRACEROUTE_ENABLED") == 0) {
             int parsed_value = atoi(value);
-            g_uac_traceroute_enabled = (parsed_value != 0) ? 1 : 0;
-            LOG_DEBUG("Config: UAC_TRACEROUTE_ENABLED = %d", g_uac_traceroute_enabled);
-        } else if (strcmp(key, "UAC_TRACEROUTE_MAX_HOPS") == 0) {
+            g_network_traceroute_enabled = (parsed_value != 0) ? 1 : 0;
+            LOG_DEBUG("Config: NETWORK_TRACEROUTE_ENABLED = %d", g_network_traceroute_enabled);
+        } else if (strcmp(key, "NETWORK_TRACEROUTE_MAX_HOPS") == 0) {
             int parsed_value = atoi(value);
             if (parsed_value >= 1 && parsed_value <= 30) {
-                g_uac_traceroute_max_hops = parsed_value;
-                LOG_DEBUG("Config: UAC_TRACEROUTE_MAX_HOPS = %d", g_uac_traceroute_max_hops);
+                g_network_traceroute_max_hops = parsed_value;
+                LOG_DEBUG("Config: NETWORK_TRACEROUTE_MAX_HOPS = %d", g_network_traceroute_max_hops);
             } else {
-                LOG_WARN("Invalid UAC_TRACEROUTE_MAX_HOPS value '%s'. Using default %d.", value, g_uac_traceroute_max_hops);
+                LOG_WARN("Invalid NETWORK_TRACEROUTE_MAX_HOPS value '%s'. Using default %d.", value, g_network_traceroute_max_hops);
             }
         } else if (strcmp(key, "TOPOLOGY_FETCH_LOCATIONS") == 0) {
             int parsed_value = atoi(value);

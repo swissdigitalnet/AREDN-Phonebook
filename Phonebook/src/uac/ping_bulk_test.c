@@ -18,7 +18,7 @@
 void *ping_bulk_test_thread(void *arg) {
     (void)arg;
 
-    LOG_INFO("UAC Bulk Tester thread started. Interval: %d seconds", g_uac_test_interval_seconds);
+    LOG_INFO("UAC Bulk Tester thread started. Interval: %d seconds", g_phone_test_interval_seconds);
 
     // Register this thread for health monitoring
     int thread_index = health_register_thread(pthread_self(), "uac_bulk_tester");
@@ -28,8 +28,8 @@ void *ping_bulk_test_thread(void *arg) {
     }
 
     // If interval is 0, bulk testing is disabled
-    if (g_uac_test_interval_seconds <= 0) {
-        LOG_INFO("UAC bulk testing disabled (interval = %d). Thread exiting.", g_uac_test_interval_seconds);
+    if (g_phone_test_interval_seconds <= 0) {
+        LOG_INFO("UAC bulk testing disabled (interval = %d). Thread exiting.", g_phone_test_interval_seconds);
         return NULL;
     }
 
@@ -76,7 +76,7 @@ void *ping_bulk_test_thread(void *arg) {
         LOG_INFO("=== Starting UAC bulk test cycle ===");
 
         // Initialize topology database for this cycle
-        if (g_uac_traceroute_enabled) {
+        if (g_network_traceroute_enabled) {
             topology_db_init();
             topology_db_cleanup_stale_nodes();
             LOG_INFO("Topology database cleaned up for scan cycle");
@@ -111,7 +111,7 @@ void *ping_bulk_test_thread(void *arg) {
 
         // Initialize header with previous cycle's online phone count for accurate display
         // This shows correct "X of Y" during the test cycle
-        phone_ping_update_header(0, prev_phones_online, g_uac_test_interval_seconds);
+        phone_ping_update_header(0, prev_phones_online, g_phone_test_interval_seconds);
         LOG_DEBUG("Initialized header with %d reachable phones (from previous cycle)", prev_phones_online);
 
         // Reset counters and lock for main testing loop
@@ -170,12 +170,12 @@ void *ping_bulk_test_thread(void *arg) {
                 // ====================================================
                 // PHASE 1: Ping Test (ICMP - Network Layer)
                 // ====================================================
-                if (g_uac_ping_count > 0) {
+                if (g_phone_ping_count > 0) {
                     LOG_INFO("Testing %s (%s) with ping (%d pings)...",
-                             user->user_id, user->display_name, g_uac_ping_count);
+                             user->user_id, user->display_name, g_phone_ping_count);
 
                     ping_test_result_t ping_result = ping_test_icmp(
-                        user->user_id, g_server_ip, g_uac_ping_count);
+                        user->user_id, g_server_ip, g_phone_ping_count);
 
                     if (ping_result.online) {
                         snprintf(ping_status, sizeof(ping_status), "ONLINE");
@@ -234,12 +234,12 @@ void *ping_bulk_test_thread(void *arg) {
                 // PHASE 2: Options Test (SIP OPTIONS - Application Layer)
                 // ====================================================
                 // Only run if ping succeeded or ping is disabled
-                if (g_uac_options_count > 0) {
+                if (g_phone_options_count > 0) {
                     LOG_INFO("Testing %s (%s) with options (%d requests)...",
-                             user->user_id, user->display_name, g_uac_options_count);
+                             user->user_id, user->display_name, g_phone_options_count);
 
                     ping_test_result_t options_result = ping_test_options(
-                        user->user_id, g_server_ip, g_uac_options_count);
+                        user->user_id, g_server_ip, g_phone_options_count);
 
                     if (options_result.online) {
                         phones_online++;
@@ -258,7 +258,7 @@ void *ping_bulk_test_thread(void *arg) {
                                  options_result.max_rtt_ms, options_result.jitter_ms);
 
                         // Track RTT stats for summary (only if ping wasn't counted)
-                        if (g_uac_ping_count <= 0) {
+                        if (g_phone_ping_count <= 0) {
                             total_avg_rtt += options_result.avg_rtt_ms;
                             rtt_count++;
                         }
@@ -267,13 +267,13 @@ void *ping_bulk_test_thread(void *arg) {
                         // PHASE 2.5: Traceroute Test (NEW - Network Topology Discovery)
                         // Run traceroute for online phones to map network topology
                         // ====================================================
-                        if (g_uac_traceroute_enabled) {
+                        if (g_network_traceroute_enabled) {
                             LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
 
                             TracerouteHop hops[30];
                             int hop_count = 0;
 
-                            if (traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
+                            if (traceroute_to_phone(user->user_id, g_network_traceroute_max_hops, hops, &hop_count) == 0) {
                                 LOG_DEBUG("Traced %d hops to %s", hop_count, user->user_id);
 
                                 // Get source IP for this route (for reverse DNS lookup)
@@ -380,7 +380,7 @@ void *ping_bulk_test_thread(void *arg) {
                 // ====================================================
                 // PHASE 3: SIP INVITE Test (Optional - only if enabled)
                 // ====================================================
-                if (g_uac_call_test_enabled) {
+                if (g_phone_call_test_enabled) {
                     LOG_INFO("Ping/OPTIONS failed, trying INVITE test for %s...",
                              user->user_id);
 
@@ -512,13 +512,13 @@ void *ping_bulk_test_thread(void *arg) {
         // Update database header with reachable phone count (phones that are online/reachable)
         // User wants to see "X of X phones tested (all reachable telephones only)"
         int total_results = phones_online + phones_offline;
-        phone_ping_update_header(total_results, phones_online, g_uac_test_interval_seconds);
+        phone_ping_update_header(total_results, phones_online, g_phone_test_interval_seconds);
         LOG_DEBUG("Updated database header: %d results, %d reachable phones", total_results, phones_online);
 
         // ====================================================
         // POST-CYCLE TOPOLOGY PROCESSING
         // ====================================================
-        if (g_uac_traceroute_enabled) {
+        if (g_network_traceroute_enabled) {
             int node_count = topology_db_get_node_count();
             int connection_count = topology_db_get_connection_count();
 
@@ -565,8 +565,8 @@ void *ping_bulk_test_thread(void *arg) {
         }
 
         // Wait for next cycle
-        LOG_INFO("Next UAC bulk test in %d seconds...", g_uac_test_interval_seconds);
-        sleep(g_uac_test_interval_seconds);
+        LOG_INFO("Next UAC bulk test in %d seconds...", g_phone_test_interval_seconds);
+        sleep(g_phone_test_interval_seconds);
     }
 
     LOG_INFO("UAC Bulk Tester thread exiting");
