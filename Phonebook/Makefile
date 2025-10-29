@@ -107,9 +107,9 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_DIR) $(1)/www/cgi-bin
 	$(INSTALL_BIN) ./files/www/cgi-bin/loadphonebook $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/showphonebook $(1)/www/cgi-bin/
-	$(INSTALL_BIN) ./files/www/cgi-bin/uac_test $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/phone_test $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/arednmon $(1)/www/cgi-bin/
-	$(INSTALL_BIN) ./files/www/cgi-bin/uac_ping $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/phone_ping $(1)/www/cgi-bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/phone_ping_reader $(1)/www/cgi-bin/phone_ping_json
 	$(INSTALL_BIN) ./files/www/cgi-bin/health_status $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/topology_json $(1)/www/cgi-bin/
