@@ -56,6 +56,8 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/config_loader/config_loader.c \
 		$(PKG_BUILD_DIR)/passive_safety/passive_safety.c \
 		$(PKG_BUILD_DIR)/softphone/softphone.c \
+		$(PKG_BUILD_DIR)/softphone/softphone_sip_builder.c \
+		$(PKG_BUILD_DIR)/softphone/softphone_sip_parser.c \
 		$(PKG_BUILD_DIR)/phone_monitoring/phone_ping.c \
 		$(PKG_BUILD_DIR)/network_monitor/topology_db.c \
 		$(PKG_BUILD_DIR)/network_monitor/traceroute.c \
