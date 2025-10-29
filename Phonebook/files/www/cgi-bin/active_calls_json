@@ -1,0 +1,16 @@
+#!/bin/sh
+# Active Calls JSON CGI Endpoint
+# Returns active call sessions as JSON for AREDNmon dashboard
+# Usage: curl "http://node/cgi-bin/active_calls_json"
+
+echo "Content-Type: application/json"
+echo ""
+
+# Read active calls file
+CALLS_FILE="/tmp/active_calls.json"
+
+if [ -f "$CALLS_FILE" ]; then
+    cat "$CALLS_FILE"
+else
+    echo '{"calls": [], "total_active_calls": 0}'
+fi

@@ -314,10 +314,92 @@ cat <<'EOF'
             color: #4CAF50;
             font-weight: bold;
         }
+        /* Active Calls Section */
+        .active-calls-container {
+            background-color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .active-calls-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .call-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            border-radius: 4px;
+        }
+        .call-item.ringing {
+            border-left-color: #FF9800;
+        }
+        .call-info {
+            flex: 1;
+        }
+        .call-parties {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .call-details {
+            font-size: 14px;
+            color: #666;
+        }
+        .call-codec {
+            display: inline-block;
+            padding: 2px 8px;
+            background-color: #2196F3;
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .call-state {
+            display: inline-block;
+            padding: 2px 8px;
+            background-color: #9E9E9E;
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+        .traceroute-btn {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .traceroute-btn:hover {
+            background-color: #45a049;
+        }
+        .no-calls {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <h1>AREDNmon - Network Monitor</h1>
+
+    <!-- Active Calls Section -->
+    <div class="active-calls-container" id="activeCallsContainer" style="display: none;">
+        <div class="active-calls-title">Active Calls</div>
+        <div id="activeCallsList"></div>
+    </div>
 EOF
 
 cat <<'EOF'
@@ -427,6 +509,53 @@ cat <<EOF
                 }
             } catch (error) {
                 console.error('Failed to load phonebook:', error);
+            }
+        }
+
+        // Active Calls Functions
+        async function loadActiveCalls() {
+            try {
+                const response = await fetch('/cgi-bin/active_calls_json');
+                const data = await response.json();
+
+                const container = document.getElementById('activeCallsContainer');
+                const callsList = document.getElementById('activeCallsList');
+
+                if (data.calls && data.calls.length > 0) {
+                    // Show container
+                    container.style.display = 'block';
+
+                    // Build calls HTML
+                    let html = '';
+                    data.calls.forEach(call => {
+                        const stateClass = call.state === 'RINGING' ? 'ringing' : '';
+                        html += `
+                            <div class="call-item ${stateClass}">
+                                <div class="call-info">
+                                    <div class="call-parties">
+                                        ${call.caller_display_name} (${call.caller_user_id})
+                                        ⟷
+                                        ${call.callee_display_name} (${call.callee_user_id})
+                                    </div>
+                                    <div class="call-details">
+                                        <span class="call-codec">${call.codec || 'Unknown'}</span>
+                                        <span class="call-state">${call.state}</span>
+                                    </div>
+                                </div>
+                                <button class="traceroute-btn" onclick="fetchTraceroute('${call.callee_hostname}', '${call.callee_display_name}')">
+                                    Traceroute
+                                </button>
+                            </div>
+                        `;
+                    });
+                    callsList.innerHTML = html;
+                } else {
+                    // Hide container when no calls
+                    container.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Failed to load active calls:', error);
+                document.getElementById('activeCallsContainer').style.display = 'none';
             }
         }
 
@@ -1143,6 +1272,10 @@ cat <<EOF
         async function init() {
             // Initialize topology map (independent of test data)
             initTopologyMap();
+
+            // Load active calls initially and set up periodic updates
+            loadActiveCalls();
+            setInterval(loadActiveCalls, 5000); // Refresh every 5 seconds
 
             // Fetch test results data first (don't render yet)
             const response = await fetch('/cgi-bin/uac_test_db_json');

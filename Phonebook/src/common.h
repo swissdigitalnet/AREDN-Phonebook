@@ -121,6 +121,14 @@ typedef struct {
     struct sockaddr_in original_caller_addr;
     CallState state;
     time_t creation_time;  // For passive cleanup of stale sessions
+
+    // Call details for dashboard display
+    char caller_user_id[MAX_PHONE_NUMBER_LEN];          // Caller phone number
+    char caller_display_name[MAX_DISPLAY_NAME_LEN];     // Caller name
+    char callee_user_id[MAX_PHONE_NUMBER_LEN];          // Callee phone number
+    char callee_display_name[MAX_DISPLAY_NAME_LEN];     // Callee name
+    char codec[32];                                      // Codec being used (e.g., "PCMA", "PCMU", "G729")
+    char callee_hostname[256];                           // Hostname for traceroute (e.g., "441530.local.mesh")
 } CallSession;
 
 

@@ -66,6 +66,106 @@ int extract_tag_from_header(const char *header_value, char *buf, size_t len) {
     return 1;
 }
 
+// Extract display name from SIP From/To header
+// Handles formats like: "John Doe" <sip:...> or John Doe <sip:...>
+// Falls back to user_id if no display name is present
+void extract_display_name_from_header(const char *header_value, const char *user_id,
+                                       char *display_name, size_t display_name_len) {
+    const char *quote_start = strchr(header_value, '"');
+    if (quote_start) {
+        quote_start++;
+        const char *quote_end = strchr(quote_start, '"');
+        if (quote_end) {
+            size_t name_len = quote_end - quote_start;
+            if (name_len >= display_name_len) name_len = display_name_len - 1;
+            memcpy(display_name, quote_start, name_len);
+            display_name[name_len] = '\0';
+            return;
+        }
+    }
+    // No display name found, use user_id as fallback
+    strncpy(display_name, user_id, display_name_len - 1);
+    display_name[display_name_len - 1] = '\0';
+}
+
+// Extract codec from SDP body
+// Parses m=audio line and a=rtpmap lines to determine codec name
+// Example SDP: m=audio 8000 RTP/AVP 0 8 -> codec 0 -> PCMU
+void extract_codec_from_sdp(const char *sip_message, char *codec_out, size_t codec_out_len) {
+    // Find SDP body (after "\r\n\r\n")
+    const char *body = strstr(sip_message, "\r\n\r\n");
+    if (!body) {
+        codec_out[0] = '\0';
+        return;
+    }
+    body += 4; // Skip past "\r\n\r\n"
+
+    // Find m=audio line
+    const char *m_audio = strstr(body, "m=audio");
+    if (!m_audio) {
+        codec_out[0] = '\0';
+        return;
+    }
+
+    // Extract first payload type number from m=audio line
+    // Format: m=audio <port> RTP/AVP <payload_types...>
+    const char *rtp_avp = strstr(m_audio, "RTP/AVP");
+    if (!rtp_avp) {
+        codec_out[0] = '\0';
+        return;
+    }
+    rtp_avp += 7; // Skip "RTP/AVP"
+
+    // Skip whitespace
+    while (*rtp_avp == ' ' || *rtp_avp == '\t') rtp_avp++;
+
+    // Extract first payload type number
+    int payload_type = atoi(rtp_avp);
+
+    // Common static payload types (RFC 3551)
+    const char *codec_name = NULL;
+    switch (payload_type) {
+        case 0:  codec_name = "PCMU"; break;    // G.711 μ-law
+        case 3:  codec_name = "GSM"; break;
+        case 4:  codec_name = "G723"; break;
+        case 8:  codec_name = "PCMA"; break;    // G.711 A-law
+        case 9:  codec_name = "G722"; break;
+        case 18: codec_name = "G729"; break;
+        default:
+            // Try to find a=rtpmap line for dynamic payload types
+            {
+                char search_pattern[32];
+                snprintf(search_pattern, sizeof(search_pattern), "a=rtpmap:%d ", payload_type);
+                const char *rtpmap = strstr(body, search_pattern);
+                if (rtpmap) {
+                    rtpmap += strlen(search_pattern);
+                    // Extract codec name until '/' or whitespace
+                    const char *codec_end = rtpmap;
+                    while (*codec_end && *codec_end != '/' && *codec_end != '\r' &&
+                           *codec_end != '\n' && *codec_end != ' ') {
+                        codec_end++;
+                    }
+                    size_t codec_len = codec_end - rtpmap;
+                    if (codec_len > 0 && codec_len < codec_out_len) {
+                        memcpy(codec_out, rtpmap, codec_len);
+                        codec_out[codec_len] = '\0';
+                        return;
+                    }
+                }
+                // Unknown payload type
+                snprintf(codec_out, codec_out_len, "PT%d", payload_type);
+                return;
+            }
+    }
+
+    if (codec_name) {
+        strncpy(codec_out, codec_name, codec_out_len - 1);
+        codec_out[codec_out_len - 1] = '\0';
+    } else {
+        codec_out[0] = '\0';
+    }
+}
+
 // These functions (extract_port_from_uri, extract_ip_from_uri) are no longer strictly needed
 // for routing *dynamic* registrations if we always use DNS and SIP_PORT.
 // However, they might still be useful for parsing incoming SIP messages or for other purposes.
@@ -409,12 +509,15 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
             if (strstr(first_line, "200 OK") && strstr(cseq_hdr, "INVITE")) {
                 session->state = CALL_STATE_ESTABLISHED;
                 LOG_INFO("Call-ID %s state changed to ESTABLISHED.", session->call_id);
+                export_active_calls_json();
             } else if (strstr(first_line, "4") == first_line + 8 || strstr(first_line, "5") == first_line + 8 || strstr(first_line, "6") == first_line + 8) {
                 LOG_WARN("Received error response for Call-ID %s: %s", session->call_id, first_line);
                 terminate_call_session(session);
+                export_active_calls_json();
             } else if (strstr(first_line, "180 Ringing") || strstr(first_line, "183 Session Progress")) {
                 session->state = CALL_STATE_RINGING;
                 LOG_INFO("Call-ID %s state changed to RINGING.", session->call_id);
+                export_active_calls_json();
             }
         } else {
             LOG_WARN("SIP response received with no matching call session: %s", call_id_hdr);
@@ -451,21 +554,7 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
             int expires = atoi(expires_hdr);
 
             char display_name[MAX_DISPLAY_NAME_LEN] = "";
-            char *nm = strchr(from_hdr, '"');
-            if (nm) {
-                nm++;
-                char *ne = strchr(nm, '"');
-                if (ne) {
-                    size_t l = ne - nm;
-                    if (l >= sizeof(display_name)) l = sizeof(display_name)-1;
-                    memcpy(display_name, nm, l);
-                    display_name[l] = '\0';
-                }
-            } else {
-                strncpy(display_name, from_user_id,
-                        sizeof(display_name)-1);
-                display_name[sizeof(display_name)-1] = '\0';
-            }
+            extract_display_name_from_header(from_hdr, from_user_id, display_name, sizeof(display_name));
 
             // Call simplified add_or_update_registered_user
             add_or_update_registered_user(from_user_id, display_name, expires);
@@ -543,6 +632,27 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
             memcpy(&session->original_caller_addr, cliaddr, cli_len);
             memcpy(&session->callee_addr, &resolved_callee_addr, sizeof(resolved_callee_addr));
 
+            // Populate call details for dashboard display
+            strncpy(session->caller_user_id, from_user_id, sizeof(session->caller_user_id) - 1);
+            session->caller_user_id[sizeof(session->caller_user_id) - 1] = '\0';
+            strncpy(session->callee_user_id, to_user_id, sizeof(session->callee_user_id) - 1);
+            session->callee_user_id[sizeof(session->callee_user_id) - 1] = '\0';
+
+            // Extract display names from From and To headers
+            extract_display_name_from_header(from_hdr, from_user_id,
+                                             session->caller_display_name,
+                                             sizeof(session->caller_display_name));
+            extract_display_name_from_header(to_hdr, to_user_id,
+                                             session->callee_display_name,
+                                             sizeof(session->callee_display_name));
+
+            // Extract codec from SDP body
+            extract_codec_from_sdp(buffer, session->codec, sizeof(session->codec));
+
+            // Store callee hostname for traceroute
+            strncpy(session->callee_hostname, hostname_to_resolve, sizeof(session->callee_hostname) - 1);
+            session->callee_hostname[sizeof(session->callee_hostname) - 1] = '\0';
+
             LOG_DEBUG("Callee '%s' target: %s:%d",
                         to_user_id, sockaddr_to_ip_str(&session->callee_addr), ntohs(session->callee_addr.sin_port));
 
@@ -556,6 +666,7 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
                                         NULL, NULL);
             LOG_INFO("Sent 100 Trying for Call-ID %s.", session->call_id);
             session->state = CALL_STATE_INVITE_SENT;
+            export_active_calls_json();
 
             char new_request_line_uri[MAX_CONTACT_URI_LEN];
             snprintf(new_request_line_uri, sizeof(new_request_line_uri),
@@ -601,6 +712,7 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
                                             NULL, NULL, NULL);
                 LOG_INFO("BYE processed and session %s terminated.", session->call_id);
                 terminate_call_session(session);
+                export_active_calls_json();
             } else {
                 LOG_INFO("BYE failed: No matching call session for Call-ID %s.", call_id_hdr);
                 send_response_to_registered(sockfd,
@@ -633,6 +745,7 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
                                             NULL, NULL, NULL);
                 LOG_INFO("CANCEL processed and session %s terminated.", session->call_id);
                 terminate_call_session(session);
+                export_active_calls_json();
             } else {
                 LOG_INFO("CANCEL failed: No matching call session or invalid state for Call-ID %s.", call_id_hdr);
                 send_response_to_registered(sockfd,

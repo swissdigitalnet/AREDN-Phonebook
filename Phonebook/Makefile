@@ -112,6 +112,7 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_BIN) ./files/www/cgi-bin/phone_ping $(1)/www/cgi-bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/phone_ping_reader $(1)/www/cgi-bin/phone_ping_json
 	$(INSTALL_BIN) ./files/www/cgi-bin/health_status $(1)/www/cgi-bin/
+	$(INSTALL_BIN) ./files/www/cgi-bin/active_calls_json $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/topology_json $(1)/www/cgi-bin/
 	$(INSTALL_BIN) ./files/www/cgi-bin/traceroute_json $(1)/www/cgi-bin/
 endef
