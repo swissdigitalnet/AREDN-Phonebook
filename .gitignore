@@ -43,12 +43,17 @@ todo.*
 *.a
 *~
 *.tmp.*
+*.backup
 .DS_Store
 Thumbs.db
 
 # Compiled binaries (prevent packaging old binaries in GitHub Actions)
 Phonebook/src/AREDN-Phonebook
 Phonebook/src/uac_test_db_json
+Phonebook/AREDN-Phonebook
+
+# Configuration and testing directories
+Configuration Files/
 
 # IDE and editor files
 .vscode/

@@ -1,9 +1,9 @@
 /*
- * UAC Test Database Reader CGI
+ * Phone Ping Database Reader CGI
  * Reads shared memory database and outputs JSON
  */
 
-#include "phone_test_db.h"
+#include "phone_ping.h"
 #include <stdio.h>
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -14,8 +14,8 @@
 
 // Helper function to compare phone numbers for qsort
 static int compare_phone_numbers(const void *a, const void *b) {
-    const phone_test_result_t *result_a = (const phone_test_result_t *)a;
-    const phone_test_result_t *result_b = (const phone_test_result_t *)b;
+    const phone_ping_result_t *result_a = (const phone_ping_result_t *)a;
+    const phone_ping_result_t *result_b = (const phone_ping_result_t *)b;
 
     // Invalid entries go to the end
     if (!result_a->valid && !result_b->valid) return 0;
@@ -28,7 +28,7 @@ static int compare_phone_numbers(const void *a, const void *b) {
 
 int main(void) {
     // Open shared memory
-    int shm_fd = shm_open(PHONE_TEST_SHM_NAME, O_RDONLY, 0666);
+    int shm_fd = shm_open(PHONE_PING_SHM_NAME, O_RDONLY, 0666);
     if (shm_fd == -1) {
         // No database exists yet - return empty JSON
         printf("Content-Type: application/json\r\n\r\n");
@@ -37,7 +37,7 @@ int main(void) {
     }
 
     // Map shared memory
-    phone_test_db_t *db = mmap(NULL, sizeof(phone_test_db_t), PROT_READ,
+    phone_ping_db_t *db = mmap(NULL, sizeof(phone_ping_db_t), PROT_READ,
                              MAP_SHARED, shm_fd, 0);
     if (db == MAP_FAILED) {
         printf("Content-Type: application/json\r\n\r\n");
@@ -47,11 +47,11 @@ int main(void) {
     }
 
     // Copy results to local array for sorting
-    phone_test_result_t sorted_results[MAX_TEST_RESULTS];
+    phone_ping_result_t sorted_results[MAX_PING_RESULTS];
     memcpy(sorted_results, db->results, sizeof(sorted_results));
 
     // Sort results by phone number
-    qsort(sorted_results, MAX_TEST_RESULTS, sizeof(phone_test_result_t),
+    qsort(sorted_results, MAX_PING_RESULTS, sizeof(phone_ping_result_t),
           compare_phone_numbers);
 
     // Output HTTP headers
@@ -71,7 +71,7 @@ int main(void) {
     printf("  \"results\": [\n");
 
     int first = 1;
-    for (int i = 0; i < MAX_TEST_RESULTS; i++) {
+    for (int i = 0; i < MAX_PING_RESULTS; i++) {
         if (!sorted_results[i].valid) {
             continue;
         }
@@ -97,7 +97,7 @@ int main(void) {
     printf("}\n");
 
     // Cleanup
-    munmap(db, sizeof(phone_test_db_t));
+    munmap(db, sizeof(phone_ping_db_t));
     close(shm_fd);
 
     return 0;
