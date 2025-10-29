@@ -203,7 +203,7 @@ void *ping_bulk_test_thread(void *arg) {
                         phones_offline++;
 
                         // Write results to database
-                        phone_test_result_t db_result = {0};
+                        phone_ping_result_t db_result = {0};
                         strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
                         strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
                         db_result.ping_rtt = ping_rtt;
@@ -347,7 +347,7 @@ void *ping_bulk_test_thread(void *arg) {
                         }
 
                         // Write results to shared memory database
-                        phone_test_result_t db_result = {0};
+                        phone_ping_result_t db_result = {0};
                         strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
                         strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
                         db_result.ping_rtt = ping_rtt;
@@ -461,7 +461,7 @@ void *ping_bulk_test_thread(void *arg) {
                 }
 
                 // Write results to shared memory database for offline phones
-                phone_test_result_t db_result = {0};
+                phone_ping_result_t db_result = {0};
                 strncpy(db_result.phone_number, user->user_id, sizeof(db_result.phone_number) - 1);
                 strncpy(db_result.ping_status, ping_status, sizeof(db_result.ping_status) - 1);
                 db_result.ping_rtt = ping_rtt;
