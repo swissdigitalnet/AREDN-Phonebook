@@ -20,6 +20,7 @@ AGENTS.md
 .gnupg/
 SetupDevContainer.md
 sudo_as_admin_successful
+.sudo_as_admin_successful
 
 # Development documentation and notes
 BUILD-LOCAL.md
