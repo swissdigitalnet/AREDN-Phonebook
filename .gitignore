@@ -19,6 +19,13 @@ AGENTS.md
 .claude.json.backup
 .gnupg/
 SetupDevContainer.md
+sudo_as_admin_successful
+
+# Development documentation and notes
+BUILD-LOCAL.md
+build-x86-local.sh
+health-backend-design.md
+health-debugging.md
 
 # Microsoft Office documents
 *.docx
@@ -73,6 +80,3 @@ dl/
 # Local build outputs
 *.ipk
 packages/
-
-# Keep local build script
-!build-x86-local.sh
