@@ -62,8 +62,9 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/network_monitor/topology_db.c \
 		$(PKG_BUILD_DIR)/network_monitor/traceroute.c \
 		$(PKG_BUILD_DIR)/network_monitor/http_client.c \
-		$(PKG_BUILD_DIR)/uac/ping_bulk_test.c \
-		$(PKG_BUILD_DIR)/uac/ping_test.c \
+		$(PKG_BUILD_DIR)/network_monitor/topology_crawler.c \
+		$(PKG_BUILD_DIR)/phone_testing/ping_bulk_test.c \
+		$(PKG_BUILD_DIR)/phone_testing/ping_test.c \
 		$(PKG_BUILD_DIR)/software_health/software_health.c \
 		$(PKG_BUILD_DIR)/software_health/health_metrics.c \
 		$(PKG_BUILD_DIR)/software_health/health_scorer.c \

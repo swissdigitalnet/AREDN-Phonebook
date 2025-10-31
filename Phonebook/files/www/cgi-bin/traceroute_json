@@ -23,6 +23,11 @@ EOF
     exit 0
 fi
 
+# Measure localhost loopback delay
+LOCALHOST_NAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "localhost")
+LOCALHOST_RTT=$(ping -c 1 -W 1 127.0.0.1 2>/dev/null | grep "time=" | sed 's/.*time=\([0-9.]*\).*/\1/')
+[ -z "$LOCALHOST_RTT" ] && LOCALHOST_RTT="0.0"
+
 # Perform traceroute using ICMP
 # -I: Use ICMP ECHO instead of UDP
 # -m: Max hops (30)
@@ -50,7 +55,16 @@ echo "{"
 echo "  \"target_ip\": \"$TARGET_IP\","
 echo "  \"hops\": ["
 
-FIRST_HOP=true
+# Add localhost as hop 0
+echo "    {"
+echo "      \"hop\": 0,"
+echo "      \"ip\": \"127.0.0.1\","
+echo "      \"hostname\": \"$LOCALHOST_NAME\","
+echo "      \"rtt_ms\": $LOCALHOST_RTT,"
+echo "      \"timeout\": false"
+echo -n "    }"
+
+FIRST_HOP=false
 echo "$TRACEROUTE_OUTPUT" | tail -n +2 | while IFS= read -r line; do
     # Skip empty lines
     [ -z "$line" ] && continue
@@ -93,8 +107,8 @@ echo "$TRACEROUTE_OUTPUT" | tail -n +2 | while IFS= read -r line; do
         RTT_AVG="0.00"
     fi
 
-    # Try reverse DNS lookup
-    HOSTNAME=$(nslookup "$IP" 2>/dev/null | grep "name =" | awk '{print $4}' | sed 's/\.$//')
+    # Try reverse DNS lookup (take only first line and sanitize)
+    HOSTNAME=$(nslookup "$IP" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//' | tr -d '\n\r\t')
     [ -z "$HOSTNAME" ] && HOSTNAME="$IP"
 
     # Remove .local.mesh suffix if present

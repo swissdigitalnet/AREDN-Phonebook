@@ -224,6 +224,55 @@ void get_sip_method(const char *msg, char *buf, size_t len) {
     }
 }
 
+// Helper function to add Record-Route header to a SIP response
+void add_record_route_to_response(const char *original_msg, char *output_buffer, size_t output_buffer_size) {
+    if (g_server_ip[0] == '\0') {
+        // No server IP available, just copy original
+        strncpy(output_buffer, original_msg, output_buffer_size - 1);
+        output_buffer[output_buffer_size - 1] = '\0';
+        return;
+    }
+
+    // Find the first line (status line)
+    const char *first_line_end = strstr(original_msg, "\r\n");
+    if (!first_line_end) {
+        strncpy(output_buffer, original_msg, output_buffer_size - 1);
+        output_buffer[output_buffer_size - 1] = '\0';
+        return;
+    }
+
+    // Copy status line
+    size_t first_line_len = first_line_end - original_msg + 2; // Include \r\n
+    if (first_line_len >= output_buffer_size) {
+        LOG_ERROR("Buffer too small for response status line");
+        return;
+    }
+    memcpy(output_buffer, original_msg, first_line_len);
+    output_buffer[first_line_len] = '\0';
+    int written = first_line_len;
+
+    // Add Record-Route header right after status line
+    int result = snprintf(output_buffer + written, output_buffer_size - written,
+                          "Record-Route: <sip:%s:%d;lr>\r\n", g_server_ip, SIP_PORT);
+    if (result < 0 || result >= (int)(output_buffer_size - written)) {
+        LOG_ERROR("Buffer overflow adding Record-Route to response");
+        return;
+    }
+    written += result;
+
+    // Copy the rest of the message (headers + body)
+    const char *rest = first_line_end + 2; // Skip past status line's \r\n
+    size_t rest_len = strlen(rest);
+    if (written + rest_len >= output_buffer_size) {
+        LOG_ERROR("Buffer overflow copying rest of response");
+        return;
+    }
+    memcpy(output_buffer + written, rest, rest_len);
+    output_buffer[written + rest_len] = '\0';
+
+    LOG_DEBUG("Added Record-Route to response");
+}
+
 void reconstruct_invite_message(const char *original_msg, const char *new_request_line_uri,
                                 char *output_buffer, size_t output_buffer_size) {
     char method[32];
@@ -279,6 +328,24 @@ void reconstruct_invite_message(const char *original_msg, const char *new_reques
                 break;
             }
             current_pos = line_end + 2;
+        }
+
+        // Add Record-Route header to force all in-dialog messages (including BYE) through proxy
+        if (g_server_ip[0] != '\0') {
+            if (written + 100 >= (int)output_buffer_size) {
+                LOG_WARN("SIP: reconstruct_invite_message: Not enough space for Record-Route header.");
+                output_buffer[output_buffer_size - 1] = '\0';
+                return;
+            }
+            result = snprintf(output_buffer + written, output_buffer_size - written,
+                              "Record-Route: <sip:%s:%d;lr>\r\n", g_server_ip, SIP_PORT);
+            if (result < 0 || result >= (int)(output_buffer_size - written)) {
+                LOG_ERROR("SIP: reconstruct_invite_message: Record-Route header buffer overflow.");
+                output_buffer[output_buffer_size - 1] = '\0';
+                return;
+            }
+            written += result;
+            LOG_DEBUG("Added Record-Route: <sip:%s:%d;lr>", g_server_ip, SIP_PORT);
         }
 
         if (written + 20 >= (int)output_buffer_size) {
@@ -501,10 +568,22 @@ void process_incoming_sip_message(int sockfd, const char *buffer, ssize_t n,
         CallSession *session = find_call_session_by_callid(call_id_hdr);
         if (session) {
             LOG_DEBUG("Matching session found for response: %s", session->call_id);
-            send_sip_message(sockfd, &session->original_caller_addr, sizeof(session->original_caller_addr), buffer);
-            LOG_DEBUG("Proxied response for Call-ID %s to original caller (%s:%d).",
-                        session->call_id, sockaddr_to_ip_str(&session->original_caller_addr),
-                        ntohs(session->original_caller_addr.sin_port));
+
+            // For INVITE responses, add Record-Route header before forwarding
+            if (strstr(cseq_hdr, "INVITE")) {
+                char modified_response[MAX_SIP_MSG_LEN];
+                add_record_route_to_response(buffer, modified_response, sizeof(modified_response));
+                send_sip_message(sockfd, &session->original_caller_addr, sizeof(session->original_caller_addr), modified_response);
+                LOG_DEBUG("Proxied INVITE response with Record-Route for Call-ID %s to original caller (%s:%d).",
+                            session->call_id, sockaddr_to_ip_str(&session->original_caller_addr),
+                            ntohs(session->original_caller_addr.sin_port));
+            } else {
+                // For non-INVITE responses, forward as-is
+                send_sip_message(sockfd, &session->original_caller_addr, sizeof(session->original_caller_addr), buffer);
+                LOG_DEBUG("Proxied response for Call-ID %s to original caller (%s:%d).",
+                            session->call_id, sockaddr_to_ip_str(&session->original_caller_addr),
+                            ntohs(session->original_caller_addr.sin_port));
+            }
 
             if (strstr(first_line, "200 OK") && strstr(cseq_hdr, "INVITE")) {
                 session->state = CALL_STATE_ESTABLISHED;

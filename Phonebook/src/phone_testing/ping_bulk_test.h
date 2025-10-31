@@ -20,19 +20,4 @@
  */
 void *ping_bulk_test_thread(void *arg);
 
-/**
- * Topology Crawler Thread
- *
- * Periodically crawls the entire AREDN mesh network to discover all nodes:
- * - Uses BFS (Breadth-First Search) starting from localhost
- * - Fetches sysinfo.json?hosts=1 from each node to get its host list
- * - Fetches sysinfo.json to get node details (name, lat/lon)
- * - Adds all discovered nodes to topology database
- * - Runs independently from bulk testing (different schedule)
- *
- * @param arg Thread argument (unused)
- * @return NULL
- */
-void *topology_crawler_thread(void *arg);
-
 #endif // PING_BULK_TEST_H

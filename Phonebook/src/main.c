@@ -25,8 +25,9 @@
 #include "call-sessions/call_sessions.h" // For call session management functions
 #include "passive_safety/passive_safety.h" // For passive safety and self-healing
 #include "softphone/softphone.h"        // For softphone SIP client library
-#include "uac/ping_bulk_test.h"        // For phone bulk testing thread
-#include "uac/ping_test.h"              // For phone ping/options testing
+#include "phone_testing/ping_bulk_test.h"        // For phone bulk testing thread
+#include "phone_testing/ping_test.h"              // For phone ping/options testing
+#include "network_monitor/topology_crawler.h"  // For topology crawler thread
 // Full health monitoring re-enabled with instrumentation for crash debugging
 #include "software_health/software_health.h" // Full health monitoring system
 

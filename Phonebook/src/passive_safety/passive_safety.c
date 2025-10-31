@@ -24,14 +24,16 @@ void passive_cleanup_stale_call_sessions(void) {
 
     for (int i = 0; i < MAX_CALL_SESSIONS; i++) {
         if (call_sessions[i].in_use) {
-            // Clean up sessions older than 2 hours (likely abandoned)
-            // In emergency situations, calls shouldn't last this long without activity
+            // Clean up sessions older than 24 hours (safety net for truly lost BYE)
+            // With Record-Route enabled, BYE messages should route through proxy
+            // This timeout is only a safety net for exceptional cases
             time_t session_age = now - call_sessions[i].creation_time;
 
-            if (session_age > 7200) { // 2 hours = 7200 seconds
+            if (session_age > 86400) { // 24 hours = 86400 seconds
                 LOG_INFO("Cleaning up stale call session: %s (age: %ld seconds)",
                          call_sessions[i].call_id, session_age);
                 terminate_call_session(&call_sessions[i]);
+                export_active_calls_json();
                 cleaned_count++;
             }
         }

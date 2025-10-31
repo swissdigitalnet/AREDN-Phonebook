@@ -86,29 +86,29 @@ PHONEBOOK_SERVER=hb9edi-vm-gw.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.
 STATUS_UPDATE_INTERVAL_SECONDS=600
 
 # ============================================================================
-# MONITORING SETTINGS (UAC Testing)
+# PHONE MONITORING SETTINGS
 # ============================================================================
 
-# UAC Test Interval - how often to test all phones (seconds)
+# Phone Test Interval - how often to test all phones (seconds)
 # Set to 0 to disable monitoring completely
 # Default: 600 (10 minutes)
-UAC_TEST_INTERVAL_SECONDS=600
+PHONE_TEST_INTERVAL_SECONDS=600
 
-# UAC Ping Test - ICMP ping count per phone (network layer)
+# Phone Ping Test - ICMP ping count per phone (network layer)
 # Tests network connectivity and measures RTT/jitter at IP level
 # Range: 0-20, Default: 5, Set to 0 to disable
-UAC_PING_COUNT=5
+PHONE_PING_COUNT=5
 
-# UAC Options Test - SIP OPTIONS count per phone (application layer)
+# Phone Options Test - SIP OPTIONS count per phone (application layer)
 # Tests SIP connectivity and measures RTT/jitter at SIP level
 # Range: 0-20, Default: 5, Set to 0 to disable
-UAC_OPTIONS_COUNT=5
+PHONE_OPTIONS_COUNT=5
 
-# UAC Call Test - enable INVITE testing (rings phone briefly)
+# Phone Call Test - enable INVITE testing (rings phone briefly)
 # Only used as fallback if both ping and options fail
 # 0 = disabled, 1 = enabled
 # Default: 0 (disabled - recommended to avoid disturbing users)
-UAC_CALL_TEST_ENABLED=0
+PHONE_CALL_TEST_ENABLED=0
 ```
 
 **Monitoring Modes:**
@@ -204,8 +204,8 @@ Tests run automatically based on `/etc/phonebook.conf` settings:
 - 📋 **Response**: JSON with entry count, last updated time, and full contact list
 - 🎯 **Use Case**: Integration with other tools, status checking
 
-### 📡 UAC Ping Test (Phone Monitoring)
-- 🌐 **URL**: `http://[your-node].local.mesh/cgi-bin/uac_ping?target=441530&count=5`
+### 📡 Phone Test (Phone Monitoring)
+- 🌐 **URL**: `http://[your-node].local.mesh/cgi-bin/phone_test?target=441530&count=5`
 - 📡 **Method**: GET
 - 🎯 **Parameters**:
   - `target`: Phone number to test (required)

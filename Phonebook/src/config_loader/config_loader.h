@@ -32,7 +32,8 @@ extern int g_network_traceroute_max_hops;       // Maximum hops for traceroute
 extern int g_topology_fetch_locations;      // Fetch location data from sysinfo.json
 extern int g_topology_crawler_enabled;      // Enable mesh network crawler
 extern int g_topology_crawler_interval_seconds; // Crawler interval in seconds
-extern int g_topology_node_timeout_seconds; // Node timeout - remove after this many seconds unseen
+extern int g_topology_node_inactive_timeout_seconds; // Mark node INACTIVE after this many seconds unseen (default: 3600 = 1 hour)
+extern int g_topology_node_delete_timeout_seconds;   // Delete node completely after this many seconds unseen (default: 2592000 = 30 days)
 
 /**
  * @brief Loads configuration parameters from a specified file.

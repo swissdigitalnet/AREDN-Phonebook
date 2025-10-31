@@ -37,7 +37,8 @@ int g_network_traceroute_max_hops = 20;            // Default: 20 hops
 int g_topology_fetch_locations = 1;            // Default: enabled
 int g_topology_crawler_enabled = 1;            // Default: enabled
 int g_topology_crawler_interval_seconds = 3600; // Default: 3600 seconds (1 hour)
-int g_topology_node_timeout_seconds = 3600;    // Default: 3600 seconds (1 hour) - nodes expire if not seen
+int g_topology_node_inactive_timeout_seconds = 3600;    // Default: 3600 seconds (1 hour) - mark nodes as INACTIVE
+int g_topology_node_delete_timeout_seconds = 2592000;  // Default: 2592000 seconds (30 days) - delete nodes completely
 
 // Helper function to trim leading/trailing whitespace (static to this file)
 static char* trim_whitespace(char *str) {
@@ -258,13 +259,21 @@ int load_configuration(const char *config_filepath) {
             } else {
                 LOG_WARN("Invalid TOPOLOGY_CRAWLER_INTERVAL_SECONDS value '%s'. Using default %d.", value, g_topology_crawler_interval_seconds);
             }
-        } else if (strcmp(key, "TOPOLOGY_NODE_TIMEOUT_SECONDS") == 0) {
+        } else if (strcmp(key, "TOPOLOGY_NODE_INACTIVE_TIMEOUT_SECONDS") == 0) {
             int parsed_value = atoi(value);
-            if (parsed_value >= 60 && parsed_value <= 86400) { // 1 minute to 24 hours
-                g_topology_node_timeout_seconds = parsed_value;
-                LOG_DEBUG("Config: TOPOLOGY_NODE_TIMEOUT_SECONDS = %d", g_topology_node_timeout_seconds);
+            if (parsed_value >= 60 && parsed_value <= 604800) { // 1 minute to 7 days
+                g_topology_node_inactive_timeout_seconds = parsed_value;
+                LOG_DEBUG("Config: TOPOLOGY_NODE_INACTIVE_TIMEOUT_SECONDS = %d", g_topology_node_inactive_timeout_seconds);
             } else {
-                LOG_WARN("Invalid TOPOLOGY_NODE_TIMEOUT_SECONDS value '%s'. Using default %d.", value, g_topology_node_timeout_seconds);
+                LOG_WARN("Invalid TOPOLOGY_NODE_INACTIVE_TIMEOUT_SECONDS value '%s'. Using default %d.", value, g_topology_node_inactive_timeout_seconds);
+            }
+        } else if (strcmp(key, "TOPOLOGY_NODE_DELETE_TIMEOUT_SECONDS") == 0) {
+            int parsed_value = atoi(value);
+            if (parsed_value >= 3600 && parsed_value <= 31536000) { // 1 hour to 365 days
+                g_topology_node_delete_timeout_seconds = parsed_value;
+                LOG_DEBUG("Config: TOPOLOGY_NODE_DELETE_TIMEOUT_SECONDS = %d", g_topology_node_delete_timeout_seconds);
+            } else {
+                LOG_WARN("Invalid TOPOLOGY_NODE_DELETE_TIMEOUT_SECONDS value '%s'. Using default %d.", value, g_topology_node_delete_timeout_seconds);
             }
         } else {
             LOG_WARN("Unknown configuration key: '%s'. Skipping.", key);

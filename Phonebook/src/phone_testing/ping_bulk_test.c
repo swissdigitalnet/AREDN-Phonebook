@@ -279,9 +279,8 @@ void *ping_bulk_test_thread(void *arg) {
                                 // Get source IP for this route (for reverse DNS lookup)
                                 char source_ip[INET_ADDRSTRLEN];
                                 if (get_source_ip_for_target(ip_str, source_ip) == 0) {
-                                    // Add destination node (the phone) using hostname as key
-                                    topology_db_add_node(user->user_id, "phone",
-                                                       NULL, NULL, "ONLINE");
+                                    // Note: Phone nodes are now discovered from router phonebooks
+                                    // Skip adding phone from traceroute to avoid duplicates without positioning
 
                                     // Process hops and build topology
                                     char prev_hostname[256] = "";  // Track previous hop by hostname
@@ -289,7 +288,17 @@ void *ping_bulk_test_thread(void *arg) {
                                     // Get source hostname (this server) for first connection
                                     char source_hostname[256];
                                     if (gethostname(source_hostname, sizeof(source_hostname)) != 0) {
-                                        strncpy(source_hostname, "localhost", sizeof(source_hostname));
+                                        // Fallback: read from /proc/sys/kernel/hostname
+                                        FILE *hostname_fp = popen("cat /proc/sys/kernel/hostname", "r");
+                                        if (hostname_fp && fgets(source_hostname, sizeof(source_hostname), hostname_fp)) {
+                                            char *nl = strchr(source_hostname, '\n');
+                                            if (nl) *nl = '\0';
+                                            pclose(hostname_fp);
+                                        } else {
+                                            if (hostname_fp) pclose(hostname_fp);
+                                            LOG_ERROR("Failed to get hostname, skipping topology for this phone");
+                                            continue;
+                                        }
                                     }
 
                                     // Strip prefix from source hostname
@@ -315,24 +324,26 @@ void *ping_bulk_test_thread(void *arg) {
                                         char clean_hostname[256];
                                         topology_db_strip_hostname_prefix(hops[h].hostname, clean_hostname, sizeof(clean_hostname));
 
-                                        // Determine node type
-                                        const char *node_type;
-                                        if (strcmp(hops[h].ip_address, ip_str) == 0) {
-                                            node_type = "phone"; // Destination
-                                        } else {
-                                            node_type = "router"; // Intermediate hop (or source)
+                                        // Determine if this hop is the phone destination
+                                        bool is_phone = (strcmp(hops[h].ip_address, ip_str) == 0);
+
+                                        // Skip phone nodes - they are discovered from router phonebooks
+                                        if (is_phone) {
+                                            LOG_DEBUG("Skipping phone node from traceroute: %s (discovered from router phonebook)",
+                                                     clean_hostname);
+                                            prev_hostname[0] = '\0';  // Break connection chain at phone
+                                            continue;
                                         }
 
-                                        // Add this hop as a node using cleaned hostname as key
-                                        topology_db_add_node(clean_hostname, node_type,
-                                                           NULL, NULL, "ONLINE");
+                                        // Note: Topology discovery handled by BFS crawler, not by phone testing
+                                        // topology_db_add_node(clean_hostname, "router", NULL, NULL, "ONLINE");
 
-                                        // Add connection from previous hop to this hop
-                                        if (prev_hostname[0] != '\0') {
-                                            topology_db_add_connection(prev_hostname, clean_hostname,
-                                                                     hops[h].rtt_ms);
-                                        }
+                                        // Note: Connections discovered by BFS crawler via LQM data
+                                        // if (prev_hostname[0] != '\0') {
+                                        //     topology_db_add_connection(prev_hostname, clean_hostname, hops[h].rtt_ms);
+                                        // }
 
+                                        // Update previous hostname for next hop
                                         strncpy(prev_hostname, clean_hostname, sizeof(prev_hostname));
                                     }
 
@@ -573,78 +584,3 @@ void *ping_bulk_test_thread(void *arg) {
     return NULL;
 }
 
-/**
- * Topology Crawler Thread
- * Crawls the entire AREDN mesh network periodically
- */
-void *topology_crawler_thread(void *arg) {
-    (void)arg;
-
-    LOG_INFO("Topology Crawler thread started");
-
-    // Register this thread for health monitoring
-    int thread_index = health_register_thread(pthread_self(), "topology_crawler");
-    if (thread_index < 0) {
-        LOG_WARN("Failed to register topology crawler thread for health monitoring");
-    }
-
-    // Check if crawler is enabled
-    if (!g_topology_crawler_enabled) {
-        LOG_INFO("Topology crawler disabled. Thread exiting.");
-        return NULL;
-    }
-
-    // Wait for initial system startup
-    LOG_INFO("Waiting 10 seconds for system initialization...");
-    sleep(10);
-
-    while (1) {
-        // Health monitoring heartbeat
-        if (thread_index >= 0) {
-            health_update_heartbeat(thread_index);
-        }
-
-        LOG_INFO("=== Starting mesh network crawl ===");
-
-        // Initialize topology database
-        topology_db_init();
-        topology_db_cleanup_stale_nodes();
-
-        // Crawl the mesh starting from localhost
-        topology_db_crawl_mesh_network();
-
-        // Get statistics
-        int node_count = topology_db_get_node_count();
-        int connection_count = topology_db_get_connection_count();
-
-        LOG_INFO("Mesh crawl discovered %d nodes, %d connections",
-                 node_count, connection_count);
-
-        // Fetch location data for all nodes
-        if (g_topology_fetch_locations && node_count > 0) {
-            LOG_INFO("Fetching location data for %d nodes...", node_count);
-            topology_db_fetch_all_locations();
-        }
-
-        // Calculate aggregate statistics
-        if (connection_count > 0) {
-            LOG_INFO("Calculating aggregate statistics...");
-            topology_db_calculate_aggregate_stats();
-        }
-
-        // Write topology to JSON file
-        if (node_count > 0) {
-            LOG_INFO("Writing topology to /tmp/arednmon/network_topology.json...");
-            topology_db_write_to_file("/tmp/arednmon/network_topology.json");
-        }
-
-        LOG_INFO("=== Mesh crawl complete ===");
-        LOG_INFO("Next mesh crawl in %d seconds...", g_topology_crawler_interval_seconds);
-
-        // Wait for next crawl
-        sleep(g_topology_crawler_interval_seconds);
-    }
-
-    LOG_INFO("Topology Crawler thread exiting");
-    return NULL;
-}

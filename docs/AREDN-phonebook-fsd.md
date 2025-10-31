@@ -571,14 +571,11 @@ The User Agent Client (UAC) module provides non-intrusive SIP phone testing and 
 ### 4.2 Module Structure
 
 ```
-Phonebook/src/uac/
-├── uac.h                    // UAC core API
-├── uac.c                    // UAC state machine (INVITE/CANCEL/BYE)
-├── uac_sip_builder.c        // SIP message builders
-├── uac_sip_parser.c         // SIP response parser
-├── uac_ping.h               // SIP OPTIONS ping API
-├── uac_ping.c               // RTT/jitter measurement (RFC3550)
-└── uac_bulk_tester.c        // Bulk phone testing coordinator
+Phonebook/src/phone_testing/
+├── ping_test.h              // Phone ping/OPTIONS testing API
+├── ping_test.c              // ICMP ping & SIP OPTIONS testing
+├── ping_bulk_test.h         // Bulk phone testing API
+└── ping_bulk_test.c         // Bulk testing coordinator with traceroute integration
 ```
 
 ### 4.3 Testing Modes
@@ -858,22 +855,288 @@ The topology mapping subsystem automatically discovers and visualizes the mesh n
 
 **Module Structure:**
 ```
-Phonebook/src/uac/
-├── uac_traceroute.h         // ICMP traceroute API
-├── uac_traceroute.c         // TTL-based path discovery
-├── topology_db.h            // Topology graph API
-├── topology_db.c            // Node/connection storage + location fetching
-├── uac_http_client.h        // HTTP GET client API
-└── uac_http_client.c        // Location data retrieval
+Phonebook/src/network_monitor/
+├── traceroute.h             // ICMP traceroute API
+├── traceroute.c             // TTL-based path discovery with reverse DNS
+├── topology_db.h            // Topology graph API (hostname-based)
+├── topology_db.c            // Node/connection storage + mesh crawler + location fetching
+├── http_client.h            // HTTP GET client API
+└── http_client.c            // Location data retrieval from sysinfo.json
 ```
 
 **CGI Endpoints:**
 - `/cgi-bin/topology_json`: Serves topology data as JSON
 - `/cgi-bin/arednmon`: Enhanced dashboard with topology map
 
-#### 4.12.2 ICMP Traceroute
+#### 4.12.2 AREDN Data Sources
 
-**Implementation:** `uac_traceroute.c`
+The BFS topology crawler and network monitoring system retrieves data from multiple AREDN endpoints using HTTP GET requests. All endpoints are accessed via the `sysinfo.json` CGI script on each AREDN router.
+
+**Core AREDN Endpoints:**
+
+**1. Basic Node Information**
+
+**Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json`
+
+**Data Provided**:
+- Node hostname
+- GPS coordinates (latitude, longitude)
+- Grid square (Maidenhead locator)
+- Hardware model
+- Firmware version
+- Network interface details
+
+**Example Response**:
+```json
+{
+  "node": "HB9BLA-HAP-2",
+  "lat": "47.488219",
+  "lon": "7.753470",
+  "grid_square": "JN37vl",
+  "node_details": {
+    "model": "MikroTik RouterBOARD 952Ui-5ac2nD (hAP ac lite)",
+    "firmware_version": "3.25.10.0"
+  }
+}
+```
+
+**Usage**: Fetch coordinates and hardware information for discovered routers.
+
+**2. LQM Link Quality Information**
+
+**Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json?link_info=1`
+
+**Data Provided**:
+- Neighbor hostnames
+- Link quality (LQ) and neighbor link quality (NLQ) - values 0.0 to 1.0
+- ETX (Expected Transmission Count) cost metric
+- Link type: RF (radio frequency), DTD (device-to-device), or Tunnel
+- OLSR interface name
+- Link status (SYMMETRIC, ASYMMETRIC)
+
+**Example Response**:
+```json
+{
+  "link_info": {
+    "10.198.102.253": {
+      "hostname": "HB9BLA-HAP-2",
+      "linkType": "DTD",
+      "olsrInterface": "br-dtdlink",
+      "linkQuality": 1.000,
+      "neighborLinkQuality": 1.000,
+      "linkCost": 0.099,
+      "currentLinkStatus": "SYMMETRIC"
+    },
+    "10.124.142.47": {
+      "hostname": "HB9GNO-SXT-1",
+      "linkType": "RF",
+      "olsrInterface": "wlan0",
+      "linkQuality": 0.935,
+      "neighborLinkQuality": 0.941,
+      "linkCost": 1.142,
+      "signal": -68,
+      "noise": -95,
+      "tx_rate": 54.0,
+      "rx_rate": 36.0
+    }
+  }
+}
+```
+
+**Additional RF Link Fields**:
+- `signal`: Signal strength in dBm
+- `noise`: Noise floor in dBm
+- `tx_rate`: Transmit rate in Mbps
+- `rx_rate`: Receive rate in Mbps
+
+**Usage**: Discover neighbor routers for BFS traversal and extract link quality metrics.
+
+**Note**: This endpoint does NOT provide RTT measurements - see LQM Tracker Data below.
+
+**3. LQM Tracker Data with RTT**
+
+**Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json?lqm=1`
+
+**Data Provided**:
+- Neighbor ping RTT (round-trip time) in **seconds**
+- Reverse-direction ping RTT
+- Ping success quality percentage
+- Overall link quality percentage
+- Link type (DtD, RF, Tunnel, xlink)
+- Device/interface name
+- Neighbor coordinates (lat/lon)
+- Babel routing metrics (if enabled)
+
+**Example Response**:
+```json
+{
+  "lqm": {
+    "enabled": true,
+    "info": {
+      "trackers": {
+        "02:78:22:28:04:64": {
+          "hostname": "hb9bla-hap-2",
+          "canonical_ip": "10.198.102.253",
+          "ping_success_time": 0.00040712,
+          "rev_ping_success_time": 0.00094270,
+          "ping_quality": 100,
+          "rev_ping_quality": 100,
+          "quality": 100,
+          "type": "DtD",
+          "device": "br-dtdlink",
+          "lat": 47.488219,
+          "lon": 7.753470,
+          "distance": 1848,
+          "model": "MikroTik RouterBOARD 952Ui-5ac2nD (hAP ac lite)"
+        }
+      }
+    }
+  }
+}
+```
+
+**RTT Conversion**:
+- Values are in seconds (e.g., 0.00040712)
+- Convert to milliseconds: `rtt_ms = ping_success_time × 1000.0`
+- Example: 0.00040712 seconds = 0.407 milliseconds
+
+**Usage**: Measure actual network latency between routers. LQM continuously monitors all neighbors via ping, so this provides RTT measurements without additional network overhead.
+
+**Advantages**:
+- No extra ping commands needed (LQM already pings continuously)
+- Includes reverse-direction RTT
+- Includes quality metrics (ping success rate)
+- More efficient than separate ping per neighbor
+
+**4. OLSR Nameservice Hosts (Not Used Directly)**
+
+**HTTP Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json?hosts=1` (exists but not used)
+
+**Local File**: `/var/run/hosts_olsr` (actual data source)
+
+**Data Provided**:
+- All hostnames advertised via OLSR nameservice protocol
+- IP addresses for each hostname
+- Includes routers, servers, and **phones** (SIP softphones)
+- **Advertiser IP in comments** (critical for phone-to-router association)
+
+**File Format** (`/var/run/hosts_olsr`):
+```
+10.197.143.20   441530  # myself
+10.197.143.22   441531  # myself
+10.51.55.235    441532  # 10.198.102.253
+10.46.65.137    196330  # 10.34.228.24
+10.199.215.245  196630  # 10.56.250.254
+```
+
+**Phone Discovery Implementation**:
+- Read `/var/run/hosts_olsr` file locally (not via HTTP)
+- Parse lines with format: `<phone_ip> <phone_name> # <advertiser_ip>`
+- Match advertiser IP to router's mesh IP using `gethostbyname2()`
+- **Only add phones when router is reachable** (prevents orphaned phones)
+- Position phones 100m from router at deterministic angles
+
+**Phone Detection Logic**:
+- Phones identified by numeric hostnames (all digits, 4+ chars)
+- Typical format: 6-digit numbers (e.g., "441532", "196639")
+- Phones do NOT have their own sysinfo.json endpoints
+- Phones inherit geographic coordinates from their parent router
+
+**Usage**:
+1. **Router becomes reachable** → Parse hosts_olsr for phones advertised by that router
+2. Match phones by comparing advertiser IP to router's mesh IP
+3. Add phone nodes with connection to advertising router
+4. **Router unreachable** → Skip phone discovery to avoid orphans
+
+**Why Not HTTP Endpoint?**
+- Local file access is faster (no HTTP overhead)
+- Advertiser IP comments preserved in file format
+- Single source of truth for all OLSR advertisements
+
+**Implementation Example** (`topology_db.c:789-918`):
+```c
+static int fetch_phones_for_router(const char *router_hostname,
+                                    const char *router_lat,
+                                    const char *router_lon) {
+    // Step 1: Resolve router hostname to mesh IP
+    struct hostent *he = gethostbyname2(router_hostname, AF_INET);
+    if (!he) return 0;
+
+    char router_mesh_ip[32];
+    strcpy(router_mesh_ip, inet_ntoa(*addr_list[0]));
+
+    // Step 2: Parse /var/run/hosts_olsr
+    FILE *hosts_fp = fopen("/var/run/hosts_olsr", "r");
+
+    while (fgets(line, sizeof(line), hosts_fp)) {
+        // Format: "10.51.55.235  441532  # 10.198.102.253"
+        char phone_ip[32], phone_name[64], advertiser[64];
+        sscanf(line, "%31s %63s # %63[^\n]", phone_ip, phone_name, advertiser);
+
+        // Step 3: Check if hostname is numeric (phone)
+        bool is_phone = is_numeric_hostname(phone_name);
+        if (!is_phone) continue;
+
+        // Step 4: Match advertiser IP to router mesh IP
+        char advertiser_ip[32];
+        sscanf(advertiser, "%31s", advertiser_ip);
+
+        if (strcmp(advertiser_ip, router_mesh_ip) == 0) {
+            // Step 5: Add phone with position near router
+            topology_db_add_node(phone_name, "phone", phone_lat, phone_lon, "ONLINE");
+            topology_db_add_connection(router_hostname, phone_name, 0.1);
+            phone_count++;
+        }
+    }
+
+    return phone_count;
+}
+```
+
+**Note**: This is the **ONLY** way to discover phones on the network. Phones are advertised via OLSR nameservice by their parent router, and the advertiser IP in the comment field is critical for correct association.
+
+**5. OLSR Services**
+
+**Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json?services=1`
+
+**Data Provided**:
+- Service advertisements from OLSR
+- Service types (http, ftp, ssh, etc.)
+- Service URLs
+- Associated hostnames
+
+**Usage**: Optional - can be used for service discovery but not required for topology mapping.
+
+**Custom Endpoints (AREDN-Phonebook on vm-1 Only):**
+
+These endpoints are provided by the AREDN-Phonebook system itself, not by standard AREDN routers.
+
+1. `/cgi-bin/topology_json` - Export BFS-discovered network topology
+2. `/cgi-bin/phone_ping_json` - Export phone reachability test results
+3. `/cgi-bin/showphonebook` - Serve phonebook CSV/XML data
+4. `/cgi-bin/active_calls_json` - Export active SIP call information
+5. `/cgi-bin/traceroute_json?ip=<target_ip>` - Perform live ICMP traceroute
+
+**Data Source Summary:**
+
+| When | Endpoint | Extract | Purpose |
+|------|----------|---------|---------|
+| **Discovering a new router** | `/cgi-bin/sysinfo.json` | hostname, lat, lon, model | Add router to topology |
+| **Finding router's neighbors** | `/cgi-bin/sysinfo.json?link_info=1` | neighbor hostnames, LQ/NLQ | BFS traversal, link quality |
+| **Measuring RTT (latency)** | `/cgi-bin/sysinfo.json?lqm=1` | ping_success_time, quality % | Connection weight, link health |
+| **Finding phones per router** | `/var/run/hosts_olsr` (local file) | numeric hostnames, advertiser IPs | Phone-to-router association |
+
+**Endpoints NOT Used:**
+
+OLSR JSONinfo Plugin (Port 9090) endpoints are available but redundant:
+- `http://localhost:9090/routes`, `/neighbors`, `/links`, `/topology`
+- All required data is available via `sysinfo.json` endpoints
+- LQM data (`?lqm=1`) supersedes OLSR metrics for link quality
+- Source: Upstream OLSRd jsoninfo plugin, not AREDN directly
+
+#### 4.12.3 ICMP Traceroute
+
+**Implementation:** `network_monitor/traceroute.c`
 
 **Algorithm:**
 ```c
@@ -900,7 +1163,7 @@ for (ttl = 1; ttl <= max_hops; ttl++) {
 
 **Key Functions:**
 
-- `uac_traceroute_to_phone()`: Performs traceroute to target phone
+- `traceroute_to_phone()`: Performs traceroute to target phone
   - **Parameters**: `target_phone_number`, `max_hops`, `hops[]`, `hop_count`
   - **Returns**: 0 on success, -1 on failure
   - **Timeout**: 2 seconds per hop
@@ -933,7 +1196,7 @@ UAC: Hop 2: 10.197.143.20 (441530.local.mesh) - RTT: 2.100 ms (destination reach
 UAC: Traceroute completed: 2 hops discovered
 ```
 
-#### 4.12.3 Topology Database
+#### 4.12.4 Topology Database
 
 **Implementation:** `topology_db.c`
 
@@ -987,14 +1250,52 @@ static TopologyConnection g_connections[MAX_TOPOLOGY_CONNECTIONS];
 static pthread_mutex_t g_topology_mutex;  // Thread-safe access
 ```
 
+**Hostname Normalization (v2.5.41+):**
+
+All hostnames are normalized to **lowercase** at entry points to prevent case-sensitivity issues:
+
+- **Entry Point 1**: `topology_db_add_node()` - normalizes `name` parameter via `normalize_hostname()`
+- **Entry Point 2**: `topology_db_add_connection()` - normalizes `from_name` and `to_name` via `normalize_hostname()`
+- **Entry Point 3**: `reverse_dns_lookup()` - normalizes hostname from DNS response (traceroute.c:97-100)
+- **Entry Point 4**: LQM neighbor parsing - normalizes neighbor hostname from sysinfo.json (topology_db.c:706-709)
+- **Entry Point 5**: `fetch_hostname_from_ip()` - normalizes hostname from IP lookup (topology_db.c:581-584)
+
+**Result**: "HB9BLA-VM-1" and "hb9bla-vm-1" are treated as the same node, preventing duplicates.
+
+**Self-Loop Filtering (v2.5.41+):**
+
+Connections from a node to itself are automatically filtered to prevent visual clutter on topology maps:
+
+```c
+// In topology_db_add_connection() after normalization:
+if (strcmp(normalized_from, normalized_to) == 0) {
+    LOG_DEBUG("Skipping self-loop connection: %s -> %s", normalized_from, normalized_to);
+    return 0;
+}
+```
+
+**Swiss Prefix Filtering (v2.5.41+):**
+
+All prefix checks now use lowercase 'hb' (not case-insensitive checks) since all hostnames are normalized:
+
+```c
+// In should_crawl_node():
+if (hostname[0] == 'h' && hostname[1] == 'b') {
+    return true;  // Swiss node - crawl it
+}
+```
+
 **Key Functions:**
 
 - `topology_db_add_node(name, type, lat, lon, status)`: Adds or updates a node
+  - Normalizes hostname to lowercase via `normalize_hostname()`
   - Deduplicates by hostname (name field is unique key)
   - Updates status and last_seen timestamp
   - Mutex-protected for thread safety
 
 - `topology_db_add_connection(from_name, to_name, rtt_ms)`: Adds RTT sample to connection
+  - Normalizes both hostnames to lowercase via `normalize_hostname()`
+  - **Filters self-loops**: Skips if `from_name == to_name`
   - Deduplicates by (from_name, to_name) hostname pair
   - Stores up to 10 RTT samples in circular buffer
   - Updates sample_count and next_sample_index
@@ -1009,10 +1310,10 @@ static pthread_mutex_t g_topology_mutex;  // Thread-safe access
   - Consumed by map visualization
 
 - `topology_db_crawl_mesh_network()`: BFS mesh crawler
-  - Fetches hosts list from localhost seed
+  - Starts from localhost router
   - Discovers nodes recursively via LQM neighbor links
   - Filters international nodes (HB prefix boundary)
-  - Fetches phones separately from OLSR services
+  - Fetches phones for each **reachable** router from `/var/run/hosts_olsr` by matching advertiser IP
 
 - `topology_db_strip_hostname_prefix(hostname, buffer, size)`: Removes interface prefixes
   - Strips mid1., mid2., dtdlink., etc. from hostnames
@@ -1087,7 +1388,7 @@ static pthread_mutex_t g_topology_mutex;  // Thread-safe access
 - Connections include `last_updated` timestamp
 - Matches industry-standard graph terminology
 
-#### 4.12.4 Two-Phase Location Fetching
+#### 4.12.5 Two-Phase Location Fetching
 
 **Problem**: Phones don't have sysinfo.json endpoints - only routers and servers do.
 
@@ -1098,58 +1399,87 @@ static pthread_mutex_t g_topology_mutex;  // Thread-safe access
 for each node in topology:
     if node.type == "router" OR node.type == "server":
         url = "http://{node.ip}/cgi-bin/sysinfo.json"
-        if uac_http_get_location(url, &lat, &lon) == 0:
+        if http_get_location(url, &lat, &lon) == 0:
             node.lat = lat
             node.lon = lon
             fetched++
 ```
 
-**Phase 2: Propagate to Phones** (via topology connections)
+**Phase 2: Propagate to Phones** (via topology connections) - **v2.5.41+: Deterministic Positioning**
 ```c
 for each phone in topology:
     if phone.lat is empty:
         // Find connection where phone is destination
-        connection = find_connection_to(phone.ip)
-        router = find_node_by_ip(connection.from_ip)
+        connection = find_connection_to(phone.name)
+        router = find_node_by_name(connection.from_name)
 
         if router.lat is valid:
-            // Copy router location with random offset (~100m)
-            phone.lat = router.lat + random_offset_lat()
-            phone.lon = router.lon + random_offset_lon()
+            // Calculate deterministic angle based on phone last digit
+            int angle = get_phone_angle(phone.name);  // last digit × 36°
+
+            // Offset 100m from router at calculated angle
+            offset_coordinates(router_lat, router_lon, 100.0, angle,
+                             &phone_lat, &phone_lon);
             propagated++
 ```
 
-**Random Offset for Phone Visibility:**
+**Deterministic Angle Calculation (v2.5.41+):**
+
+Phones are positioned at **fixed angles** around their router based on the last digit of the phone number:
+
 ```c
-// Offset by ~100m in random direction for map visibility
-// 0.001 degrees ≈ 111 meters latitude, ~100m longitude at mid-latitudes
-
-double router_lat = atof(router->lat);
-double router_lon = atof(router->lon);
-
-// Generate random offset: -0.001 to +0.001 degrees
-// Use phone IP as seed for consistency across test cycles
-unsigned int seed = 0;
-for (const char *p = phone->ip; *p; p++) {
-    seed = seed * 31 + *p;  // Simple hash of IP string
+/**
+ * Calculate deterministic angle from phone name
+ * Uses last digit × 36 to create 10 evenly spaced positions
+ */
+static int get_phone_angle(const char *phone_name) {
+    // Find the last digit in the phone name
+    int last_digit = 0;
+    for (const char *p = phone_name; *p; p++) {
+        if (*p >= '0' && *p <= '9') {
+            last_digit = *p - '0';
+        }
+    }
+    return last_digit * 36;  // 0°, 36°, 72°, ..., 324°
 }
-srand(seed);
-
-double lat_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
-double lon_offset = ((double)rand() / RAND_MAX * 0.002) - 0.001;
-
-double phone_lat = router_lat + lat_offset;
-double phone_lon = router_lon + lon_offset;
-
-snprintf(phone->lat, sizeof(phone->lat), "%.7f", phone_lat);
-snprintf(phone->lon, sizeof(phone->lon), "%.7f", phone_lon);
 ```
 
+**Geographic Offset Calculation:**
+
+Uses Haversine formula to offset coordinates by 100 meters at the calculated angle:
+
+```c
+static void offset_coordinates(double lat, double lon, double distance_meters, int angle_degrees,
+                                double *new_lat, double *new_lon) {
+    const double R = 6378137.0;  // Earth radius in meters
+    double angle_rad = angle_degrees * M_PI / 180.0;
+
+    // Calculate offset in meters
+    double dx = distance_meters * sin(angle_rad);
+    double dy = distance_meters * cos(angle_rad);
+
+    // Convert to lat/lon offset
+    *new_lat = lat + (dy / R) * (180.0 / M_PI);
+    *new_lon = lon + (dx / R) * (180.0 / M_PI) / cos(lat * M_PI / 180.0);
+}
+```
+
+**Phone Positioning Examples:**
+
+| Phone Number | Last Digit | Angle | Direction | Offset |
+|--------------|------------|-------|-----------|--------|
+| 441530 | 0 | 0° | North | 100m N |
+| 441531 | 1 | 36° | NNE | 100m NNE |
+| 441532 | 2 | 72° | ENE | 100m ENE |
+| 441533 | 3 | 108° | ESE | 100m ESE |
+| 441539 | 9 | 324° | NNW | 100m NNW |
+
 **Rationale**:
-- Phones near same router would stack on same coordinates
-- Random offset makes phones visible when zooming in
-- Consistent seed ensures same phone always has same offset
-- ~100m is large enough for visibility, small enough to stay "near" router
+- **No Overlapping Phones**: 10 distinct positions prevent phones from stacking on same coordinates
+- **Deterministic**: Same phone always appears at same position (no random jitter between refreshes)
+- **Visual Separation**: Phones with different last digits spread around router in a circle
+- **Easy Debugging**: Phone position can be predicted from phone number
+- **Map Clarity**: When zooming in, phones are clearly separated and identifiable
 
 **Log Output:**
 ```
@@ -1159,15 +1489,15 @@ TOPOLOGY_DB: Phase 2: Propagating router locations to phones...
 TOPOLOGY_DB: Location fetch complete: 13 routers fetched, 3 failed, 16 phones propagated
 ```
 
-#### 4.12.5 HTTP Client for Location Data
+#### 4.12.6 HTTP Client for Location Data
 
-**Implementation:** `uac_http_client.c`
+**Implementation:** `network_monitor/http_client.c`
 
 **Purpose**: Fetch geographic coordinates from AREDN node sysinfo.json endpoints.
 
 **Key Functions:**
 
-- `uac_http_get_location()`: Fetches lat/lon from URL
+- `http_get_location()`: Fetches lat/lon from URL
   - **URL Format**: `http://10.107.42.189/cgi-bin/sysinfo.json`
   - **Timeout**: 2 seconds (configurable)
   - **Returns**: 0 on success, -1 on failure
@@ -1232,7 +1562,7 @@ start++;
 }
 ```
 
-#### 4.12.6 Bulk Tester Integration
+#### 4.12.7 Bulk Tester Integration
 
 The traceroute functionality is integrated into the bulk tester loop to run for all online phones:
 
@@ -1245,13 +1575,13 @@ if (options_result.online) {
     }
 
     // PHASE 2.5: Traceroute Test
-    if (g_uac_traceroute_enabled) {
+    if (g_network_traceroute_enabled) {
         LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
 
         TracerouteHop hops[30];
         int hop_count = 0;
 
-        if (uac_traceroute_to_phone(user->user_id, g_uac_traceroute_max_hops, hops, &hop_count) == 0) {
+        if (traceroute_to_phone(user->user_id, g_network_traceroute_max_hops, hops, &hop_count) == 0) {
             // Get source IP for this route
             char source_ip[INET_ADDRSTRLEN];
             if (get_source_ip_for_target(ip_str, source_ip) == 0) {
@@ -1307,7 +1637,7 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
          g_node_count, g_connection_count);
 ```
 
-#### 4.12.7 Map Visualization
+#### 4.12.8 Map Visualization
 
 **Implementation:** `arednmon` CGI script (JavaScript + Leaflet.js)
 
@@ -1501,7 +1831,7 @@ async function loadTopology() {
 setInterval(loadTopology, 60000);
 ```
 
-#### 4.12.8 Configuration
+#### 4.12.9 Configuration
 
 Topology mapping configuration in `/etc/phonebook.conf`:
 
@@ -1512,10 +1842,12 @@ Topology mapping configuration in `/etc/phonebook.conf`:
 
 # Enable ICMP traceroute to discover network paths
 # 0 = disabled, 1 = enabled
-UAC_TRACEROUTE_ENABLED=1
+# Default: 1 (enabled)
+NETWORK_TRACEROUTE_ENABLED=1
 
-# Maximum hops for traceroute (default: 30)
-UAC_TRACEROUTE_MAX_HOPS=30
+# Maximum hops for traceroute
+# Range: 1-30, Default: 20
+NETWORK_TRACEROUTE_MAX_HOPS=20
 ```
 
 **Performance Impact:**
@@ -1524,7 +1856,7 @@ UAC_TRACEROUTE_MAX_HOPS=30
 - Total cycle time: ~10-12 minutes (vs 8-10 without traceroute)
 - Minimal CPU/network impact (ICMP probes are lightweight)
 
-#### 4.12.9 CGI Endpoints
+#### 4.12.10 CGI Endpoints
 
 **Topology JSON Endpoint:**
 
@@ -1623,7 +1955,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 - Clicking any node triggers `/cgi-bin/traceroute_json` and displays results
 - Refreshes topology every 60 seconds
 
-#### 4.12.10 Data Flow
+#### 4.12.11 Data Flow
 
 **Complete Topology Mapping Flow:**
 
@@ -1660,7 +1992,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    └─ RTT labels displayed at midpoints
 ```
 
-#### 4.12.11 Error Handling
+#### 4.12.12 Error Handling
 
 **Network Failures:**
 - DNS resolution failure: Skip phone, continue to next
@@ -1678,7 +2010,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 - Traceroute disabled: No topology map (phone monitoring still works)
 - HTTP client failure: Phase 1 fails, Phase 2 continues with available data
 
-#### 4.12.12 Thread Safety and Resource Usage
+#### 4.12.13 Thread Safety and Resource Usage
 
 **Thread Safety:**
 - Topology database protected by `g_topology_mutex`
@@ -1690,7 +2022,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 - JSON export: ~50 KB (typical mesh with 50 nodes, 30 connections)
 - Total RAM impact: <200 KB
 
-#### 4.12.13 Mesh Network Crawler
+#### 4.12.14 Mesh Network Crawler
 
 **Purpose**: Discovers all mesh nodes by fetching the OLSR hosts list and crawling each node to gather topology information.
 
@@ -1788,18 +2120,19 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    - Prevents duplicate nodes for multi-interface devices
    - Example: `10.167.247.74` (dtdlink) → `HB9BLA-VM-1`
 
-8. **Boundary Filtering** (Swiss HB Prefix):
+8. **Boundary Filtering** (Swiss HB Prefix) - **v2.5.41+: Lowercase Only**:
    - Prevents database overflow by filtering international supernode connections
-   - Only crawls nodes with Swiss call sign prefix (HB*) or phones (numeric)
+   - Only crawls nodes with Swiss call sign prefix (hb*) or phones (numeric)
    - Blocks international supernodes like `m0mfs-eng-supernode`, `g7uod-eng-supernode`
+   - **All hostnames are normalized to lowercase before filtering**
    - Implementation in `should_crawl_node()`:
    ```c
    static bool should_crawl_node(const char *hostname) {
        // Always crawl phones (numeric)
        if (is_numeric(hostname)) return true;
 
-       // Only crawl Swiss nodes (HB* prefix)
-       if (hostname[0] == 'H' && hostname[1] == 'B') return true;
+       // Only crawl Swiss nodes (hb* prefix, normalized lowercase)
+       if (hostname[0] == 'h' && hostname[1] == 'b') return true;
 
        return false;  // Skip international nodes
    }
@@ -1813,12 +2146,10 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 1. Initialize BFS queues (heap-allocated)
    └─ crawl_queue[1000]: Nodes to be crawled
    └─ visited[1000]: Nodes already crawled
-   └─ initial_hostnames[500]: Seed from localhost
 
-2. Fetch seed hostnames from localhost only
-   └─ HTTP GET: http://127.0.0.1/cgi-bin/sysinfo.json?hosts=1
-   └─ Parse up to 500 canonical hostnames
-   └─ Add all to crawl_queue
+2. Start from localhost router
+   └─ Get localhost hostname from /proc/sys/kernel/hostname
+   └─ Add localhost to crawl_queue
 
 3. BFS crawl loop (while queue not empty and visited < 1000):
    a. Pop next hostname from queue
@@ -1827,39 +2158,41 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    d. Fetch router details:
       └─ HTTP GET: http://{hostname}.local.mesh/cgi-bin/sysinfo.json
       └─ Extract: lat, lon
-      └─ Add router to topology database
+      └─ If router reachable → add router to topology database
+      └─ If router unreachable → skip phone discovery (prevents orphans)
    e. Fetch LQM neighbor links:
       └─ HTTP GET: http://{hostname}.local.mesh/cgi-bin/sysinfo.json?lqm=1
       └─ Parse all tracker entries (RF, DTD, Tunnel, xlink*)
       └─ Strip prefixes (mid1., dtdlink., etc.) from neighbor hostnames
       └─ Add connections to topology database
-   f. Filter and queue neighbors for recursive discovery:
+   f. **Fetch phones for reachable router**:
+      └─ Parse /var/run/hosts_olsr (local file)
+      └─ Resolve router hostname to mesh IP using gethostbyname2()
+      └─ Match phones where advertiser IP == router mesh IP
+      └─ Add phone nodes and connections to topology
+   g. Filter and queue neighbors for recursive discovery:
       └─ For each neighbor: check should_crawl_node()
          • If HB* prefix or numeric → add to crawl_queue (if not already queued/visited)
          • Otherwise → log "BOUNDARY: Skipping international node"
-   g. 100ms delay (usleep)
+   h. 100ms delay (usleep)
 
-4. After BFS complete, fetch phones separately:
-   └─ Parse /var/run/services_olsr for [phone] tags
-   └─ Extract phone numbers and router associations
-   └─ Add phone nodes and connections to topology
-
-5. Fetch location data:
+4. Fetch location data:
    └─ Phase 1: Fetch GPS coordinates for routers (http://{router}.local.mesh/cgi-bin/sysinfo.json)
-   └─ Phase 2: Propagate router locations to phones (with random offset)
+   └─ Phase 2: Propagate router locations to phones (with deterministic 100m offset)
 
-6. Calculate aggregate RTT statistics:
+5. Calculate aggregate RTT statistics:
    └─ Compute avg/min/max for each connection from samples
 
-7. Age out stale nodes:
-   └─ Remove nodes not seen for > TOPOLOGY_NODE_TIMEOUT_SECONDS
+6. Age out stale nodes:
+   └─ Mark nodes INACTIVE if not seen for > 1 hour
+   └─ Remove nodes completely if not seen for > 30 days
    └─ Remove orphaned connections
 
-8. Export topology JSON:
-   └─ Write to /tmp/topology.json
+7. Export topology JSON:
+   └─ Write to /tmp/arednmon/network_topology.json
    └─ Log summary: X nodes, Y connections
 
-9. Sleep until next interval (TOPOLOGY_CRAWLER_INTERVAL_SECONDS)
+8. Sleep until next interval (TOPOLOGY_CRAWLER_INTERVAL_SECONDS)
    └─ Repeat cycle
 ```
 
@@ -1873,13 +2206,37 @@ TOPOLOGY_CRAWLER_ENABLED=1
 # Crawler interval (seconds)
 TOPOLOGY_CRAWLER_INTERVAL_SECONDS=600
 
-# Node aging timeout (seconds)
-# Nodes not seen for this duration are removed
-TOPOLOGY_NODE_TIMEOUT_SECONDS=3600
+# Node inactive timeout (seconds)
+# Nodes not seen for this duration are marked INACTIVE (grayed out on map)
+# Default: 3600 (1 hour)
+TOPOLOGY_NODE_INACTIVE_TIMEOUT_SECONDS=3600
+
+# Node deletion timeout (seconds)
+# Nodes not seen for this duration are completely removed from topology
+# Default: 2592000 (30 days)
+TOPOLOGY_NODE_DELETE_TIMEOUT_SECONDS=2592000
 
 # Fetch location data from sysinfo.json
 TOPOLOGY_FETCH_LOCATIONS=1
 ```
+
+**Node Persistence Behavior:**
+
+The topology database persists nodes based on their `last_seen` timestamp to handle temporary outages:
+
+1. **Router reachable** → `last_seen` updated, status = "ONLINE"
+2. **Router unreachable** → `last_seen` NOT updated, node stays in topology
+3. **After 1 hour offline** → Node marked "INACTIVE" (grayed out on map)
+4. **After 30 days offline** → Node completely deleted by `topology_db_cleanup_stale_nodes()`
+
+**Why This Matters for Phone Discovery:**
+
+- **Unreachable routers**: Phones NOT added (prevents orphaned phones)
+- **Newly reachable routers**: Phones added with router, persist for 30 days
+- **Intermittent routers**: If router was online once, it stays with phones for 30 days even if offline
+- **Never-reachable routers**: Never added to topology, no orphaned phones
+
+This ensures clean topology without orphaned phones from routers that were never contactable.
 
 **Performance Impact:**
 - Crawl time for 215 nodes: ~25-30 seconds
@@ -1889,26 +2246,30 @@ TOPOLOGY_FETCH_LOCATIONS=1
 
 **Example Logs:**
 ```
+TOPOLOGY_CRAWLER: Topology Crawler thread started
+TOPOLOGY_CRAWLER: === Starting mesh network crawl ===
 TOPOLOGY_DB: Starting BFS mesh network crawl from localhost...
-TOPOLOGY_DB: Fetched 215 hostnames from localhost
-TOPOLOGY_DB: Seeding crawl queue with 215 initial hostnames...
-TOPOLOGY_DB: Starting BFS crawl with 215 nodes in queue...
-TOPOLOGY_DB: BOUNDARY: Skipping international node m0mfs-eng-supernode
-TOPOLOGY_DB: BOUNDARY: Skipping international node g7uod-eng-supernode
-TOPOLOGY_DB: BOUNDARY: Skipping international node n2mh-nj-supernode
-TOPOLOGY_DB: BFS mesh crawl complete: processed 189 nodes, discovered 156 nodes with details, 215 total in queue
-TOPOLOGY_DB: Fetched 33 phones from OLSR services
-TOPOLOGY_DB: Added 33 phones from OLSR services to topology
-TOPOLOGY_DB: Fetching location data for 189 nodes...
-TOPOLOGY_DB: Location fetch complete: 156 routers fetched, 0 failed, 33 phones propagated
-TOPOLOGY_DB: Calculating aggregate statistics for 425 connections...
+TOPOLOGY_DB: Adding localhost router: hb9bla-vm-1
+TOPOLOGY_DB: Router hb9bla-vm-1 has 3 LQM neighbor connections
+TOPOLOGY_DB: Added 2 phones for router hb9bla-vm-1
+TOPOLOGY_DB: Starting BFS crawl with 3 nodes in queue...
+TOPOLOGY_DB: DEBUG_BFS: Processing queue[1/3]: 'hb9bla-vm-tunnelserver'
+TOPOLOGY_DB: Added new router: hb9bla-vm-tunnelserver
+TOPOLOGY_DB: Router hb9bla-vm-tunnelserver has 5 LQM neighbor connections
+TOPOLOGY_DB: Added 0 phones for router hb9bla-vm-tunnelserver
+TOPOLOGY_DB: DEBUG_BFS: BOUNDARY - Skipping international node 'm0mfs-eng-supernode'
+TOPOLOGY_DB: BFS mesh crawl complete: processed 92 nodes, discovered 92 new routers, 118 total in queue
+TOPOLOGY_DB: Fetching location data for 116 nodes...
+TOPOLOGY_DB: Location fetch complete: 92 routers fetched, 0 failed, 24 phones propagated
+TOPOLOGY_DB: Calculating aggregate statistics for 283 connections...
 TOPOLOGY_DB: Statistics calculation complete
-TOPOLOGY_DB: Cleanup complete: removed 3 stale nodes, 12 orphaned connections
-TOPOLOGY_DB: Writing topology to /tmp/topology.json...
-TOPOLOGY_DB: Topology written to /tmp/topology.json (186 nodes, 413 connections)
+TOPOLOGY_DB: Cleanup complete: removed 0 stale nodes, marked 0 nodes INACTIVE, removed 0 orphaned connections
+TOPOLOGY_DB: Writing topology to /tmp/arednmon/network_topology.json...
+TOPOLOGY_CRAWLER: Mesh crawl discovered 116 nodes, 283 connections
+TOPOLOGY_CRAWLER: === Mesh crawl complete ===
 ```
 
-#### 4.12.14 AREDNmon UI Enhancements (v2.5.38+)
+#### 4.12.15 AREDNmon UI Enhancements (v2.5.38+)
 
 **Performance Optimizations:**
 

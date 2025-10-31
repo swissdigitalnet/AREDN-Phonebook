@@ -85,6 +85,20 @@ int reverse_dns_lookup(const char *ip, char *hostname, size_t hostname_len) {
 
         strncpy(hostname, final_hostname, hostname_len - 1);
         hostname[hostname_len - 1] = '\0';
+
+        // Sanitize hostname: remove any newlines, carriage returns, or control characters
+        for (char *p = hostname; *p; p++) {
+            if (*p == '\n' || *p == '\r' || *p < 32) {
+                *p = '\0';  // Terminate string at first control character
+                break;
+            }
+        }
+
+        // Normalize hostname to lowercase for consistent comparison
+        for (char *p = hostname; *p; p++) {
+            *p = tolower(*p);
+        }
+
         LOG_DEBUG("Reverse DNS: %s -> %s", ip, hostname);
         return 0;
     } else {
@@ -288,6 +302,49 @@ int traceroute_to_phone(const char *phone_number, int max_hops,
         close(send_sock);
         return -1;
     }
+
+    // Add localhost as hop 0
+    char localhost_name[256] = "localhost";
+    if (gethostname(localhost_name, sizeof(localhost_name)) != 0) {
+        FILE *hostname_fp = popen("cat /proc/sys/kernel/hostname", "r");
+        if (hostname_fp && fgets(localhost_name, sizeof(localhost_name), hostname_fp)) {
+            char *nl = strchr(localhost_name, '\n');
+            if (nl) *nl = '\0';
+            pclose(hostname_fp);
+        } else {
+            if (hostname_fp) pclose(hostname_fp);
+            strcpy(localhost_name, "localhost");
+        }
+    }
+
+    // Measure localhost loopback delay with ICMP ping to 127.0.0.1
+    float localhost_rtt = 0.0;
+    struct sockaddr_in localhost_addr;
+    memset(&localhost_addr, 0, sizeof(localhost_addr));
+    localhost_addr.sin_family = AF_INET;
+    localhost_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    char dummy_buf[64];
+    double start_time = get_time_ms();
+
+    // Simple loopback test: try to send UDP packet to 127.0.0.1:33434
+    localhost_addr.sin_port = htons(TRACEROUTE_PORT_BASE);
+    ssize_t sent = sendto(send_sock, dummy_buf, sizeof(dummy_buf), 0,
+                         (struct sockaddr*)&localhost_addr, sizeof(localhost_addr));
+    if (sent > 0) {
+        double end_time = get_time_ms();
+        localhost_rtt = (float)(end_time - start_time);
+    }
+
+    results[0].hop_number = 0;
+    strcpy(results[0].ip_address, "127.0.0.1");
+    strncpy(results[0].hostname, localhost_name, 255);
+    results[0].hostname[255] = '\0';
+    results[0].rtt_ms = localhost_rtt;
+    results[0].timeout = false;
+    *hop_count = 1;
+
+    LOG_INFO("Hop 0: %s (127.0.0.1) - %.2f ms", localhost_name, localhost_rtt);
 
     // Traceroute loop
     bool reached_destination = false;

@@ -229,6 +229,7 @@ cat <<'EOF'
             margin-top: 10px;
             display: flex;
             gap: 10px;
+            align-items: center;
         }
         .map-btn {
             padding: 8px 16px;
@@ -245,6 +246,71 @@ cat <<'EOF'
         .map-btn:disabled {
             background-color: #ccc;
             cursor: not-allowed;
+        }
+        .map-search {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-left: auto;
+        }
+        .map-search input {
+            width: 250px;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .map-search input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .map-search button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background-color: #f44336;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .map-search button:hover {
+            background-color: #da190b;
+        }
+        .search-highlighted-marker {
+            filter: drop-shadow(0 0 10px #4CAF50) drop-shadow(0 0 20px #4CAF50);
+            animation: pulse-highlight 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-highlight {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+        }
+        .search-tooltip {
+            background-color: #FFD700 !important;
+            color: #000 !important;
+            border: 2px solid #FFA500 !important;
+            border-radius: 4px !important;
+            padding: 4px 8px !important;
+            font-weight: bold !important;
+            font-size: 12px !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+        }
+        .search-tooltip::before {
+            border-top-color: #FFA500 !important;
+        }
+        .default-coords-label {
+            background-color: #FFFFFF !important;
+            color: #333 !important;
+            border: 1px solid #666 !important;
+            border-radius: 3px !important;
+            padding: 2px 6px !important;
+            font-size: 11px !important;
+            font-weight: normal !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
+            white-space: nowrap !important;
         }
         .map-legend {
             margin-top: 15px;
@@ -314,7 +380,7 @@ cat <<'EOF'
             color: #4CAF50;
             font-weight: bold;
         }
-        /* Active Calls Section */
+        /* Active Calls Section Styles */
         .active-calls-container {
             background-color: white;
             padding: 20px;
@@ -323,10 +389,12 @@ cat <<'EOF'
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .active-calls-title {
-            font-size: 20px;
+            font-size: 1.5em;
             font-weight: bold;
-            margin-bottom: 15px;
             color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #4CAF50;
         }
         .call-item {
             display: flex;
@@ -340,18 +408,19 @@ cat <<'EOF'
         }
         .call-item.ringing {
             border-left-color: #FF9800;
+            background-color: #fff3e0;
         }
         .call-info {
             flex: 1;
         }
         .call-parties {
-            font-size: 16px;
+            font-size: 1.1em;
             font-weight: bold;
             color: #333;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
         }
         .call-details {
-            font-size: 14px;
+            font-size: 0.9em;
             color: #666;
         }
         .call-codec {
@@ -359,36 +428,25 @@ cat <<'EOF'
             padding: 2px 8px;
             background-color: #2196F3;
             color: white;
-            border-radius: 4px;
-            font-size: 12px;
-            margin-left: 10px;
+            border-radius: 3px;
+            margin-right: 10px;
+            font-weight: bold;
         }
         .call-state {
-            display: inline-block;
-            padding: 2px 8px;
-            background-color: #9E9E9E;
-            color: white;
-            border-radius: 4px;
-            font-size: 12px;
-            margin-left: 5px;
+            font-style: italic;
         }
         .traceroute-btn {
             padding: 8px 16px;
-            background-color: #4CAF50;
+            background-color: #9C27B0;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
+            transition: background-color 0.3s;
         }
         .traceroute-btn:hover {
-            background-color: #45a049;
-        }
-        .no-calls {
-            text-align: center;
-            padding: 20px;
-            color: #999;
-            font-style: italic;
+            background-color: #7B1FA2;
         }
     </style>
 </head>
@@ -422,7 +480,11 @@ cat <<'EOF'
 
         <div class="map-controls">
             <button class="map-btn" id="refreshMapBtn">Refresh Topology</button>
-            <span id="mapStatus" style="margin-left: 10px; color: #666;"></span>
+            <span id="mapStatus" style="color: #666;"></span>
+            <div class="map-search">
+                <input type="text" id="mapSearchInput" placeholder="Search devices (press Enter)..." />
+                <button id="clearSearchBtn">Clear</button>
+            </div>
         </div>
         <div class="map-legend">
             <strong>Node Types:</strong><br>
@@ -512,53 +574,6 @@ cat <<EOF
             }
         }
 
-        // Active Calls Functions
-        async function loadActiveCalls() {
-            try {
-                const response = await fetch('/cgi-bin/active_calls_json');
-                const data = await response.json();
-
-                const container = document.getElementById('activeCallsContainer');
-                const callsList = document.getElementById('activeCallsList');
-
-                if (data.calls && data.calls.length > 0) {
-                    // Show container
-                    container.style.display = 'block';
-
-                    // Build calls HTML
-                    let html = '';
-                    data.calls.forEach(call => {
-                        const stateClass = call.state === 'RINGING' ? 'ringing' : '';
-                        html += `
-                            <div class="call-item ${stateClass}">
-                                <div class="call-info">
-                                    <div class="call-parties">
-                                        ${call.caller_display_name} (${call.caller_user_id})
-                                        ⟷
-                                        ${call.callee_display_name} (${call.callee_user_id})
-                                    </div>
-                                    <div class="call-details">
-                                        <span class="call-codec">${call.codec || 'Unknown'}</span>
-                                        <span class="call-state">${call.state}</span>
-                                    </div>
-                                </div>
-                                <button class="traceroute-btn" onclick="fetchTraceroute('${call.callee_hostname}', '${call.callee_display_name}')">
-                                    Traceroute
-                                </button>
-                            </div>
-                        `;
-                    });
-                    callsList.innerHTML = html;
-                } else {
-                    // Hide container when no calls
-                    container.style.display = 'none';
-                }
-            } catch (error) {
-                console.error('Failed to load active calls:', error);
-                document.getElementById('activeCallsContainer').style.display = 'none';
-            }
-        }
-
         // Clean hostname by removing common prefixes (mid2., dtdlink., etc.)
         function cleanHostname(hostname) {
             if (!hostname || !hostname.includes('.')) {
@@ -607,7 +622,7 @@ cat <<EOF
         // Load and display test results
         async function loadResults() {
             try {
-                const response = await fetch('/cgi-bin/uac_test_db_json');
+                const response = await fetch('/cgi-bin/phone_ping_json');
                 const data = await response.json();
 
                 if (data.error) {
@@ -659,6 +674,46 @@ cat <<EOF
             }
         }
 
+        // Load and display active calls
+        async function loadActiveCalls() {
+            try {
+                const response = await fetch('/cgi-bin/active_calls_json');
+                const data = await response.json();
+
+                const container = document.getElementById('activeCallsContainer');
+                const callsList = document.getElementById('activeCallsList');
+
+                if (data.calls && data.calls.length > 0) {
+                    container.style.display = 'block';
+
+                    let html = '';
+                    data.calls.forEach(call => {
+                        const stateClass = call.state === 'RINGING' ? 'ringing' : '';
+                        html += '<div class="call-item ' + stateClass + '">';
+                        html += '  <div class="call-info">';
+                        html += '    <div class="call-parties">';
+                        html += call.caller_display_name + ' (' + call.caller_user_id + ')';
+                        html += ' ⟷ ';
+                        html += call.callee_display_name + ' (' + call.callee_user_id + ')';
+                        html += '    </div>';
+                        html += '    <div class="call-details">';
+                        html += '      <span class="call-codec">' + (call.codec || 'Unknown') + '</span>';
+                        html += '      <span class="call-state">' + call.state + '</span>';
+                        html += '    </div>';
+                        html += '  </div>';
+                        html += '  <button class="traceroute-btn" onclick="fetchTraceroute(\'' + call.callee_hostname + '\', \'' + call.callee_display_name + '\')">Traceroute</button>';
+                        html += '</div>';
+                    });
+                    callsList.innerHTML = html;
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Failed to load active calls:', error);
+                document.getElementById('activeCallsContainer').style.display = 'none';
+            }
+        }
+
         // Progress indicator removed (no DOM elements for it)
 
         // ============================================================
@@ -671,34 +726,49 @@ cat <<EOF
         let connectionLines = [];
         let highlightedPath = [];
         let rttLabels = [];  // Store RTT label markers for zoom-dependent visibility
+        let searchHighlightedMarkers = [];  // Track markers highlighted by search
 
         // Find node marker by hostname (handles partial matching)
         function findNodeMarkerByHostname(hostname) {
             if (!hostname) return null;
 
-            // Try exact match first
+            // Normalize to lowercase for comparison
+            const hostnameLower = hostname.toLowerCase();
+
+            // Try exact match first (case-insensitive)
             if (nodeMarkers[hostname]) {
                 return nodeMarkers[hostname];
+            }
+            // Try lowercase version
+            if (nodeMarkers[hostnameLower]) {
+                return nodeMarkers[hostnameLower];
             }
 
             // Try without .local.mesh suffix
             const withoutSuffix = hostname.replace(/\.local\.mesh$/, '');
+            const withoutSuffixLower = withoutSuffix.toLowerCase();
             if (nodeMarkers[withoutSuffix]) {
                 return nodeMarkers[withoutSuffix];
             }
+            if (nodeMarkers[withoutSuffixLower]) {
+                return nodeMarkers[withoutSuffixLower];
+            }
 
             // Try matching by the base hostname (after removing prefixes like "mid2.", "dtdlink.")
-            const cleanedHostname = cleanHostname(hostname.replace(/\.local\.mesh$/, ''));
+            const cleanedHostname = cleanHostname(hostname.replace(/\.local\.mesh$/, '')).toLowerCase();
 
-            // Search through all markers for a match
+            // Search through all markers for a match (case-insensitive)
             for (const [markerKey, marker] of Object.entries(nodeMarkers)) {
-                // Check if cleaned names match
-                if (cleanHostname(markerKey) === cleanedHostname) {
+                const markerKeyLower = markerKey.toLowerCase();
+                const cleanedMarkerKey = cleanHostname(markerKey).toLowerCase();
+
+                // Check if cleaned names match (case-insensitive)
+                if (cleanedMarkerKey === cleanedHostname) {
                     return marker;
                 }
 
-                // Check if marker key is contained in hostname or vice versa
-                if (markerKey.includes(withoutSuffix) || withoutSuffix.includes(markerKey)) {
+                // Check if marker key is contained in hostname or vice versa (case-insensitive)
+                if (markerKeyLower.includes(withoutSuffixLower) || withoutSuffixLower.includes(markerKeyLower)) {
                     return marker;
                 }
             }
@@ -1026,6 +1096,16 @@ cat <<EOF
                 // Add simple popup with just the name
                 marker.bindPopup('<strong>' + cleanName + '</strong>');
 
+                // For nodes at default coordinates (lon = 5.950), add permanent label on the right
+                if (node.lon === "5.950000") {
+                    marker.bindTooltip(cleanName, {
+                        permanent: true,
+                        direction: 'right',
+                        className: 'default-coords-label',
+                        offset: [10, 0]
+                    }).openTooltip();
+                }
+
                 // Add click handler for route highlighting and traceroute
                 marker.on('click', async function() {
                     await highlightPathToNode(data, node, cleanName);
@@ -1264,6 +1344,83 @@ cat <<EOF
             }, TOPOLOGY_UPDATE_INTERVAL);
         }
 
+        // Search nodes on the map
+        function searchNodes() {
+            const searchInput = document.getElementById('mapSearchInput');
+            const searchTerm = searchInput.value.trim().toLowerCase();
+
+            // Clear previous search highlights
+            clearSearch();
+
+            if (!searchTerm) {
+                return;
+            }
+
+            // Get topology data to find node colors
+            if (!topologyData || !topologyData.nodes) {
+                alert('Topology data not loaded yet');
+                return;
+            }
+
+            // Search through all node markers
+            let matchCount = 0;
+            for (const [nodeName, marker] of Object.entries(nodeMarkers)) {
+                if (nodeName.toLowerCase().includes(searchTerm)) {
+                    // Find the node data to get its color
+                    const nodeData = topologyData.nodes.find(n => n.name === nodeName);
+                    if (!nodeData) continue;
+
+                    const color = getNodeColor(nodeData.type, nodeData.status);
+
+                    // Store original icon
+                    const originalIcon = marker.options.icon;
+
+                    // Create highlighted icon (larger with pulsing animation)
+                    const highlightedIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: '<style>@keyframes pulse-search { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }</style>' +
+                              '<div style="background-color:' + color + '; width: 20px; height: 20px; border-radius: 50%; ' +
+                              'border: 3px solid #FFD700; box-shadow: 0 0 15px #FFD700; animation: pulse-search 1s ease-in-out infinite;"></div>',
+                        iconSize: [26, 26],
+                        iconAnchor: [13, 13]
+                    });
+
+                    marker.setIcon(highlightedIcon);
+
+                    // Add permanent tooltip to show the name (allows multiple to be shown)
+                    const cleanName = cleanHostname(nodeName);
+                    marker.bindTooltip(cleanName, {
+                        permanent: true,
+                        direction: 'top',
+                        className: 'search-tooltip',
+                        offset: [0, -13]
+                    }).openTooltip();
+
+                    searchHighlightedMarkers.push({ marker: marker, originalIcon: originalIcon });
+                    matchCount++;
+                }
+            }
+
+            if (matchCount === 0) {
+                alert('No devices found matching "' + searchTerm + '"');
+            } else {
+                console.log('Search: Found ' + matchCount + ' device(s) matching "' + searchTerm + '"');
+            }
+        }
+
+        // Clear search highlights
+        function clearSearch() {
+            // Restore original icons and remove tooltips
+            searchHighlightedMarkers.forEach(item => {
+                item.marker.setIcon(item.originalIcon);
+                item.marker.unbindTooltip();
+            });
+            searchHighlightedMarkers = [];
+
+            // Clear search input
+            document.getElementById('mapSearchInput').value = '';
+        }
+
         // ============================================================
         // END TOPOLOGY MAP FUNCTIONALITY
         // ============================================================
@@ -1273,12 +1430,28 @@ cat <<EOF
             // Initialize topology map (independent of test data)
             initTopologyMap();
 
+            // Set up search event listeners
+            const searchInput = document.getElementById('mapSearchInput');
+            const clearButton = document.getElementById('clearSearchBtn');
+
+            if (searchInput) {
+                searchInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        searchNodes();
+                    }
+                });
+            }
+
+            if (clearButton) {
+                clearButton.addEventListener('click', clearSearch);
+            }
+
             // Load active calls initially and set up periodic updates
             loadActiveCalls();
             setInterval(loadActiveCalls, 5000); // Refresh every 5 seconds
 
             // Fetch test results data first (don't render yet)
-            const response = await fetch('/cgi-bin/uac_test_db_json');
+            const response = await fetch('/cgi-bin/phone_ping_json');
             const data = await response.json();
 
             // If no test data yet, show waiting message

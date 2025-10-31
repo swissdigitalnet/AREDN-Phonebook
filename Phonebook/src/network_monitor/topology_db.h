@@ -182,6 +182,16 @@ int topology_db_write_to_file(const char *filepath);
 void topology_db_crawl_mesh_network(void);
 
 /**
+ * Fetch phones for all routers in topology
+ *
+ * Iterates through all router nodes and fetches their phones from OLSR services.
+ * Useful for catching routers that were added via traceroute but not crawled.
+ *
+ * @return Number of phones added
+ */
+int topology_db_fetch_phones_for_all_routers(void);
+
+/**
  * Strip hostname prefix (mid1., mid2., dtdlink., etc.)
  *
  * Removes interface prefixes from hostnames to avoid duplicates.
