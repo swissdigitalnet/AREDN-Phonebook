@@ -86,12 +86,12 @@ void *status_updater_thread(void *arg) {
             break; // Exit immediately on shutdown signal
         }
 
-        LOG_INFO("Starting new update cycle.");
+        LOG_DEBUG("Starting new update cycle.");
 
         if (wait_status == 0) {
-            LOG_INFO("Triggered by Phonebook Fetcher signal.");
+            LOG_DEBUG("Triggered by Phonebook Fetcher signal.");
         } else if (wait_status == ETIMEDOUT) {
-            LOG_INFO("Running on schedule (every %d seconds).", g_status_update_interval_seconds);
+            LOG_DEBUG("Running on schedule (every %d seconds).", g_status_update_interval_seconds);
         } else {
             LOG_ERROR("pthread_cond_timedwait failed: %s", strerror(wait_status));
         }
@@ -235,7 +235,7 @@ void *status_updater_thread(void *arg) {
             }
         }
 
-        LOG_INFO("Finished update cycle.");
+        LOG_DEBUG("Finished update cycle.");
     }
 
     LOG_INFO("Status updater exiting.");

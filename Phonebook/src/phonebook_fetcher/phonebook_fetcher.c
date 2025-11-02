@@ -130,7 +130,7 @@ void *phonebook_fetcher_thread(void *arg) {
             health_update_heartbeat(thread_index);
         }
 
-        LOG_INFO("Starting new fetcher cycle.");
+        LOG_DEBUG("Starting new fetcher cycle.");
         char new_csv_hash[HASH_LENGTH + 1]; // HASH_LENGTH from common.h
         char last_good_csv_hash[HASH_LENGTH + 1];
 
@@ -174,7 +174,7 @@ void *phonebook_fetcher_thread(void *arg) {
 
         // Flash-friendly comparison: Only write to flash if data actually changed
         if (strcmp(new_csv_hash, last_good_csv_hash) == 0 && initial_population_done) {
-            LOG_INFO("Downloaded CSV is identical to flash copy. No flash write needed - preserving flash lifespan.");
+            LOG_DEBUG("Downloaded CSV is identical to flash copy. No flash write needed - preserving flash lifespan.");
             remove(PB_CSV_TEMP_PATH); // Clean up unchanged temp file
             goto end_fetcher_cycle;
         } else {
@@ -206,14 +206,14 @@ void *phonebook_fetcher_thread(void *arg) {
         }
 
         LOG_ERROR("CRITICAL DEBUG: About to populate users from CSV - THIS LINE MUST APPEAR!");
-        LOG_INFO("Populating SIP users from CSV for phonebook update.");
+        LOG_DEBUG("Populating SIP users from CSV for phonebook update.");
         populate_registered_users_from_csv(PB_CSV_PATH);
         LOG_ERROR("CRITICAL DEBUG: populate_registered_users_from_csv() returned - num_directory_entries=%d", num_directory_entries);
-        LOG_INFO("SIP user database populated from CSV. Total directory entries: %d.", num_directory_entries); // num_directory_entries from common.h
+        LOG_DEBUG("SIP user database populated from CSV. Total directory entries: %d.", num_directory_entries); // num_directory_entries from common.h
         initial_population_done = true;
 
         LOG_ERROR("CRITICAL DEBUG: About to initiate XML conversion");
-        LOG_INFO("Initiating XML conversion...");
+        LOG_DEBUG("Initiating XML conversion...");
         char fetched_xml_temp_path[MAX_CONFIG_PATH_LEN];
         if (csv_processor_convert_csv_to_xml_and_get_path(fetched_xml_temp_path, sizeof(fetched_xml_temp_path)) == 0) {
             LOG_INFO("XML conversion successful.");
