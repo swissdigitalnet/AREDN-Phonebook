@@ -8,7 +8,6 @@
 
 // Week 1: Essential cleanup and self-correction
 void passive_cleanup_stale_call_sessions(void);
-void validate_and_correct_config(void);
 void enable_graceful_degradation_if_needed(void);
 void cleanup_orphaned_phonebook_files(void);
 

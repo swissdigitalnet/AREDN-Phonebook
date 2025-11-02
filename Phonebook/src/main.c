@@ -178,11 +178,12 @@ int main(int argc, char *argv[]) {
     log_init(APP_NAME); // APP_NAME is defined in common.h
     LOG_INFO("Starting main function for %s process (PID %d).", MODULE_NAME, getpid());
 
-    // --- Load configuration from file ---
-    load_configuration("/etc/phonebook.conf"); // Call the loader function
-
-    // --- Passive Safety: Self-correct configuration ---
-    validate_and_correct_config(); // Fix common config errors automatically
+    // --- Load and validate configuration from file ---
+    if (load_configuration("/etc/phonebook.conf") != 0) {
+        LOG_ERROR("Configuration validation failed. Please fix /etc/phonebook.conf and restart.");
+        log_shutdown();
+        return EXIT_FAILURE;
+    }
 
     // --- Initialize software health monitoring system ---
     // Re-enabled with extensive instrumentation for crash debugging

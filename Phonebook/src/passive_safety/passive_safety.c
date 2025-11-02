@@ -44,45 +44,7 @@ void passive_cleanup_stale_call_sessions(void) {
     }
 }
 
-// 2. CONFIGURATION SELF-CORRECTION - Fix common deployment mistakes
-void validate_and_correct_config(void) {
-    bool config_corrected = false;
-
-    // Validate phonebook fetch interval (prevent too-frequent updates)
-    if (g_pb_interval_seconds < 300) { // Less than 5 minutes is too aggressive
-        LOG_WARN("Phonebook interval %d too small, correcting to 1800 seconds",
-                 g_pb_interval_seconds);
-        g_pb_interval_seconds = 1800; // 30 minutes
-        config_corrected = true;
-    }
-
-    // Validate status update interval
-    if (g_status_update_interval_seconds < 60) { // Less than 1 minute is too aggressive
-        LOG_WARN("Status update interval %d too small, correcting to 600 seconds",
-                 g_status_update_interval_seconds);
-        g_status_update_interval_seconds = 600; // 10 minutes
-        config_corrected = true;
-    }
-
-    // Ensure we have at least one phonebook server
-    if (g_num_phonebook_servers == 0) {
-        LOG_WARN("No phonebook servers configured, adding default server");
-        strncpy(g_phonebook_servers_list[0].host, "localnode.local.mesh",
-                sizeof(g_phonebook_servers_list[0].host) - 1);
-        strncpy(g_phonebook_servers_list[0].port, "80",
-                sizeof(g_phonebook_servers_list[0].port) - 1);
-        strncpy(g_phonebook_servers_list[0].path, "/phonebook.csv",
-                sizeof(g_phonebook_servers_list[0].path) - 1);
-        g_num_phonebook_servers = 1;
-        config_corrected = true;
-    }
-
-    if (config_corrected) {
-        LOG_INFO("Configuration automatically corrected for optimal operation");
-    }
-}
-
-// 3. GRACEFUL DEGRADATION - Adapt to high load automatically
+// 2. GRACEFUL DEGRADATION - Adapt to high load automatically
 void enable_graceful_degradation_if_needed(void) {
     static time_t last_check = 0;
     time_t now = time(NULL);
