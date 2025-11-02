@@ -66,7 +66,7 @@ void *status_updater_thread(void *arg) {
 
     struct timespec ts;
 
-    while (1) { // Changed from while (keep_running) to while (1)
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         // Passive Safety: Update heartbeat for thread recovery monitoring
         g_updater_last_heartbeat = time(NULL);
 
@@ -82,9 +82,9 @@ void *status_updater_thread(void *arg) {
         int wait_status = pthread_cond_timedwait(&updater_trigger_cond, &updater_trigger_mutex, &ts);
         pthread_mutex_unlock(&updater_trigger_mutex);
 
-        // if (!keep_running) { // REMOVED
-        //     break;
-        // }
+        if (!g_keep_running) {
+            break; // Exit immediately on shutdown signal
+        }
 
         LOG_INFO("Starting new update cycle.");
 

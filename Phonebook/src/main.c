@@ -39,8 +39,7 @@ RegisteredUser registered_users[MAX_REGISTERED_USERS];
 CallSession call_sessions[MAX_CALL_SESSIONS];
 
 // Other global variables (DEFINED here)
-// volatile sig_atomic_t keep_running = 1; // REMOVED
-// volatile sig_atomic_t phonebook_updated_flag = 0; // REMOVED as related to signal handling
+volatile sig_atomic_t g_keep_running = 1; // Global shutdown flag for graceful termination
 volatile sig_atomic_t phonebook_reload_requested = 0; // For webhook-triggered reload
 int num_registered_users = 0;
 int num_directory_entries = 0;
@@ -77,6 +76,16 @@ void phone_test_signal_handler(int sig) {
     if (sig == SIGUSR2) {
         phone_test_requested = 1;
         syslog(6, "[PHONE_TEST_SIGNAL] SIGUSR2 received - setting phone_test_requested flag"); // 6 = LOG_INFO
+    }
+}
+
+// Signal handler for graceful shutdown (SIGTERM, SIGINT)
+void shutdown_signal_handler(int sig) {
+    // Use only async-signal-safe functions in signal handlers
+    if (sig == SIGTERM || sig == SIGINT) {
+        g_keep_running = 0;
+        const char *signame = (sig == SIGTERM) ? "SIGTERM" : "SIGINT";
+        syslog(6, "[SHUTDOWN] %s received - initiating graceful shutdown", signame); // 6 = LOG_INFO
     }
 }
 
@@ -186,6 +195,10 @@ int main(int argc, char *argv[]) {
     LOG_INFO("=== BUILD VERIFICATION: v2.4.9 (remove health score display) ===");
 
     // --- Register signal handlers ---
+    signal(SIGTERM, shutdown_signal_handler);
+    signal(SIGINT, shutdown_signal_handler);
+    LOG_INFO("Registered SIGTERM/SIGINT handlers for graceful shutdown");
+
     signal(SIGUSR1, phonebook_reload_signal_handler);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
 
@@ -363,7 +376,7 @@ int main(int argc, char *argv[]) {
 
     int timeout_count = 0; // Counter for select timeout logging
 
-    while (1) { // Changed from while(keep_running) to while(1)
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         len = sizeof(cliaddr);
         FD_ZERO(&readfds);
         FD_SET(sockfd, &readfds);
@@ -423,15 +436,68 @@ int main(int argc, char *argv[]) {
             softphone_check_timeout();
         }
     }
-    // This code block will now only be reached if an unrecoverable error in the main loop occurs.
-    LOG_WARN("Main SIP message processing loop unexpectedly terminated.");
+
+    // Graceful shutdown sequence
+    LOG_INFO("Main loop exited - beginning graceful shutdown sequence");
 
     // Phase 5: Shutdown softphone if initialized
     if (have_server_ip) {
+        LOG_INFO("Shutting down softphone...");
         softphone_shutdown();
     }
 
     close(sockfd);
+    LOG_INFO("SIP socket closed");
+
+    // Join all worker threads to ensure clean shutdown
+    LOG_INFO("Waiting for worker threads to terminate...");
+
+    if (fetcher_tid != 0) {
+        LOG_INFO("Joining phonebook fetcher thread...");
+        pthread_join(fetcher_tid, NULL);
+        LOG_INFO("Phonebook fetcher thread terminated");
+    }
+
+    if (status_updater_tid != 0) {
+        // Signal the status updater to wake up if it's waiting
+        pthread_mutex_lock(&updater_trigger_mutex);
+        pthread_cond_signal(&updater_trigger_cond);
+        pthread_mutex_unlock(&updater_trigger_mutex);
+
+        LOG_INFO("Joining status updater thread...");
+        pthread_join(status_updater_tid, NULL);
+        LOG_INFO("Status updater thread terminated");
+    }
+
+    if (g_passive_safety_tid != 0) {
+        LOG_INFO("Joining passive safety thread...");
+        pthread_join(g_passive_safety_tid, NULL);
+        LOG_INFO("Passive safety thread terminated");
+    }
+
+    if (bulk_tester_tid != 0) {
+        LOG_INFO("Joining phone bulk testing thread...");
+        pthread_join(bulk_tester_tid, NULL);
+        LOG_INFO("Phone bulk testing thread terminated");
+    }
+
+    if (topology_crawler_tid != 0) {
+        LOG_INFO("Joining topology crawler thread...");
+        pthread_join(topology_crawler_tid, NULL);
+        LOG_INFO("Topology crawler thread terminated");
+    }
+
+    if (health_reporter_tid != 0) {
+        LOG_INFO("Joining health reporter thread...");
+        pthread_join(health_reporter_tid, NULL);
+        LOG_INFO("Health reporter thread terminated");
+    }
+
+    LOG_INFO("All worker threads terminated successfully");
+
+    // Shutdown health monitoring system
+    LOG_INFO("Shutting down software health monitoring system...");
+    software_health_shutdown();
 
     LOG_INFO("Destroying mutexes and condition variables...");
     pthread_mutex_destroy(&registered_users_mutex);
@@ -440,9 +506,9 @@ int main(int argc, char *argv[]) {
     pthread_cond_destroy(&updater_trigger_cond);
     LOG_DEBUG("Mutexes and condition variables destroyed.");
 
-    LOG_INFO("AREDN Phonebook shut down."); // Changed from "shut down cleanly"
+    LOG_INFO("AREDN Phonebook shut down cleanly");
     log_shutdown();
 
     LOG_INFO("Main function exiting.");
-    return EXIT_FAILURE; // Indicate abnormal exit if loop breaks
+    return g_keep_running ? EXIT_SUCCESS : EXIT_FAILURE;
 }

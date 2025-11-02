@@ -291,14 +291,20 @@ void *passive_safety_thread(void *arg) {
         // Continue anyway - health monitoring is not critical for operation
     }
 
-    while (1) {
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         // Update health heartbeat
         if (thread_index >= 0) {
             health_update_heartbeat(thread_index);
         }
 
-        // Run safety checks every 5 minutes
-        sleep(300);
+        // Run safety checks every 5 minutes, checking shutdown flag periodically
+        for (int i = 0; i < 300 && g_keep_running; i++) {
+            sleep(1);
+        }
+
+        if (!g_keep_running) {
+            break; // Exit immediately on shutdown signal
+        }
 
         // Week 1: Essential safety checks
         passive_cleanup_stale_call_sessions();
@@ -312,5 +318,6 @@ void *passive_safety_thread(void *arg) {
         }
     }
 
+    LOG_INFO("Passive safety thread exiting");
     return NULL;
 }

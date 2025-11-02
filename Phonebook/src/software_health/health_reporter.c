@@ -167,7 +167,7 @@ void* health_reporter_thread(void *arg) {
     }
     LOG_INFO("[HEALTH_REPORTER] Thread registered successfully, entering main loop");
 
-    while (1) {
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         LOG_INFO("[HEALTH_REPORTER] === START OF LOOP ITERATION ===");
 
         // Update heartbeat
@@ -237,10 +237,13 @@ void* health_reporter_thread(void *arg) {
             }
         }
 
-        // Sleep for configured interval (default: 60 seconds for local updates)
-        sleep(g_health_local_update_seconds);
+        // Sleep for configured interval, checking shutdown flag periodically
+        for (int i = 0; i < g_health_local_update_seconds && g_keep_running; i++) {
+            sleep(1);
+        }
     }
 
+    LOG_INFO("Health reporter thread exiting");
     return NULL;
 }
 

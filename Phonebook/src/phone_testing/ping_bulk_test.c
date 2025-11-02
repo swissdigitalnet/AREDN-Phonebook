@@ -64,7 +64,7 @@ void *ping_bulk_test_thread(void *arg) {
         LOG_INFO("Loaded previous online phone count: %d", prev_phones_online);
     }
 
-    while (1) {
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         // Passive Safety: Update heartbeat
         g_bulk_tester_last_heartbeat = time(NULL);
 
@@ -575,9 +575,11 @@ void *ping_bulk_test_thread(void *arg) {
             fclose(online_save);
         }
 
-        // Wait for next cycle
+        // Wait for next cycle, checking shutdown flag periodically
         LOG_INFO("Next UAC bulk test in %d seconds...", g_phone_test_interval_seconds);
-        sleep(g_phone_test_interval_seconds);
+        for (int i = 0; i < g_phone_test_interval_seconds && g_keep_running; i++) {
+            sleep(1);
+        }
     }
 
     LOG_INFO("UAC Bulk Tester thread exiting");

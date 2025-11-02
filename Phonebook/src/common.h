@@ -133,8 +133,7 @@ typedef struct {
 
 
 // --- Global Variable Declarations (defined in main.c or config_loader.c) ---
-// extern volatile sig_atomic_t keep_running; // REMOVED
-// extern volatile sig_atomic_t phonebook_updated_flag; // REMOVED
+extern volatile sig_atomic_t g_keep_running; // Global shutdown flag for graceful termination
 extern volatile sig_atomic_t phonebook_reload_requested; // For webhook-triggered reload
 
 // These are defined in config_loader.c and populated from phonebook.conf

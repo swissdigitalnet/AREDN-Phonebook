@@ -121,7 +121,7 @@ void *phonebook_fetcher_thread(void *arg) {
     }
 
     LOG_INFO("Entering main phonebook fetch loop.");
-    while (1) { // Changed from while (keep_running) to while (1)
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         // Passive Safety: Update heartbeat for thread recovery monitoring
         g_fetcher_last_heartbeat = time(NULL);
 
