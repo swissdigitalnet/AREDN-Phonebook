@@ -47,6 +47,8 @@ static FILE *g_crawl_log = NULL;
 
 // Forward declarations
 static bool should_crawl_node(const char *hostname);
+static void add_ip_mapping(const char *ip, const char *hostname);
+static const char* lookup_hostname_by_ip(const char *ip);
 
 /**
  * Calculate angle from phone number (last digit * 36 degrees)
