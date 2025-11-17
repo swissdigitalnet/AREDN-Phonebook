@@ -21,7 +21,6 @@ int ensure_phonebook_directory_exists(const char *path) {
 
 int publish_phonebook_xml(const char *source_filepath) {
     pthread_mutex_lock(&phonebook_file_mutex);
-    int publish_success = 0;
 
     char public_path_copy[MAX_CONFIG_PATH_LEN]; // MAX_CONFIG_PATH_LEN from common.h
     strncpy(public_path_copy, PB_XML_PUBLIC_PATH, sizeof(public_path_copy) - 1); // PB_XML_PUBLIC_PATH from common.h
@@ -34,34 +33,36 @@ int publish_phonebook_xml(const char *source_filepath) {
         return 1;
     }
 
-    // Passive Safety: Use safe file operation with automatic rollback
-    safe_phonebook_file_operation(source_filepath, PB_XML_PUBLIC_PATH);
+    // Passive Safety: Use safe file operation with automatic rollback and verification
+    int result = safe_phonebook_file_operation(source_filepath, PB_XML_PUBLIC_PATH);
 
-    // Check if the operation succeeded
-    if (access(PB_XML_PUBLIC_PATH, F_OK) == 0) {
+    if (result == 0) {
         LOG_INFO("Phonebook XML safely published at %s.", PB_XML_PUBLIC_PATH);
-        publish_success = 1;
-    } else {
-        LOG_ERROR("Safe file operation failed for XML publish");
-    }
 
-    if (publish_success) {
+        // Only signal status updater on successful publish
         pthread_mutex_lock(&updater_trigger_mutex);
         pthread_cond_signal(&updater_trigger_cond);
         pthread_mutex_unlock(&updater_trigger_mutex);
         LOG_INFO("Signaled Status Updater for new phonebook.");
-    } else {
-        LOG_INFO("Phonebook XML publishing failed.");
-        if (access(source_filepath, F_OK) == 0) { // access from common.h
-            if (remove(source_filepath) != 0) { // remove from common.h
-                LOG_WARN("Failed to delete temporary XML file '%s' after failed publish. Error: %s", source_filepath, strerror(errno));
+
+        // Clean up source temp file after successful publish
+        if (access(source_filepath, F_OK) == 0) {
+            if (remove(source_filepath) != 0) {
+                LOG_WARN("Failed to delete temporary XML file '%s' after successful publish. Error: %s",
+                        source_filepath, strerror(errno));
             } else {
-                LOG_DEBUG("Deleted temporary XML file '%s' after failed publish.", source_filepath);
+                LOG_DEBUG("Deleted temporary XML file '%s' after successful publish.", source_filepath);
             }
         }
+        pthread_mutex_unlock(&phonebook_file_mutex);
+        return 0;
+    } else {
+        LOG_ERROR("Safe file operation failed for XML publish");
+        // On failure, preserve the temp XML for inspection rather than deleting it
+        LOG_INFO("Preserving temporary XML file '%s' for inspection after failed publish.", source_filepath);
+        pthread_mutex_unlock(&phonebook_file_mutex);
+        return 1;
     }
-    pthread_mutex_unlock(&phonebook_file_mutex);
-    return publish_success ? 0 : 1;
 }
 
 static bool initial_population_done = false;
@@ -122,6 +123,14 @@ void *phonebook_fetcher_thread(void *arg) {
 
     LOG_INFO("Entering main phonebook fetch loop.");
     while (g_keep_running) { // Check shutdown flag for graceful termination
+        // Check for cooperative restart request from passive safety monitor
+        extern volatile sig_atomic_t g_fetcher_restart_requested;
+        if (g_fetcher_restart_requested) {
+            LOG_INFO("Cooperative restart requested - exiting gracefully to allow restart");
+            g_fetcher_restart_requested = 0; // Reset flag for next instance
+            break;
+        }
+
         // Passive Safety: Update heartbeat for thread recovery monitoring
         g_fetcher_last_heartbeat = time(NULL);
 
@@ -155,6 +164,15 @@ void *phonebook_fetcher_thread(void *arg) {
             goto end_fetcher_cycle;
         }
 
+        // VALIDATE CSV BEFORE ANY DESTRUCTIVE OPERATIONS
+        int valid_row_count = 0;
+        if (csv_processor_validate_csv(PB_CSV_TEMP_PATH, &valid_row_count) != 0) {
+            LOG_ERROR("Downloaded CSV failed validation. Refusing to accept invalid phonebook data.");
+            remove(PB_CSV_TEMP_PATH); // Clean up invalid temp file
+            goto end_fetcher_cycle;
+        }
+        LOG_INFO("CSV validation passed: %d valid entries in downloaded file", valid_row_count);
+
         // Read existing hash from flash (only if we have persistent data)
         FILE *hash_fp = fopen(PB_LAST_GOOD_CSV_HASH_PATH, "r");
         if (hash_fp) {
@@ -177,97 +195,111 @@ void *phonebook_fetcher_thread(void *arg) {
             LOG_DEBUG("Downloaded CSV is identical to flash copy. No flash write needed - preserving flash lifespan.");
             remove(PB_CSV_TEMP_PATH); // Clean up unchanged temp file
             goto end_fetcher_cycle;
-        } else {
-            if (!initial_population_done) {
-                LOG_INFO("Initial population required. Moving temp CSV to persistent storage.");
-            } else {
-                LOG_INFO("CSV content changed. Updating persistent storage (flash write).");
-            }
-
-            // Ensure the persistent storage directory exists before copying
-            char csv_dir_copy[MAX_CONFIG_PATH_LEN];
-            strncpy(csv_dir_copy, PB_CSV_PATH, sizeof(csv_dir_copy) - 1);
-            csv_dir_copy[sizeof(csv_dir_copy) - 1] = '\0';
-            char *csv_dir = dirname(csv_dir_copy);
-            if (file_utils_ensure_directory_exists(csv_dir) != 0) {
-                LOG_ERROR("Failed to create directory '%s' for persistent CSV storage", csv_dir);
-                remove(PB_CSV_TEMP_PATH); // Clean up temp file
-                goto end_fetcher_cycle;
-            }
-
-            // Cross-filesystem move: copy temp file to flash, then remove temp
-            if (file_utils_copy_file(PB_CSV_TEMP_PATH, PB_CSV_PATH) != 0) {
-                LOG_ERROR("Failed to copy temp CSV to persistent storage");
-                remove(PB_CSV_TEMP_PATH); // Clean up temp file
-                goto end_fetcher_cycle;
-            }
-            remove(PB_CSV_TEMP_PATH); // Clean up temp file after successful copy
-            LOG_INFO("CSV successfully copied to persistent storage with minimal flash wear.");
         }
 
-        LOG_ERROR("CRITICAL DEBUG: About to populate users from CSV - THIS LINE MUST APPEAR!");
-        LOG_DEBUG("Populating SIP users from CSV for phonebook update.");
+        // CRITICAL: Copy validated temp to persistent BEFORE any destructive operations
+        // This ensures persistent storage has good data before we nuke the user table
+        if (!initial_population_done) {
+            LOG_INFO("Initial population required. Persisting validated CSV to storage.");
+        } else {
+            LOG_INFO("CSV content changed. Updating persistent storage with validated data (flash write).");
+        }
+
+        // Ensure the persistent storage directory exists before copying
+        char csv_dir_copy[MAX_CONFIG_PATH_LEN];
+        strncpy(csv_dir_copy, PB_CSV_PATH, sizeof(csv_dir_copy) - 1);
+        csv_dir_copy[sizeof(csv_dir_copy) - 1] = '\0';
+        char *csv_dir = dirname(csv_dir_copy);
+        if (file_utils_ensure_directory_exists(csv_dir) != 0) {
+            LOG_ERROR("Failed to create directory '%s' for persistent CSV storage", csv_dir);
+            remove(PB_CSV_TEMP_PATH); // Clean up temp file
+            goto end_fetcher_cycle;
+        }
+
+        // Cross-filesystem move: copy validated temp file to flash
+        if (file_utils_copy_file(PB_CSV_TEMP_PATH, PB_CSV_PATH) != 0) {
+            LOG_ERROR("Failed to copy validated temp CSV to persistent storage");
+            remove(PB_CSV_TEMP_PATH); // Clean up temp file
+            goto end_fetcher_cycle;
+        }
+        LOG_INFO("Validated CSV successfully copied to persistent storage.");
+        remove(PB_CSV_TEMP_PATH); // Clean up temp file after successful copy
+
+        // Now populate users from PERSISTENT CSV (this will clear the table, but persistent is validated)
+        LOG_DEBUG("Populating SIP users from validated persistent CSV.");
         populate_registered_users_from_csv(PB_CSV_PATH);
-        LOG_ERROR("CRITICAL DEBUG: populate_registered_users_from_csv() returned - num_directory_entries=%d", num_directory_entries);
-        LOG_DEBUG("SIP user database populated from CSV. Total directory entries: %d.", num_directory_entries); // num_directory_entries from common.h
+        LOG_DEBUG("SIP user database populated from CSV. Total directory entries: %d.", num_directory_entries);
         initial_population_done = true;
 
-        LOG_ERROR("CRITICAL DEBUG: About to initiate XML conversion");
+        // Generate XML from the persistent CSV path for publishing
         LOG_DEBUG("Initiating XML conversion...");
         char fetched_xml_temp_path[MAX_CONFIG_PATH_LEN];
-        if (csv_processor_convert_csv_to_xml_and_get_path(fetched_xml_temp_path, sizeof(fetched_xml_temp_path)) == 0) {
-            LOG_INFO("XML conversion successful.");
-
-            if (publish_phonebook_xml(fetched_xml_temp_path) == 0) {
-                // Only update hash in flash if we haven't already written this hash
-                if (strcmp(new_csv_hash, last_good_csv_hash) != 0) {
-                    FILE *hash_fp_write = fopen(PB_LAST_GOOD_CSV_HASH_PATH, "w");
-                    if (hash_fp_write) {
-                        fprintf(hash_fp_write, "%s\n", new_csv_hash);
-                        fclose(hash_fp_write);
-                        LOG_INFO("Flash write: Updated CSV hash to '%s' (flash wear minimized).", new_csv_hash);
-                    } else {
-                        LOG_ERROR("Failed to write new CSV hash to '%s'. Error: %s", PB_LAST_GOOD_CSV_HASH_PATH, strerror(errno));
-                    }
-                } else {
-                    LOG_DEBUG("Hash unchanged, skipping flash write for hash file.");
-                }
-
-                // Update health metrics: successful fetch
-                extern service_metrics_t g_service_metrics;
-                extern pthread_mutex_t g_health_mutex;
-                pthread_mutex_lock(&g_health_mutex);
-                g_service_metrics.phonebook_last_updated = time(NULL);
-                strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
-                        sizeof(g_service_metrics.phonebook_fetch_status) - 1);
-                strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
-                        sizeof(g_service_metrics.phonebook_csv_hash) - 1);
-                g_service_metrics.phonebook_entries_loaded = num_directory_entries;
-                pthread_mutex_unlock(&g_health_mutex);
-
-                LOG_INFO("Health metrics updated: phonebook fetch SUCCESS, %d entries, hash %s",
-                         num_directory_entries, new_csv_hash);
-            } else {
-                LOG_WARN("XML publish failed, not updating hash file.");
-            }
-
-            // Keep CSV in persistent storage for emergency availability - do not delete
-
-        } else {
-            LOG_WARN("XML conversion failed. Keeping CSV in persistent storage for emergency availability.");
-            // Do not delete CSV even if XML conversion fails - emergency data preservation
+        if (csv_processor_convert_csv_to_xml_and_get_path(fetched_xml_temp_path, sizeof(fetched_xml_temp_path)) != 0) {
+            LOG_ERROR("XML conversion failed. But persistent storage is intact - service remains available.");
+            goto end_fetcher_cycle;
         }
+        LOG_INFO("XML conversion successful.");
+
+        // Try to publish the XML
+        if (publish_phonebook_xml(fetched_xml_temp_path) != 0) {
+            LOG_ERROR("XML publish failed. But persistent storage is intact - service remains available.");
+            goto end_fetcher_cycle;
+        }
+
+        // Only update hash in flash if we haven't already written this hash
+        if (strcmp(new_csv_hash, last_good_csv_hash) != 0) {
+            FILE *hash_fp_write = fopen(PB_LAST_GOOD_CSV_HASH_PATH, "w");
+            if (hash_fp_write) {
+                fprintf(hash_fp_write, "%s\n", new_csv_hash);
+                fclose(hash_fp_write);
+                LOG_INFO("Flash write: Updated CSV hash to '%s' (flash wear minimized).", new_csv_hash);
+            } else {
+                LOG_ERROR("Failed to write new CSV hash to '%s'. Error: %s", PB_LAST_GOOD_CSV_HASH_PATH, strerror(errno));
+            }
+        } else {
+            LOG_DEBUG("Hash unchanged, skipping flash write for hash file.");
+        }
+
+        // Update health metrics: successful fetch
+        extern service_metrics_t g_service_metrics;
+        extern pthread_mutex_t g_health_mutex;
+        pthread_mutex_lock(&g_health_mutex);
+        g_service_metrics.phonebook_last_updated = time(NULL);
+        strncpy(g_service_metrics.phonebook_fetch_status, "SUCCESS",
+                sizeof(g_service_metrics.phonebook_fetch_status) - 1);
+        strncpy(g_service_metrics.phonebook_csv_hash, new_csv_hash,
+                sizeof(g_service_metrics.phonebook_csv_hash) - 1);
+        g_service_metrics.phonebook_entries_loaded = num_directory_entries;
+        pthread_mutex_unlock(&g_health_mutex);
+
+        LOG_INFO("Health metrics updated: phonebook fetch SUCCESS, %d entries, hash %s",
+                 num_directory_entries, new_csv_hash);
         LOG_INFO("Finished fetcher cycle.");
 
         end_fetcher_cycle:;
         LOG_INFO("Sleeping %d seconds...", g_pb_interval_seconds); // Use global g_pb_interval_seconds
         for (int i = 0; i < g_pb_interval_seconds; i++) {
+            // Check for cooperative restart request during sleep
+            extern volatile sig_atomic_t g_fetcher_restart_requested;
+            if (g_fetcher_restart_requested) {
+                LOG_INFO("Cooperative restart requested during sleep - exiting gracefully");
+                g_fetcher_restart_requested = 0; // Reset flag for next instance
+                LOG_INFO("Phonebook fetcher thread exiting for restart.");
+                return NULL;
+            }
+
             // Check for webhook-triggered reload request
             if (phonebook_reload_requested) {
                 phonebook_reload_requested = 0; // Reset flag
                 LOG_INFO("Webhook reload requested - interrupting sleep to fetch phonebook immediately");
                 break; // Exit sleep loop and restart fetch cycle
             }
+
+            // Check for global shutdown
+            if (!g_keep_running) {
+                break;
+            }
+
             sleep(1); // sleep from common.h
         }
     }

@@ -13,6 +13,10 @@ time_t g_updater_last_heartbeat = 0;
 time_t g_bulk_tester_last_heartbeat = 0;
 pthread_t g_passive_safety_tid = 0;
 
+// Cooperative shutdown flags for graceful thread restart
+volatile sig_atomic_t g_fetcher_restart_requested = 0;
+volatile sig_atomic_t g_updater_restart_requested = 0;
+
 // ============================================================================
 // WEEK 1: ESSENTIAL PASSIVE SAFETY FEATURES
 // ============================================================================
@@ -115,20 +119,28 @@ void cleanup_orphaned_phonebook_files(void) {
 // ============================================================================
 
 // 4. SMART FILE HANDLING - Never corrupt phonebook data
-void safe_phonebook_file_operation(const char *source_path, const char *dest_path) {
+// Returns 0 on success, 1 on failure
+int safe_phonebook_file_operation(const char *source_path, const char *dest_path) {
     char backup_path[512];
     char temp_path[512];
     bool rollback_needed = false;
+    struct stat pre_stat, post_stat;
+    bool had_existing_file = false;
 
     // Create backup and temporary file paths
     snprintf(backup_path, sizeof(backup_path), "%s.backup", dest_path);
     snprintf(temp_path, sizeof(temp_path), "%s.temp", dest_path);
 
-    // Step 1: Create backup of current file (if it exists)
+    // Step 1: Create backup of current file (if it exists) and record its stats
     if (access(dest_path, F_OK) == 0) {
+        had_existing_file = true;
+        if (stat(dest_path, &pre_stat) != 0) {
+            LOG_ERROR("Failed to stat existing phonebook before backup");
+            return 1;
+        }
         if (file_utils_copy_file(dest_path, backup_path) != 0) {
             LOG_ERROR("Failed to create backup before phonebook update");
-            return; // Abort if we can't create backup
+            return 1; // Abort if we can't create backup
         }
     }
 
@@ -139,7 +151,7 @@ void safe_phonebook_file_operation(const char *source_path, const char *dest_pat
         if (access(backup_path, F_OK) == 0) {
             remove(backup_path);
         }
-        return; // Abort if copy fails
+        return 1; // Abort if copy fails
     }
 
     // Step 3: Verify temporary file integrity (basic check)
@@ -151,7 +163,7 @@ void safe_phonebook_file_operation(const char *source_path, const char *dest_pat
         if (access(backup_path, F_OK) == 0) {
             remove(backup_path);
         }
-        return;
+        return 1;
     }
 
     // Basic verification: file should have some content
@@ -166,7 +178,7 @@ void safe_phonebook_file_operation(const char *source_path, const char *dest_pat
         if (access(backup_path, F_OK) == 0) {
             remove(backup_path);
         }
-        return;
+        return 1;
     }
 
     // Step 4: Atomic rename (replace destination with verified temp file)
@@ -175,7 +187,30 @@ void safe_phonebook_file_operation(const char *source_path, const char *dest_pat
         rollback_needed = true;
     }
 
-    // Step 5: Rollback if needed
+    // Step 5: Verify the rename actually worked by checking mtime/size changed
+    if (!rollback_needed) {
+        if (stat(dest_path, &post_stat) != 0) {
+            LOG_ERROR("Failed to stat phonebook after rename - assuming failure");
+            rollback_needed = true;
+        } else {
+            // If we had an existing file, verify something changed
+            if (had_existing_file) {
+                if (post_stat.st_mtime == pre_stat.st_mtime && post_stat.st_size == pre_stat.st_size) {
+                    LOG_ERROR("Phonebook file unchanged after rename (mtime=%ld, size=%ld) - atomicity violated",
+                             (long)post_stat.st_mtime, (long)post_stat.st_size);
+                    rollback_needed = true;
+                }
+            }
+            // Verify the new file has expected size
+            if (post_stat.st_size != file_size) {
+                LOG_ERROR("Phonebook size mismatch after rename: expected %ld, got %ld",
+                         file_size, (long)post_stat.st_size);
+                rollback_needed = true;
+            }
+        }
+    }
+
+    // Step 6: Rollback if needed
     if (rollback_needed && access(backup_path, F_OK) == 0) {
         if (rename(backup_path, dest_path) == 0) {
             LOG_INFO("Successfully rolled back to previous phonebook version");
@@ -184,20 +219,26 @@ void safe_phonebook_file_operation(const char *source_path, const char *dest_pat
             // Clean up backup file even if rollback failed
             remove(backup_path);
         }
+        // Always clean up any remaining temporary files
+        remove(temp_path);
+        return 1; // Operation failed
     } else if (!rollback_needed) {
         // Success - clean up backup
         remove(backup_path);
         LOG_DEBUG("Phonebook update completed successfully");
+        // Always clean up any remaining temporary files
+        remove(temp_path);
+        return 0; // Success
     } else {
         // Backup doesn't exist but rollback was needed - clean up anyway
         remove(backup_path);
+        // Always clean up any remaining temporary files
+        remove(temp_path);
+        return 1; // Operation failed
     }
-
-    // Always clean up any remaining temporary files
-    remove(temp_path);
 }
 
-// 5. THREAD RECOVERY - Auto-restart hung threads
+// 5. THREAD RECOVERY - Cooperative restart of hung threads
 void passive_thread_recovery_check(void) {
     time_t now = time(NULL);
 
@@ -206,16 +247,16 @@ void passive_thread_recovery_check(void) {
         LOG_WARN("Phonebook fetcher thread appears hung (no heartbeat for %ld seconds)",
                  now - g_fetcher_last_heartbeat);
 
-        // Attempt to cancel and restart the thread
-        if (pthread_cancel(fetcher_tid) == 0) {
-            // Create new fetcher thread
-            extern void *phonebook_fetcher_thread(void *arg);
-            if (pthread_create(&fetcher_tid, NULL, phonebook_fetcher_thread, NULL) == 0) {
-                LOG_INFO("Successfully restarted phonebook fetcher thread");
-                g_fetcher_last_heartbeat = now; // Reset heartbeat
-            } else {
-                LOG_ERROR("Failed to restart phonebook fetcher thread");
-            }
+        // Request cooperative shutdown instead of pthread_cancel
+        // The fetcher thread will check this flag and exit gracefully
+        if (!g_fetcher_restart_requested) {
+            g_fetcher_restart_requested = 1;
+            LOG_INFO("Requested cooperative restart of phonebook fetcher thread");
+        } else {
+            // If restart was already requested but thread is still hung, it may be truly stuck
+            // Log warning but avoid forcing cancellation (could leave mutexes locked)
+            LOG_ERROR("Fetcher thread not responding to restart request for %ld seconds - may be deadlocked",
+                     now - g_fetcher_last_heartbeat);
         }
     }
 
@@ -224,16 +265,13 @@ void passive_thread_recovery_check(void) {
         LOG_WARN("Status updater thread appears hung (no heartbeat for %ld seconds)",
                  now - g_updater_last_heartbeat);
 
-        // Attempt to cancel and restart the thread
-        if (pthread_cancel(status_updater_tid) == 0) {
-            // Create new status updater thread
-            extern void *status_updater_thread(void *arg);
-            if (pthread_create(&status_updater_tid, NULL, status_updater_thread, NULL) == 0) {
-                LOG_INFO("Successfully restarted status updater thread");
-                g_updater_last_heartbeat = now; // Reset heartbeat
-            } else {
-                LOG_ERROR("Failed to restart status updater thread");
-            }
+        // Request cooperative shutdown instead of pthread_cancel
+        if (!g_updater_restart_requested) {
+            g_updater_restart_requested = 1;
+            LOG_INFO("Requested cooperative restart of status updater thread");
+        } else {
+            LOG_ERROR("Updater thread not responding to restart request for %ld seconds - may be deadlocked",
+                     now - g_updater_last_heartbeat);
         }
     }
 }
