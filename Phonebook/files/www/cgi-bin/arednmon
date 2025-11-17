@@ -728,6 +728,14 @@ cat <<EOF
         let rttLabels = [];  // Store RTT label markers for zoom-dependent visibility
         let searchHighlightedMarkers = [];  // Track markers highlighted by search
 
+        // Helper function to resolve IP to hostname using topology ip_mappings
+        function resolveIP(ip) {
+            if (!topologyData || !topologyData.ip_mappings) {
+                return ip;  // No mapping available, return IP as-is
+            }
+            return topologyData.ip_mappings[ip] || ip;  // Return mapped hostname or IP
+        }
+
         // Find node marker by hostname (handles partial matching)
         function findNodeMarkerByHostname(hostname) {
             if (!hostname) return null;
@@ -874,15 +882,19 @@ cat <<EOF
                         html += '<div style="margin-top: 10px;">';
                         data.hops.forEach(hop => {
                             if (!hop.timeout) {
+                                // Resolve IPs to hostnames using topology ip_mappings
+                                const displayHostname = resolveIP(hop.hostname);
+                                const displayIP = resolveIP(hop.ip);
+
                                 html += '<div class="traceroute-hop">' +
                                        '<span class="traceroute-hop-number">' + hop.hop + '</span>' +
-                                       '<span class="traceroute-hop-host">' + hop.hostname + '</span><br>' +
-                                       '<span style="margin-left: 40px; color: #999; font-size: 0.85em;">' + hop.ip + '</span>  ' +
+                                       '<span class="traceroute-hop-host">' + displayHostname + '</span><br>' +
+                                       '<span style="margin-left: 40px; color: #999; font-size: 0.85em;">' + displayIP + '</span>  ' +
                                        '<span class="traceroute-hop-rtt">' + hop.rtt_ms.toFixed(2) + ' ms</span>' +
                                        '</div>';
 
-                                // Add hostname to path (for highlighting on map)
-                                pathHostnames.push(hop.hostname);
+                                // Add hostname to path (for highlighting on map) - use resolved hostname
+                                pathHostnames.push(displayHostname);
                             }
                         });
                         html += '</div>';
