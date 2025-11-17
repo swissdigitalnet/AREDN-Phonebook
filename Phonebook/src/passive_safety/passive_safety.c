@@ -6,6 +6,7 @@
 #include "../config_loader/config_loader.h"
 #include "../file_utils/file_utils.h"
 #include "../software_health/software_health.h"
+#include <sys/stat.h>
 
 // Thread health tracking
 time_t g_fetcher_last_heartbeat = 0;
