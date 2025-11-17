@@ -319,11 +319,11 @@ cat <<'EOF'
             border-radius: 4px;
             font-size: 0.9em;
         }
-        /* Traceroute Display Styles - Top-left overlay on map */
+        /* Traceroute Display Styles - Top-right overlay on map */
         .traceroute-panel {
             position: absolute;
             top: 10px;
-            left: 10px;
+            right: 10px;
             z-index: 1000;
             background-color: white;
             border-radius: 8px;
