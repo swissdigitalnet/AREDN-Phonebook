@@ -378,7 +378,7 @@ void topology_db_fetch_all_locations(void) {
         if (strlen(node->lat) > 0 && strlen(node->lon) > 0) continue;
 
         char url[512];
-        snprintf(url, sizeof(url), "http://%s.local.mesh/cgi-bin/sysinfo.json", node->name);
+        snprintf(url, sizeof(url), "http://%s.local.mesh/a/sysinfo", node->name);
 
         char lat[32] = "";
         char lon[32] = "";
@@ -539,44 +539,48 @@ void topology_db_calculate_aggregate_stats(void) {
  */
 static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostname_len) {
     char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --connect-timeout 2 --max-time 5 'http://%s/cgi-bin/sysinfo.json' 2>/dev/null",
-             ip);
+    const char *endpoints[] = {"/a/sysinfo", "/cgi-bin/sysinfo.json"};
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) return -1;
+    for (int i = 0; i < 2; i++) {
+        snprintf(cmd, sizeof(cmd),
+                 "curl -s --connect-timeout 2 --max-time 5 'http://%s%s' 2>/dev/null",
+                 ip, endpoints[i]);
 
-    char line[1024];
-    hostname[0] = '\0';
+        FILE *fp = popen(cmd, "r");
+        if (!fp) continue;
 
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "\"node\":")) {
-            char *val_start = strchr(line, ':');
-            if (val_start) {
-                val_start = strchr(val_start, '"');
+        char line[1024];
+        hostname[0] = '\0';
+
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "\"node\":")) {
+                char *val_start = strchr(line, ':');
                 if (val_start) {
-                    val_start++;
-                    char *val_end = strchr(val_start, '"');
-                    if (val_end) {
-                        int len = val_end - val_start;
-                        if (len > 0 && len < (int)hostname_len) {
-                            strncpy(hostname, val_start, len);
-                            hostname[len] = '\0';
-                            // Normalize to lowercase
-                            for (char *p = hostname; *p; p++) {
-                                *p = tolower(*p);
+                    val_start = strchr(val_start, '"');
+                    if (val_start) {
+                        val_start++;
+                        char *val_end = strchr(val_start, '"');
+                        if (val_end) {
+                            int len = val_end - val_start;
+                            if (len > 0 && len < (int)hostname_len) {
+                                strncpy(hostname, val_start, len);
+                                hostname[len] = '\0';
+                                // Normalize to lowercase
+                                for (char *p = hostname; *p; p++) {
+                                    *p = tolower(*p);
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    pclose(fp);
+        pclose(fp);
 
-    if (hostname[0] != '\0') {
-        return 0;
+        if (hostname[0] != '\0') {
+            return 0;
+        }
     }
 
     return -1;
@@ -588,53 +592,57 @@ static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostnam
 static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
                               char *lon, size_t lon_len) {
     char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh/cgi-bin/sysinfo.json' 2>/dev/null",
-             hostname);
+    const char *endpoints[] = {"/a/sysinfo", "/cgi-bin/sysinfo.json"};
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) return -1;
+    for (int i = 0; i < 2; i++) {
+        snprintf(cmd, sizeof(cmd),
+                 "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh%s' 2>/dev/null",
+                 hostname, endpoints[i]);
 
-    char line[1024];
-    lat[0] = '\0';
-    lon[0] = '\0';
+        FILE *fp = popen(cmd, "r");
+        if (!fp) continue;
 
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "\"lat\":")) {
-            char *val_start = strchr(line, ':');
-            if (val_start) {
-                val_start++;
-                while (*val_start == ' ' || *val_start == '"') val_start++;
-                char *val_end = val_start;
-                while (*val_end && *val_end != ',' && *val_end != '"' && *val_end != '\n') val_end++;
-                int len = val_end - val_start;
-                if (len > 0 && len < (int)lat_len) {
-                    strncpy(lat, val_start, len);
-                    lat[len] = '\0';
+        char line[1024];
+        lat[0] = '\0';
+        lon[0] = '\0';
+
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "\"lat\":")) {
+                char *val_start = strchr(line, ':');
+                if (val_start) {
+                    val_start++;
+                    while (*val_start == ' ' || *val_start == '"') val_start++;
+                    char *val_end = val_start;
+                    while (*val_end && *val_end != ',' && *val_end != '"' && *val_end != '\n') val_end++;
+                    int len = val_end - val_start;
+                    if (len > 0 && len < (int)lat_len) {
+                        strncpy(lat, val_start, len);
+                        lat[len] = '\0';
+                    }
+                }
+            }
+
+            if (strstr(line, "\"lon\":")) {
+                char *val_start = strchr(line, ':');
+                if (val_start) {
+                    val_start++;
+                    while (*val_start == ' ' || *val_start == '"') val_start++;
+                    char *val_end = val_start;
+                    while (*val_end && *val_end != ',' && *val_end != '"' && *val_end != '\n') val_end++;
+                    int len = val_end - val_start;
+                    if (len > 0 && len < (int)lon_len) {
+                        strncpy(lon, val_start, len);
+                        lon[len] = '\0';
+                    }
                 }
             }
         }
 
-        if (strstr(line, "\"lon\":")) {
-            char *val_start = strchr(line, ':');
-            if (val_start) {
-                val_start++;
-                while (*val_start == ' ' || *val_start == '"') val_start++;
-                char *val_end = val_start;
-                while (*val_end && *val_end != ',' && *val_end != '"' && *val_end != '\n') val_end++;
-                int len = val_end - val_start;
-                if (len > 0 && len < (int)lon_len) {
-                    strncpy(lon, val_start, len);
-                    lon[len] = '\0';
-                }
-            }
+        pclose(fp);
+
+        if (lat[0] != '\0') {
+            return 0;
         }
-    }
-
-    pclose(fp);
-
-    if (lat[0] != '\0') {
-        return 0;
     }
 
     return -1;
@@ -646,140 +654,151 @@ static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
 static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, size_t buf_size) {
     if (neighbors_buf && buf_size > 0) neighbors_buf[0] = '\0';
     char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh/cgi-bin/sysinfo.json?lqm=1' 2>/dev/null",
-             hostname);
+    const char *endpoints[] = {"/a/sysinfo?lqm=1", "/cgi-bin/sysinfo.json?lqm=1"};
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        return -1;
-    }
+    for (int endpoint_idx = 0; endpoint_idx < 2; endpoint_idx++) {
+        snprintf(cmd, sizeof(cmd),
+                 "curl -s --connect-timeout 2 --max-time 5 'http://%s.local.mesh%s' 2>/dev/null",
+                 hostname, endpoints[endpoint_idx]);
 
-    char line[4096];
-    int link_count = 0;
-    bool in_trackers = false;
-    bool in_tracker_entry = false;
-    int brace_depth = 0;  // Track nesting level for JSON braces
-    char neighbor_hostname[256] = "";
-    char neighbor_ip[INET_ADDRSTRLEN] = "";
-    float ping_time_ms = 0.0;
-
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "\"trackers\"")) {
-            in_trackers = true;
+        FILE *fp = popen(cmd, "r");
+        if (!fp) {
             continue;
         }
 
-        if (!in_trackers) continue;
+        char line[4096];
+        int link_count = 0;
+        bool in_trackers = false;
+        bool in_tracker_entry = false;
+        int brace_depth = 0;  // Track nesting level for JSON braces
+        char neighbor_hostname[256] = "";
+        char neighbor_ip[INET_ADDRSTRLEN] = "";
+        float ping_time_ms = 0.0;
 
-        if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
-            in_tracker_entry = true;
-            brace_depth = 1;  // Start tracking depth from opening brace
-            neighbor_hostname[0] = '\0';
-            neighbor_ip[0] = '\0';
-            ping_time_ms = 0.0;
-            continue;
-        }
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "\"trackers\"")) {
+                in_trackers = true;
+                continue;
+            }
 
-        if (in_tracker_entry) {
-            if (strstr(line, "\"hostname\":")) {
-                char *name_start = strchr(line, ':');
-                if (name_start) {
-                    name_start++;
-                    while (*name_start == ' ' || *name_start == '"') name_start++;
-                    char *name_end = strchr(name_start, '"');
-                    if (name_end) {
-                        int len = name_end - name_start;
-                        if (len > 0 && len < (int)sizeof(neighbor_hostname)) {
-                            strncpy(neighbor_hostname, name_start, len);
-                            neighbor_hostname[len] = '\0';
-                            // Normalize to lowercase
-                            for (char *p = neighbor_hostname; *p; p++) {
-                                *p = tolower(*p);
+            if (!in_trackers) continue;
+
+            if (in_trackers && !in_tracker_entry && strchr(line, '{')) {
+                in_tracker_entry = true;
+                brace_depth = 1;  // Start tracking depth from opening brace
+                neighbor_hostname[0] = '\0';
+                neighbor_ip[0] = '\0';
+                ping_time_ms = 0.0;
+                continue;
+            }
+
+            if (in_tracker_entry) {
+                if (strstr(line, "\"hostname\":")) {
+                    char *name_start = strchr(line, ':');
+                    if (name_start) {
+                        name_start++;
+                        while (*name_start == ' ' || *name_start == '"') name_start++;
+                        char *name_end = strchr(name_start, '"');
+                        if (name_end) {
+                            int len = name_end - name_start;
+                            if (len > 0 && len < (int)sizeof(neighbor_hostname)) {
+                                strncpy(neighbor_hostname, name_start, len);
+                                neighbor_hostname[len] = '\0';
+                                // Normalize to lowercase
+                                for (char *p = neighbor_hostname; *p; p++) {
+                                    *p = tolower(*p);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if (strstr(line, "\"ip\":")) {
-                char *ip_start = strchr(line, ':');
-                if (ip_start) {
-                    ip_start++;
-                    while (*ip_start == ' ' || *ip_start == '"') ip_start++;
-                    char *ip_end = strchr(ip_start, '"');
-                    if (ip_end) {
-                        int len = ip_end - ip_start;
-                        if (len > 0 && len < INET_ADDRSTRLEN) {
-                            strncpy(neighbor_ip, ip_start, len);
-                            neighbor_ip[len] = '\0';
+                if (strstr(line, "\"ip\":")) {
+                    char *ip_start = strchr(line, ':');
+                    if (ip_start) {
+                        ip_start++;
+                        while (*ip_start == ' ' || *ip_start == '"') ip_start++;
+                        char *ip_end = strchr(ip_start, '"');
+                        if (ip_end) {
+                            int len = ip_end - ip_start;
+                            if (len > 0 && len < INET_ADDRSTRLEN) {
+                                strncpy(neighbor_ip, ip_start, len);
+                                neighbor_ip[len] = '\0';
+                            }
                         }
                     }
                 }
-            }
 
-            if (strstr(line, "\"ping_success_time\":")) {
-                char *time_start = strchr(line, ':');
-                if (time_start) {
-                    time_start++;
-                    ping_time_ms = atof(time_start) * 1000.0;
-                }
-            }
-
-            // Track brace depth to handle nested structures (e.g., babel_config)
-            for (char *p = line; *p; p++) {
-                if (*p == '{') brace_depth++;
-                if (*p == '}') brace_depth--;
-            }
-
-            // Only exit tracker entry when we return to depth 0
-            if (brace_depth == 0) {
-                // Include both reachable (ping_time_ms > 0) and unreachable (ping_time_ms == 0) neighbors
-                if (neighbor_hostname[0] != '\0') {
-                    // Strip prefix from neighbor hostname
-                    char clean_neighbor[256];
-                    strip_hostname_prefix_internal(neighbor_hostname, clean_neighbor, sizeof(clean_neighbor));
-
-                    // Filter: Only add HB* nodes and phones to topology
-                    if (should_crawl_node(clean_neighbor)) {
-                        // Use 0.0 RTT for unreachable neighbors to distinguish them
-                        float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
-                        topology_db_add_connection(hostname, clean_neighbor, rtt);
-                        if (neighbors_buf && buf_size > 0) {
-                            size_t len = strlen(neighbors_buf);
-                            snprintf(neighbors_buf + len, buf_size - len, "%s%s",
-                                    len > 0 ? "," : "", clean_neighbor);
-                        }
-                        link_count++;
+                if (strstr(line, "\"ping_success_time\":")) {
+                    char *time_start = strchr(line, ':');
+                    if (time_start) {
+                        time_start++;
+                        ping_time_ms = atof(time_start) * 1000.0;
                     }
-                } else if (neighbor_ip[0] != '\0') {
-                    // Fallback: resolve IP to hostname
-                    char resolved_hostname[256];
-                    if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
-                        // Strip prefix from resolved hostname
-                        char clean_resolved[256];
-                        strip_hostname_prefix_internal(resolved_hostname, clean_resolved, sizeof(clean_resolved));
+                }
+
+                // Track brace depth to handle nested structures (e.g., babel_config)
+                for (char *p = line; *p; p++) {
+                    if (*p == '{') brace_depth++;
+                    if (*p == '}') brace_depth--;
+                }
+
+                // Only exit tracker entry when we return to depth 0
+                if (brace_depth == 0) {
+                    // Include both reachable (ping_time_ms > 0) and unreachable (ping_time_ms == 0) neighbors
+                    if (neighbor_hostname[0] != '\0') {
+                        // Strip prefix from neighbor hostname
+                        char clean_neighbor[256];
+                        strip_hostname_prefix_internal(neighbor_hostname, clean_neighbor, sizeof(clean_neighbor));
 
                         // Filter: Only add HB* nodes and phones to topology
-                        if (should_crawl_node(clean_resolved)) {
+                        if (should_crawl_node(clean_neighbor)) {
+                            // Use 0.0 RTT for unreachable neighbors to distinguish them
                             float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
-                            topology_db_add_connection(hostname, clean_resolved, rtt);
+                            topology_db_add_connection(hostname, clean_neighbor, rtt);
                             if (neighbors_buf && buf_size > 0) {
                                 size_t len = strlen(neighbors_buf);
                                 snprintf(neighbors_buf + len, buf_size - len, "%s%s",
-                                        len > 0 ? "," : "", clean_resolved);
+                                        len > 0 ? "," : "", clean_neighbor);
                             }
                             link_count++;
                         }
+                    } else if (neighbor_ip[0] != '\0') {
+                        // Fallback: resolve IP to hostname
+                        char resolved_hostname[256];
+                        if (fetch_hostname_from_ip(neighbor_ip, resolved_hostname, sizeof(resolved_hostname)) == 0) {
+                            // Strip prefix from resolved hostname
+                            char clean_resolved[256];
+                            strip_hostname_prefix_internal(resolved_hostname, clean_resolved, sizeof(clean_resolved));
+
+                            // Filter: Only add HB* nodes and phones to topology
+                            if (should_crawl_node(clean_resolved)) {
+                                float rtt = ping_time_ms > 0.0 ? ping_time_ms : 0.0;
+                                topology_db_add_connection(hostname, clean_resolved, rtt);
+                                if (neighbors_buf && buf_size > 0) {
+                                    size_t len = strlen(neighbors_buf);
+                                    snprintf(neighbors_buf + len, buf_size - len, "%s%s",
+                                            len > 0 ? "," : "", clean_resolved);
+                                }
+                                link_count++;
+                            }
+                        }
                     }
+                    in_tracker_entry = false;
                 }
-                in_tracker_entry = false;
             }
+        }
+
+        pclose(fp);
+
+        // If we found links with this endpoint, return success
+        if (link_count > 0) {
+            return link_count;
         }
     }
 
-    pclose(fp);
-    return link_count;
+    // Both endpoints failed or returned no links
+    return 0;
 }
 
 /**
