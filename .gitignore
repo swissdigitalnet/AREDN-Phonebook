@@ -89,3 +89,11 @@ packages/
 .codex/
 .config/
 mesh.json
+
+# Extracted package files
+Phonebook/AREDN-Phonebook-new
+control.tar.gz
+data.tar.gz
+debian-binary
+etc/
+www/
