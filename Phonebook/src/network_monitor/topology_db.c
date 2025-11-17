@@ -19,6 +19,7 @@
 #include <arpa/inet.h>
 #include <math.h>
 #include <time.h>
+#include <dirent.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -31,6 +32,15 @@ static TopologyConnection g_connections[MAX_TOPOLOGY_CONNECTIONS];
 static int g_connection_count = 0;
 static pthread_mutex_t g_topology_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool g_initialized = false;
+
+// IP to hostname mapping (for tunnel IPs and all interfaces)
+#define MAX_IP_MAPPINGS 2000
+typedef struct {
+    char ip[32];
+    char hostname[256];
+} IPMapping;
+static IPMapping g_ip_mappings[MAX_IP_MAPPINGS];
+static int g_ip_mapping_count = 0;
 
 // BFS crawl persistent log file
 static FILE *g_crawl_log = NULL;
@@ -535,9 +545,19 @@ void topology_db_calculate_aggregate_stats(void) {
 }
 
 /**
- * Helper: Fetch hostname from IP
+ * Helper: Fetch hostname from IP using IP mapping first, then sysinfo.json
  */
 static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostname_len) {
+    // First, try IP mapping (fast path for tunnel IPs and known interfaces)
+    const char *mapped_hostname = lookup_hostname_by_ip(ip);
+    if (mapped_hostname) {
+        strncpy(hostname, mapped_hostname, hostname_len - 1);
+        hostname[hostname_len - 1] = '\0';
+        LOG_DEBUG("Resolved IP %s to %s via IP mapping", ip, hostname);
+        return 0;
+    }
+
+    // Fall back to querying sysinfo.json (slow path)
     char cmd[512];
     const char *endpoints[] = {"/a/sysinfo", "/cgi-bin/sysinfo.json"};
 
@@ -579,6 +599,8 @@ static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostnam
         pclose(fp);
 
         if (hostname[0] != '\0') {
+            // Add this IP to mapping for future lookups
+            add_ip_mapping(ip, hostname);
             return 0;
         }
     }
@@ -587,7 +609,55 @@ static int fetch_hostname_from_ip(const char *ip, char *hostname, size_t hostnam
 }
 
 /**
- * Helper: Fetch node details from hostname
+ * Helper: Add IP to hostname mapping
+ */
+static void add_ip_mapping(const char *ip, const char *hostname) {
+    if (!ip || !hostname || ip[0] == '\0' || hostname[0] == '\0') {
+        return;
+    }
+
+    // Check if mapping already exists
+    for (int i = 0; i < g_ip_mapping_count; i++) {
+        if (strcmp(g_ip_mappings[i].ip, ip) == 0) {
+            // Update hostname if it changed
+            if (strcmp(g_ip_mappings[i].hostname, hostname) != 0) {
+                strncpy(g_ip_mappings[i].hostname, hostname, sizeof(g_ip_mappings[i].hostname) - 1);
+                g_ip_mappings[i].hostname[sizeof(g_ip_mappings[i].hostname) - 1] = '\0';
+            }
+            return;
+        }
+    }
+
+    // Add new mapping
+    if (g_ip_mapping_count < MAX_IP_MAPPINGS) {
+        strncpy(g_ip_mappings[g_ip_mapping_count].ip, ip, sizeof(g_ip_mappings[g_ip_mapping_count].ip) - 1);
+        g_ip_mappings[g_ip_mapping_count].ip[sizeof(g_ip_mappings[g_ip_mapping_count].ip) - 1] = '\0';
+        strncpy(g_ip_mappings[g_ip_mapping_count].hostname, hostname, sizeof(g_ip_mappings[g_ip_mapping_count].hostname) - 1);
+        g_ip_mappings[g_ip_mapping_count].hostname[sizeof(g_ip_mappings[g_ip_mapping_count].hostname) - 1] = '\0';
+        g_ip_mapping_count++;
+        LOG_DEBUG("Added IP mapping: %s -> %s", ip, hostname);
+    }
+}
+
+/**
+ * Helper: Look up hostname by IP
+ */
+static const char* lookup_hostname_by_ip(const char *ip) {
+    if (!ip || ip[0] == '\0') {
+        return NULL;
+    }
+
+    for (int i = 0; i < g_ip_mapping_count; i++) {
+        if (strcmp(g_ip_mappings[i].ip, ip) == 0) {
+            return g_ip_mappings[i].hostname;
+        }
+    }
+
+    return NULL;
+}
+
+/**
+ * Helper: Fetch node details from hostname and extract all interface IPs
  */
 static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
                               char *lon, size_t lon_len) {
@@ -605,8 +675,10 @@ static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
         char line[1024];
         lat[0] = '\0';
         lon[0] = '\0';
+        bool in_interfaces = false;
 
         while (fgets(line, sizeof(line), fp)) {
+            // Extract lat/lon
             if (strstr(line, "\"lat\":")) {
                 char *val_start = strchr(line, ':');
                 if (val_start) {
@@ -635,6 +707,37 @@ static int fetch_node_details(const char *hostname, char *lat, size_t lat_len,
                         lon[len] = '\0';
                     }
                 }
+            }
+
+            // Extract interface IPs for mapping
+            if (strstr(line, "\"interfaces\":")) {
+                in_interfaces = true;
+            }
+
+            if (in_interfaces && strstr(line, "\"ip\":")) {
+                // Extract IP from line like: "ip": "10.51.55.233"
+                char *ip_start = strstr(line, "\"ip\":");
+                if (ip_start) {
+                    ip_start += 5; // Skip "ip":
+                    while (*ip_start == ' ' || *ip_start == '"') ip_start++;
+                    char *ip_end = ip_start;
+                    while (*ip_end && *ip_end != '"' && *ip_end != ',' && *ip_end != '\n') ip_end++;
+
+                    char interface_ip[32];
+                    int ip_len = ip_end - ip_start;
+                    if (ip_len > 0 && ip_len < 32) {
+                        strncpy(interface_ip, ip_start, ip_len);
+                        interface_ip[ip_len] = '\0';
+
+                        // Add this IP to hostname mapping
+                        add_ip_mapping(interface_ip, hostname);
+                    }
+                }
+            }
+
+            // End of interfaces array
+            if (in_interfaces && strchr(line, ']')) {
+                in_interfaces = false;
             }
         }
 
@@ -802,7 +905,7 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
 }
 
 /**
- * Helper: Fetch phones for a specific router from OLSR services
+ * Helper: Fetch phones for a specific router from OLSR or Babel services
  * Positions phones 100m from their router at deterministic angles
  */
 static int fetch_phones_for_router(const char *router_hostname, const char *router_lat, const char *router_lon) {
@@ -822,6 +925,95 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
     char router_mesh_ip[32];
     snprintf(router_mesh_ip, sizeof(router_mesh_ip), "%s", inet_ntoa(*addr_list[0]));
 
+    // Try Babel firmware first (/var/run/arednlink/hosts/)
+    DIR *hosts_dir = opendir("/var/run/arednlink/hosts");
+    if (hosts_dir) {
+        struct dirent *entry;
+        while ((entry = readdir(hosts_dir)) != NULL) {
+            // Skip "." and ".."
+            if (entry->d_name[0] == '.') continue;
+
+            // Build full path to host file
+            char host_file_path[512];
+            snprintf(host_file_path, sizeof(host_file_path), "/var/run/arednlink/hosts/%s", entry->d_name);
+
+            // Open and read the host file
+            FILE *host_fp = fopen(host_file_path, "r");
+            if (!host_fp) continue;
+
+            char line[1024];
+            while (fgets(line, sizeof(line), host_fp)) {
+                // Skip comments and empty lines
+                if (line[0] == '#' || line[0] == '\n') continue;
+
+                // Format: "IP\tHOSTNAME" (simple hosts format)
+                char device_ip[32], device_name[256];
+                int parsed = sscanf(line, "%31s %255s", device_ip, device_name);
+
+                if (parsed != 2) continue;
+
+                // Strip prefixes from device name
+                char clean_device_name[256];
+                strip_hostname_prefix_internal(device_name, clean_device_name, sizeof(clean_device_name));
+
+                // Check if this is a phone (numeric hostname)
+                bool is_numeric = true;
+                bool has_digits = false;
+                for (char *p = clean_device_name; *p; p++) {
+                    if (isdigit(*p)) {
+                        has_digits = true;
+                    } else if (*p != '-') {
+                        is_numeric = false;
+                        break;
+                    }
+                }
+
+                if (!is_numeric || !has_digits || strlen(clean_device_name) < 4) {
+                    continue;  // Not a phone
+                }
+
+                // In Babel, phones are in the same host file as their router
+                // Check if this file corresponds to the router's mesh IP
+                bool phone_on_router = (strcmp(entry->d_name, router_mesh_ip) == 0);
+
+                if (phone_on_router) {
+                    char phone_lat_str[32] = "";
+                    char phone_lon_str[32] = "";
+
+                    if (strlen(router_lat) > 0 && strlen(router_lon) > 0) {
+                        int angle = get_phone_angle(clean_device_name);
+                        double r_lat = atof(router_lat);
+                        double r_lon = atof(router_lon);
+                        double phone_lat, phone_lon;
+
+                        offset_coordinates(r_lat, r_lon, 100.0, angle, &phone_lat, &phone_lon);
+
+                        snprintf(phone_lat_str, sizeof(phone_lat_str), "%.7f", phone_lat);
+                        snprintf(phone_lon_str, sizeof(phone_lon_str), "%.7f", phone_lon);
+                    }
+
+                    int add_result = topology_db_add_node(clean_device_name, "phone",
+                                                          strlen(phone_lat_str) > 0 ? phone_lat_str : NULL,
+                                                          strlen(phone_lon_str) > 0 ? phone_lon_str : NULL,
+                                                          "ONLINE");
+                    if (add_result == 0) {
+                        topology_db_add_connection(router_hostname, clean_device_name, 0.1);
+                        phone_count++;
+                    }
+                }
+            }
+
+            fclose(host_fp);
+        }
+        closedir(hosts_dir);
+
+        if (phone_count > 0) {
+            LOG_INFO("Added %d phones for router %s from Babel hosts", phone_count, router_hostname);
+        }
+        return phone_count;
+    }
+
+    // Fall back to OLSR firmware (/var/run/hosts_olsr)
     FILE *hosts_fp = fopen("/var/run/hosts_olsr", "r");
     if (!hosts_fp) {
         return 0;
@@ -897,7 +1089,7 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
     fclose(hosts_fp);
 
     if (phone_count > 0) {
-        LOG_INFO("Added %d phones for router %s from hosts_olsr", phone_count, router_hostname);
+        LOG_INFO("Added %d phones for router %s from OLSR hosts", phone_count, router_hostname);
     }
     return phone_count;
 }
@@ -1411,9 +1603,22 @@ int topology_db_write_to_file(const char *filepath) {
         LOG_INFO("Skipped %d orphaned connections (endpoints not in topology)", skipped_connections);
     }
 
+    // Write IP to hostname mappings (for tunnel IPs and all interfaces)
+    fprintf(fp, "  \"ip_mappings\": {\n");
+    for (int i = 0; i < g_ip_mapping_count; i++) {
+        fprintf(fp, "    \"%s\": \"%s\"", g_ip_mappings[i].ip, g_ip_mappings[i].hostname);
+        if (i < g_ip_mapping_count - 1) {
+            fprintf(fp, ",\n");
+        } else {
+            fprintf(fp, "\n");
+        }
+    }
+    fprintf(fp, "  },\n");
+
     fprintf(fp, "  \"statistics\": {\n");
     fprintf(fp, "    \"total_nodes\": %d,\n", g_node_count);
-    fprintf(fp, "    \"total_connections\": %d\n", g_connection_count);
+    fprintf(fp, "    \"total_connections\": %d,\n", g_connection_count);
+    fprintf(fp, "    \"total_ip_mappings\": %d\n", g_ip_mapping_count);
     fprintf(fp, "  }\n");
 
     fprintf(fp, "}\n");

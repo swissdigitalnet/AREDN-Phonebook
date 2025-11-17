@@ -86,3 +86,6 @@ dl/
 # Local build outputs
 *.ipk
 packages/
+.codex/
+.config/
+mesh.json
