@@ -12,7 +12,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read    # Only need read access (no releases created)
+  contents: write   # Need write access to upload release assets
   packages: write
 
 jobs:
@@ -179,6 +179,13 @@ jobs:
           path: ${{ steps.find_ipk.outputs.ipk_path }}
           retention-days: 30
 
-      # NOTE: Release creation disabled per user preference
-      # Tags are used only to trigger builds
-      # Download built packages from workflow artifacts instead
+      # Upload to GitHub Release if this is a version tag (X.Y.Z format)
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, 'dev-') && !contains(github.ref, 'test-')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.find_ipk.outputs.ipk_path }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
