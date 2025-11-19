@@ -92,6 +92,8 @@ cd ..
 
 ### Compose Configuration (`docker-compose.yml`)
 
+**⚠️ SECURITY WARNING:** The password below ("12345") is intentionally weak for demonstration purposes only. **You MUST change this to a strong, unique password before deploying to production!**
+
 Define your password and then write the content for the `docker-compose.yml` file.
 
 ```
@@ -109,7 +111,7 @@ services:
       # These set up the default database, admin user, and password
       INFLUXDB_DB: aredn_meshmon
       INFLUXDB_ADMIN_USER: aredn_user
-      INFLUXDB_ADMIN_PASSWORD: juLian123
+      INFLUXDB_ADMIN_PASSWORD: 12345  # ⚠️ CHANGE THIS PASSWORD!
     volumes:
       # Persist InfluxDB metrics data
       - arednmon_influx_data:/var/lib/influxdb
@@ -136,7 +138,7 @@ services:
       INFLUX_PORT: 8086
       INFLUX_DB: aredn_meshmon
       INFLUX_USER: aredn_user
-      INFLUX_PASS: juLian123
+      INFLUX_PASS: 12345  # ⚠️ CHANGE THIS PASSWORD!
       # SQLite path for Django/Relational data
       SQLITE_PATH: /app/data/db.sqlite3
       COLLECTOR_PORT: 5000
