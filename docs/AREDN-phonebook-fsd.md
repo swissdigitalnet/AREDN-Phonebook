@@ -1962,7 +1962,8 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    - **No Auto-Zoom**: Map stays at Switzerland overview on initial load
    - **Manual Refresh**: "Refresh Topology" button fits map to show all nodes
    - **Increased Height**: 1200px (double the original 600px) for better visibility
-   - Click nodes to highlight route from server and show traceroute
+   - Click nodes to isolate and highlight route from server with live traceroute
+   - **Route Isolation**: All other connections hidden when viewing a specific route
    - Tooltips with node information
 
    ```javascript
@@ -2023,29 +2024,22 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    - **Panel Location**: Below the map
    - **Trigger**: Automatically shown when any node is clicked
    - **Live Execution**: Performs real-time ICMP traceroute to selected node
+   - **Route Isolation**: All regular connection lines are hidden, leaving only the purple traceroute path visible
+   - **Visual Clarity**: Eliminates clutter to make the actual route easy to see
+   - **Panel Close**: Clicking close button restores all connection lines automatically
    - **Hop Information**: Shows hop number, hostname, IP address, and RTT
    - **Timeout Handling**: Displays "*" for unresponsive hops
 
    **CGI Endpoint**: `/cgi-bin/traceroute_json?ip=<target_ip>`
 
-   **Implementation**:
-   ```javascript
-   // Fetch and display traceroute
-   async function fetchTraceroute(targetIp, targetName) {
-       const response = await fetch('/cgi-bin/traceroute_json?ip=' + targetIp);
-       const data = await response.json();
-
-       // Display each hop
-       data.hops.forEach(hop => {
-           if (hop.timeout) {
-               html += '<div>Hop ' + hop.hop + ': * * * (timeout)</div>';
-           } else {
-               html += '<div>Hop ' + hop.hop + ': ' + hop.hostname +
-                      ' (' + hop.ip + ') - ' + hop.rtt_ms + ' ms</div>';
-           }
-       });
-   }
-   ```
+   **Behavior**:
+   - User clicks on any node/phone on the map
+   - System hides all regular connection lines from map
+   - System performs live ICMP traceroute to selected target
+   - System draws purple path showing discovered route
+   - System displays traceroute panel with hop-by-hop details
+   - User clicks close button on panel
+   - System restores all connection lines to map
 
    **Traceroute Shell Script**: `/www/cgi-bin/traceroute_json`
    - Uses `traceroute -I` (ICMP) for path discovery
@@ -2065,8 +2059,10 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    ━━━ Green - Excellent (<100ms)
    ━━━ Orange - Medium (100-200ms)
    ━━━ Red - Poor (>200ms)
+   ━━━ Purple - Traceroute path (shown when node clicked)
 
-   Interaction: Click any node to highlight the route and show traceroute results below
+   Interaction: Click any node to isolate its route (hides all other connections)
+                and show live traceroute results below. Close panel to restore all routes.
    ```
 
 7. **Map Controls**

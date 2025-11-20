@@ -30,6 +30,10 @@ define Package/AREDN-Phonebook/description
   for Amateur Radio Emergency Data Networks.
 endef
 
+define Package/AREDN-Phonebook/conffiles
+/etc/phonebook.conf
+endef
+
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
@@ -95,6 +99,58 @@ define Package/AREDN-Phonebook/preinst
 		echo "AREDN-Phonebook: Cleaned all files in /www/arednstack/ (directory preserved)"
 	else
 		echo "AREDN-Phonebook: /www/arednstack/ does not exist (first install)"
+	fi
+}
+exit 0
+endef
+
+define Package/AREDN-Phonebook/postinst
+#!/bin/sh
+# AREDN-Phonebook post-installation script
+# Merges new configuration options into existing config file (preserves user settings)
+
+[ -n "$$$${IPKG_INSTROOT}" ] || {
+	CONFIG_FILE="/etc/phonebook.conf"
+
+	echo "AREDN-Phonebook: Checking for configuration updates..."
+
+	# Check if NETWORK_TRACEROUTE_ENABLED exists in config
+	if ! grep -q "NETWORK_TRACEROUTE_ENABLED" "$$$$CONFIG_FILE" 2>/dev/null; then
+		echo "AREDN-Phonebook: Adding topology mapping settings to config..."
+		cat >> "$$$$CONFIG_FILE" <<'EOF'
+
+# ============================================================================
+# TOPOLOGY MAPPING SETTINGS
+# ============================================================================
+
+# Enable ICMP traceroute to discover network paths
+# 0 = disabled, 1 = enabled
+# Default: 1 (enabled)
+NETWORK_TRACEROUTE_ENABLED=1
+
+# Maximum hops for traceroute
+# Range: 1-30, Default: 20
+NETWORK_TRACEROUTE_MAX_HOPS=20
+
+# Enable mesh network crawler to discover all nodes
+# 0 = disabled, 1 = enabled
+# Default: 1 (enabled)
+NETWORK_CRAWLER_ENABLED=1
+
+# Mesh crawler interval (in seconds)
+# How often to crawl the mesh network topology
+# Default: 600 (10 minutes)
+NETWORK_CRAWLER_INTERVAL_SECONDS=600
+EOF
+		echo "AREDN-Phonebook: Configuration updated successfully"
+
+		# Restart service to apply new settings
+		if [ -x /etc/init.d/AREDN-Phonebook ]; then
+			echo "AREDN-Phonebook: Restarting service to apply new configuration..."
+			/etc/init.d/AREDN-Phonebook restart
+		fi
+	else
+		echo "AREDN-Phonebook: Configuration already up to date"
 	fi
 }
 exit 0
