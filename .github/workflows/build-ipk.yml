@@ -1,15 +1,12 @@
 name: Build OpenWRT .ipk Package
 
 on:
-  # when you push a tag like "1.2.3" (without v prefix)
+  # Trigger on version tags (e.g., 2.5.0) or main branch pushes
   push:
     tags:
       - '*.*.*'
     branches:
       - 'main'
-      - 'development'
-      - 'withoutUAC'
-      - 'dev-*'
   pull_request:
 
 permissions:
