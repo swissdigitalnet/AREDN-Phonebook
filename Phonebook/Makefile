@@ -123,24 +123,17 @@ define Package/AREDN-Phonebook/postinst
 # TOPOLOGY MAPPING SETTINGS
 # ============================================================================
 
-# Enable ICMP traceroute to discover network paths
-# 0 = disabled, 1 = enabled
-# Default: 1 (enabled)
+# Discover network paths via traceroute. 0 = disabled, 1 = enabled. Default: 1
 NETWORK_TRACEROUTE_ENABLED=1
 
-# Maximum hops for traceroute
-# Range: 1-30, Default: 20
+# Maximum traceroute hops. Range: 1-30. Default: 20
 NETWORK_TRACEROUTE_MAX_HOPS=20
 
-# Enable mesh network crawler to discover all nodes
-# 0 = disabled, 1 = enabled
-# Default: 1 (enabled)
-NETWORK_CRAWLER_ENABLED=1
+# Crawl mesh to discover nodes. 0 = disabled, 1 = enabled. Default: 1
+TOPOLOGY_CRAWLER_ENABLED=1
 
-# Mesh crawler interval (in seconds)
-# How often to crawl the mesh network topology
-# Default: 600 (10 minutes)
-NETWORK_CRAWLER_INTERVAL_SECONDS=600
+# How often to crawl mesh (seconds). Range: 60-86400. Default: 3600
+TOPOLOGY_CRAWLER_INTERVAL_SECONDS=3600
 EOF
 		echo "AREDN-Phonebook: Configuration updated successfully"
 
