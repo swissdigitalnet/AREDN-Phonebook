@@ -30,10 +30,6 @@ define Package/AREDN-Phonebook/description
   for Amateur Radio Emergency Data Networks.
 endef
 
-define Package/AREDN-Phonebook/conffiles
-/etc/phonebook.conf
-endef
-
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
@@ -108,7 +104,7 @@ define Package/AREDN-Phonebook/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/AREDN-Phonebook $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_CONF) $(PKG_BUILD_DIR)/files/etc/phonebook.conf $(1)/etc/
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/phonebook.conf $(1)/etc/
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/AREDN-Phonebook $(1)/etc/init.d/
 	$(INSTALL_DIR) $(1)/www/cgi-bin
