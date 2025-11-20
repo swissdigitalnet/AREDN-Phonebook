@@ -172,21 +172,11 @@ jobs:
           echo "Renamed to: $ARCH_IPK"
           ls -la "$ARCH_IPK"
 
-      # Upload IPK as artifact for development builds
+      # Upload IPK as artifact (for all builds)
+      # To create a release: manually create one from a tag and attach the artifacts
       - name: Upload IPK as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AREDN-Phonebook-${{ matrix.target.arch }}-${{ github.ref_name }}
           path: ${{ steps.find_ipk.outputs.ipk_path }}
-          retention-days: 30
-
-      # Upload to GitHub Release if this is a version tag (X.Y.Z format)
-      - name: Upload to Release
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, 'dev-') && !contains(github.ref, 'test-')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ${{ steps.find_ipk.outputs.ipk_path }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: 90
