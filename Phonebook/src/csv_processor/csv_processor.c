@@ -106,6 +106,84 @@ int csv_processor_calculate_file_conceptual_hash(const char *filepath, char *out
     return 0;
 }
 
+int csv_processor_validate_csv(const char *filepath, int *row_count) {
+    FILE *fp = fopen(filepath, "r");
+    if (!fp) {
+        LOG_ERROR("Failed to open CSV file '%s' for validation. Error: %s", filepath, strerror(errno));
+        return 1;
+    }
+
+    char line[2048];
+    int line_count = 0;
+    int valid_data_rows = 0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        line_count++;
+
+        // Skip header row (first line with "First" or similar header text)
+        if (line_count == 1) {
+            // Check if this looks like a header (contains "First" or starts with expected pattern)
+            if (strstr(line, "First") != NULL || strstr(line, "FIRST") != NULL) {
+                LOG_DEBUG("Detected CSV header row: %.*s", (int)strcspn(line, "\r\n"), line);
+                continue;
+            }
+        }
+
+        // Count lines that have at least 3 commas (4 columns minimum)
+        int comma_count = 0;
+        for (const char *p = line; *p; p++) {
+            if (*p == ',') comma_count++;
+        }
+
+        if (comma_count >= 3) {
+            // Parse to verify we have a non-empty telephone number (4th column)
+            char *cols[4] = {NULL};
+            char line_copy[2048];
+            strncpy(line_copy, line, sizeof(line_copy) - 1);
+            line_copy[sizeof(line_copy) - 1] = '\0';
+
+            char *p = line_copy;
+            for (int i = 0; i < 4; i++) {
+                if (i < 3) {
+                    char *c = strchr(p, ',');
+                    if (c) {
+                        *c = '\0';
+                        cols[i] = p;
+                        p = c + 1;
+                    } else {
+                        cols[i] = p;
+                        p = NULL;
+                    }
+                } else {
+                    cols[i] = p;
+                }
+                if (!p && i < 3) break;
+            }
+
+            // Validate 4th column (telephone) is non-empty
+            if (cols[3] && *cols[3] && *cols[3] != '\r' && *cols[3] != '\n') {
+                valid_data_rows++;
+            }
+        }
+    }
+
+    fclose(fp);
+
+    if (row_count) {
+        *row_count = valid_data_rows;
+    }
+
+    // Require at least 1 valid data row
+    if (valid_data_rows < 1) {
+        LOG_ERROR("CSV validation failed: file has %d total lines but only %d valid data rows",
+                 line_count, valid_data_rows);
+        return 1;
+    }
+
+    LOG_INFO("CSV validation passed: %d valid entries found in '%s'", valid_data_rows, filepath);
+    return 0;
+}
+
 // Helper function to attempt download from a given host/port/path
 static int attempt_download(const char* host, const char* port, const char* path) {
     LOG_INFO("Attempting CSV download from %s:%s%s", host, port, path);
@@ -202,7 +280,7 @@ static int attempt_download(const char* host, const char* port, const char* path
     char header_buffer[4096] = {0};
     size_t header_buffer_len = 0;
 
-    LOG_DEBUG("Starting HTTP response read loop. Writing to %s.", PB_CSV_PATH);
+    LOG_DEBUG("Starting HTTP response read loop. Writing to %s.", PB_CSV_TEMP_PATH);
     while ((len_read = read(sock, buf, sizeof(buf))) > 0) {
         // if (!keep_running) { // REMOVED
         //     LOG_WARN("Download interrupted by shutdown signal. Read %zd bytes.", len_read);
@@ -228,12 +306,12 @@ static int attempt_download(const char* host, const char* port, const char* path
                 LOG_DEBUG("Received complete HTTP Status Line: '%s'", status_line);
                 if (sscanf(status_line, "HTTP/%*f %d", &http_status_code) != 1) {
                     LOG_ERROR("Failed to parse HTTP status code from '%s'.", status_line);
-                    fclose(fp); close(sock); remove(PB_CSV_PATH); return 1;
+                    fclose(fp); close(sock); remove(PB_CSV_TEMP_PATH); return 1;
                 }
 
                 if (http_status_code != 200) {
                     LOG_ERROR("HTTP download failed with status code %d: '%s'.", http_status_code, status_line);
-                    fclose(fp); close(sock); remove(PB_CSV_PATH); return 1;
+                    fclose(fp); close(sock); remove(PB_CSV_TEMP_PATH); return 1;
                 }
                 LOG_DEBUG("Parsed HTTP Status Code: %d. Headers received.", http_status_code);
                 status_line_read = true;
@@ -246,7 +324,7 @@ static int attempt_download(const char* host, const char* port, const char* path
                 }
             } else if (header_buffer_len >= sizeof(header_buffer) -1) {
                 LOG_ERROR("HTTP header too large or missing end of headers (\\r\\n\\r\\n). Header buffer exhausted.");
-                fclose(fp); close(sock); remove(PB_CSV_PATH); return 1;
+                fclose(fp); close(sock); remove(PB_CSV_TEMP_PATH); return 1;
             } else {
                  LOG_DEBUG("Partial HTTP header received (%zu bytes). Waiting for more data for status line/body split.", header_buffer_len);
             }
@@ -261,21 +339,30 @@ static int attempt_download(const char* host, const char* port, const char* path
 
     if (len_read < 0) {
         LOG_ERROR("Error reading from socket during download: %s", strerror(errno));
-        remove(PB_CSV_PATH);
+        remove(PB_CSV_TEMP_PATH);
         return 1;
     } else if (total_bytes_read == 0 && http_status_code == 200) {
-        LOG_WARN("Downloaded CSV is empty (0 bytes body), despite 200 OK status. File: %s", PB_CSV_PATH);
+        LOG_ERROR("Downloaded CSV is empty (0 bytes body). Refusing to accept empty phonebook.");
+        remove(PB_CSV_TEMP_PATH);
+        return 1;
     } else if (!status_line_read) {
         LOG_ERROR("HTTP response was too short or malformed; no complete status line/headers found. Received %zu bytes.", total_bytes_read);
-        remove(PB_CSV_PATH);
+        remove(PB_CSV_TEMP_PATH);
         return 1;
     } else if (http_status_code != 200) {
         LOG_ERROR("HTTP download failed: Invalid status code %d. File not saved. Final bytes: %zu.", http_status_code, total_bytes_read);
-        remove(PB_CSV_PATH);
+        remove(PB_CSV_TEMP_PATH);
         return 1;
     }
 
-    LOG_INFO("CSV downloaded successfully to %s. Total bytes: %zu.", PB_CSV_PATH, total_bytes_read);
+    // Validate that we have at least a minimal CSV (header row minimum: "First,Last,Call,Phone\n" ~ 25 bytes)
+    if (total_bytes_read < 25) {
+        LOG_ERROR("Downloaded CSV too small (%zu bytes). Likely header-only or corrupted. Refusing to accept.", total_bytes_read);
+        remove(PB_CSV_TEMP_PATH);
+        return 1;
+    }
+
+    LOG_INFO("CSV downloaded successfully to %s. Total bytes: %zu.", PB_CSV_TEMP_PATH, total_bytes_read);
     LOG_DEBUG("Finished CSV download process for %s:%s%s.", host, port, path);
     return 0;
 }

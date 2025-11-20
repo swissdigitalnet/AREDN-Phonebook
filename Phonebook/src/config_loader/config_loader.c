@@ -281,6 +281,38 @@ int load_configuration(const char *config_filepath) {
     }
     fclose(fp);
     g_num_phonebook_servers = current_server_idx; // Set the actual count of loaded servers
-    LOG_INFO("Configuration loaded. Total phonebook servers: %d.", g_num_phonebook_servers);
+
+    // ========================================================================
+    // CONFIGURATION VALIDATION (fail-fast, no silent corrections)
+    // ========================================================================
+
+    // Validate phonebook fetch interval (minimum 5 minutes to avoid hammering servers)
+    if (g_pb_interval_seconds < 300) {
+        LOG_ERROR("FATAL: PB_INTERVAL_SECONDS (%d) is too small (minimum: 300 seconds / 5 minutes)",
+                  g_pb_interval_seconds);
+        LOG_ERROR("       Frequent polling can overload mesh phonebook servers.");
+        LOG_ERROR("       Please set PB_INTERVAL_SECONDS=1800 or higher in /etc/phonebook.conf");
+        return -1; // Configuration error - fail startup
+    }
+
+    // Validate status update interval (minimum 1 minute to avoid log spam)
+    if (g_status_update_interval_seconds < 60) {
+        LOG_ERROR("FATAL: STATUS_UPDATE_INTERVAL_SECONDS (%d) is too small (minimum: 60 seconds)",
+                  g_status_update_interval_seconds);
+        LOG_ERROR("       Frequent updates cause excessive syslog writes on flash storage.");
+        LOG_ERROR("       Please set STATUS_UPDATE_INTERVAL_SECONDS=600 or higher in /etc/phonebook.conf");
+        return -1; // Configuration error - fail startup
+    }
+
+    // Validate at least one phonebook server is configured
+    if (g_num_phonebook_servers == 0) {
+        LOG_ERROR("FATAL: No phonebook servers configured");
+        LOG_ERROR("       At least one PHONEBOOK_SERVER is required for operation.");
+        LOG_ERROR("       Add to /etc/phonebook.conf:");
+        LOG_ERROR("       PHONEBOOK_SERVER=localnode.local.mesh,80,/phonebook.csv");
+        return -1; // Configuration error - fail startup
+    }
+
+    LOG_INFO("Configuration loaded and validated successfully. Phonebook servers: %d.", g_num_phonebook_servers);
     return 0; // Success
 }

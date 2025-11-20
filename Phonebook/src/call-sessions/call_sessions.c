@@ -74,11 +74,14 @@ void init_call_sessions() {
 }
 
 // Export active calls to JSON file for CGI access
+// Uses atomic write (temp+rename) to prevent CGI readers from seeing partial JSON
 void export_active_calls_json() {
     const char *json_path = "/tmp/active_calls.json";
-    FILE *f = fopen(json_path, "w");
+    const char *temp_path = "/tmp/active_calls.json.tmp";
+
+    FILE *f = fopen(temp_path, "w");
     if (!f) {
-        LOG_ERROR("Failed to open %s for writing: %s", json_path, strerror(errno));
+        LOG_ERROR("Failed to open %s for writing: %s", temp_path, strerror(errno));
         return;
     }
 
@@ -120,5 +123,13 @@ void export_active_calls_json() {
     fprintf(f, "}\n");
 
     fclose(f);
-    LOG_DEBUG("Exported %d active calls to %s", call_count, json_path);
+
+    // Atomic rename: replace destination with completed temp file
+    if (rename(temp_path, json_path) != 0) {
+        LOG_ERROR("Failed to atomically publish active calls JSON: %s", strerror(errno));
+        remove(temp_path); // Clean up temp file
+        return;
+    }
+
+    LOG_DEBUG("Exported %d active calls to %s (atomic write)", call_count, json_path);
 }

@@ -248,12 +248,31 @@ The system maintains separate counters for operational purposes:
 4. Updates hash file on successful processing
 5. Signals status updater thread for additional processing
 
-#### 3.3.4 File Management
+#### 3.3.4 File Management and Transactional Guarantees
 
-- Creates necessary directories using `file_utils_ensure_directory_exists()` (see [System Components](#7-system-components))
-- Publishes XML to `PB_XML_PUBLIC_PATH` for web access
-- Maintains hash file at `PB_LAST_GOOD_CSV_HASH_PATH`
-- Cleans up temporary files after processing
+**Directory Creation**:
+- Creates necessary directories using `file_utils_ensure_directory_exists()` (see [System Components](#8-system-components))
+- Ensures paths exist before file operations
+
+**Transactional File Operations**:
+- All writes use atomic rename for consistency
+- Post-operation verification ensures success
+- Automatic rollback on failure (see [§3.6.3 Transactional XML Publishing](#363-transactional-xml-publishing))
+
+**File Lifecycle**:
+1. **Download Phase**: CSV downloaded to `/tmp/phonebook_download.csv` (RAM)
+2. **Validation Phase**: CSV validated before any destructive operations (see [§3.6.2 CSV Validation](#362-csv-validation-before-table-operations))
+3. **Persistence Phase**: Validated CSV copied to `/www/arednstack/phonebook.csv` (flash)
+4. **Processing Phase**: User table populated from persistent CSV
+5. **Conversion Phase**: XML generated in `/tmp/phonebook.xml` (RAM)
+6. **Publishing Phase**: XML atomically moved to `/www/arednstack/phonebook_generic_direct.xml` (flash)
+7. **Hash Update**: Hash written to `/www/arednstack/phonebook.csv.hash` (flash)
+
+**Safety Guarantees**:
+- Last good phonebook never deleted (persistent storage only updated after validation)
+- Temporary files cleaned up on all code paths
+- Failed operations preserve existing service availability
+- Rollback capability for all flash writes
 
 #### 3.3.5 Emergency Boot & Storage Strategy
 
@@ -544,6 +563,19 @@ Typical router flash has 10,000 write cycles per block. With hash-based optimiza
 
 ### 3.6 Phonebook Error Handling
 
+The phonebook subsystem implements defense-in-depth error handling to ensure the last good phonebook never disappears, even under adverse network conditions or corrupt data scenarios.
+
+**Core Safety Principle**: *Downloads are guilty until proven innocent. Validation happens before any destructive operation.*
+
+**Hardening Improvements Summary**:
+1. **Temp-Only Downloads**: All downloads write exclusively to RAM (`/tmp/`), never touching persistent storage until validated
+2. **Pre-Validation**: CSV structure and content validated before calling `init_registered_users_table()` (which clears the user database)
+3. **Transactional Publishing**: XML publishing with post-operation verification and automatic rollback
+4. **Cooperative Shutdown**: Graceful thread restart without mutex deadlocks
+5. **Logging Optimization**: Debug traces downgraded from LOG_ERROR to LOG_DEBUG for operational clarity
+
+**Traditional Error Handling**:
+
 **File Access Errors**: Graceful handling of missing/unreadable files
 
 **Network Errors**: Retry logic for phonebook downloads across multiple configured servers
@@ -553,6 +585,286 @@ Typical router flash has 10,000 write cycles per block. With hash-based optimiza
 - **Hash Comparison**: Skips processing for unchanged phonebooks
 - **Resource Cleanup**: Automatic cleanup of temporary files
 - **Continuous Operation**: Threads continue despite individual failures
+
+#### 3.6.1 Download Safety Guarantees
+
+**Hardened Download Pipeline** (`csv_processor.c:109-290`):
+
+The `attempt_download()` function implements defense-in-depth validation to prevent corrupt data from reaching persistent storage:
+
+1. **Temp-Only Writes**: All downloads write exclusively to `PB_CSV_TEMP_PATH` (/tmp/ RAM)
+   - On any failure, only the temp file is removed
+   - `PB_CSV_PATH` (persistent flash) is never touched during download
+   - Bug fix: Previously removed wrong path on HTTP errors (critical safety violation)
+
+2. **Zero-Length Rejection** (line 266-269):
+   ```c
+   if (total_bytes_read == 0 && http_status_code == 200) {
+       LOG_ERROR("Downloaded CSV is empty (0 bytes body). Refusing to accept empty phonebook.");
+       remove(PB_CSV_TEMP_PATH);
+       return 1;
+   }
+   ```
+   - Empty responses treated as fatal errors
+   - Prevents accepting header-only responses
+
+3. **Minimum Size Validation** (lines 280-285):
+   ```c
+   if (total_bytes_read < 25) {
+       LOG_ERROR("Downloaded CSV too small (%zu bytes). Likely header-only or corrupted.",
+                total_bytes_read);
+       remove(PB_CSV_TEMP_PATH);
+       return 1;
+   }
+   ```
+   - Requires at least 25 bytes (minimum header: "First,Last,Call,Phone\n")
+   - Catches malformed/truncated downloads
+
+4. **Consistent Cleanup**: All 8 error paths now remove `PB_CSV_TEMP_PATH` only
+   - HTTP parse failures (lines 231, 236, 249)
+   - Socket read errors (line 264)
+   - Malformed responses (line 272)
+   - Invalid status codes (line 276)
+
+**Safety Principle**: Downloads are guilty until proven innocent. Validation happens before any destructive operation.
+
+#### 3.6.2 CSV Validation Before Table Operations
+
+**Pre-Validation Pipeline** (`phonebook_fetcher.c:159-166`, `csv_processor.c:109-185`):
+
+Before calling `init_registered_users_table()` (which nukes the user database), the system validates the downloaded CSV:
+
+```c
+// VALIDATE CSV BEFORE ANY DESTRUCTIVE OPERATIONS
+int valid_row_count = 0;
+if (csv_processor_validate_csv(PB_CSV_TEMP_PATH, &valid_row_count) != 0) {
+    LOG_ERROR("Downloaded CSV failed validation. Refusing to accept invalid phonebook data.");
+    remove(PB_CSV_TEMP_PATH);
+    goto end_fetcher_cycle;
+}
+LOG_INFO("CSV validation passed: %d valid entries in downloaded file", valid_row_count);
+```
+
+**Validation Checks** (`csv_processor_validate_csv()`):
+1. **File Accessibility**: Can open and read CSV
+2. **Structural Integrity**: Minimum 4 columns (FirstName, LastName, Callsign, Telephone)
+3. **Non-Empty Telephone**: 4th column contains data (not whitespace/newline)
+4. **Minimum Row Count**: At least 1 valid data row required
+5. **Header Detection**: Skips header row if detected ("First" keyword)
+
+**Execution Order Change**:
+- **Old**: Download → Hash → Persist to flash → Populate users → Convert XML → Publish
+- **New**: Download → Hash → **Validate** → Persist to flash → Populate users → Convert XML → Publish
+
+**Result**: The user table is never cleared unless we have verified good data in hand.
+
+#### 3.6.3 Transactional XML Publishing
+
+**Atomic Publish with Verification** (`passive_safety.c:117-235`, `phonebook_fetcher.c:22-66`):
+
+The `safe_phonebook_file_operation()` function now returns success/failure and verifies the operation actually worked:
+
+```c
+int safe_phonebook_file_operation(const char *source_path, const char *dest_path);
+// Returns 0 on success, 1 on failure
+```
+
+**Post-Rename Verification** (lines 186-207):
+```c
+// Verify the rename actually worked by checking mtime/size changed
+if (stat(dest_path, &post_stat) != 0) {
+    LOG_ERROR("Failed to stat phonebook after rename - assuming failure");
+    rollback_needed = true;
+} else {
+    // If we had an existing file, verify something changed
+    if (had_existing_file) {
+        if (post_stat.st_mtime == pre_stat.st_mtime &&
+            post_stat.st_size == pre_stat.st_size) {
+            LOG_ERROR("Phonebook file unchanged after rename - atomicity violated");
+            rollback_needed = true;
+        }
+    }
+    // Verify the new file has expected size
+    if (post_stat.st_size != file_size) {
+        LOG_ERROR("Phonebook size mismatch after rename: expected %ld, got %ld",
+                 file_size, (long)post_stat.st_size);
+        rollback_needed = true;
+    }
+}
+```
+
+**Conditional Signaling**: Status updater only receives signal if publish succeeds:
+```c
+int result = safe_phonebook_file_operation(source_filepath, PB_XML_PUBLIC_PATH);
+if (result == 0) {
+    // Only signal on success
+    pthread_mutex_lock(&updater_trigger_mutex);
+    pthread_cond_signal(&updater_trigger_cond);
+    pthread_mutex_unlock(&updater_trigger_mutex);
+}
+```
+
+**Temp File Preservation on Failure**: Failed publishes leave temp XML for inspection rather than deleting it.
+
+### 3.7 Passive Safety and Thread Recovery
+
+**Purpose**: Self-healing background monitoring that silently corrects operational issues without manual intervention.
+
+**Module Location**: `Phonebook/src/passive_safety/`
+
+#### 3.7.1 Overview
+
+The passive safety subsystem runs as a dedicated background thread that monitors system health and implements automatic recovery mechanisms. Unlike active monitoring (which reports issues), passive safety **silently fixes** problems before they impact service availability.
+
+**Design Philosophy**:
+- **Silent Operation**: Fixes issues without generating alarms
+- **Self-Healing**: Automatic recovery from common failures
+- **Resource Conservation**: Adapts behavior under high load
+- **Flash Preservation**: Protects embedded router flash storage
+- **Thread Safety**: Cooperative shutdown instead of forced cancellation
+
+#### 3.7.2 Cooperative Thread Shutdown
+
+**Problem Solved**: `pthread_cancel()` can leave mutexes locked and data structures inconsistent, causing deadlocks on restart.
+
+**Solution**: Cooperative shutdown using request flags (`passive_safety.c:16-18`, `passive_safety.h:28-30`):
+
+```c
+// Shutdown request flags (sig_atomic_t for signal safety)
+volatile sig_atomic_t g_fetcher_restart_requested = 0;
+volatile sig_atomic_t g_updater_restart_requested = 0;
+```
+
+**Thread Recovery Process** (`passive_safety.c:241-277`):
+
+1. **Heartbeat Monitoring**: Each monitored thread updates timestamp every cycle
+   - Fetcher: Updates `g_fetcher_last_heartbeat` (30-minute timeout)
+   - Updater: Updates `g_updater_last_heartbeat` (20-minute timeout)
+
+2. **Timeout Detection**: Passive safety checks heartbeats every 5 minutes
+   ```c
+   if (g_fetcher_last_heartbeat > 0 &&
+       (now - g_fetcher_last_heartbeat) > 1800) { // 30 minutes
+       LOG_WARN("Phonebook fetcher thread appears hung (no heartbeat for %ld seconds)",
+                now - g_fetcher_last_heartbeat);
+   ```
+
+3. **Cooperative Restart Request**: Set flag instead of `pthread_cancel()`
+   ```c
+   if (!g_fetcher_restart_requested) {
+       g_fetcher_restart_requested = 1;
+       LOG_INFO("Requested cooperative restart of phonebook fetcher thread");
+   }
+   ```
+
+4. **Graceful Exit**: Monitored thread checks flag and exits cleanly
+   ```c
+   // In phonebook_fetcher_thread() main loop (lines 126-131):
+   if (g_fetcher_restart_requested) {
+       LOG_INFO("Cooperative restart requested - exiting gracefully");
+       g_fetcher_restart_requested = 0; // Reset for next instance
+       break; // Exit loop, release mutexes, return cleanly
+   }
+   ```
+
+**Check Points**: Threads check restart flag at:
+- Beginning of main loop (before acquiring mutexes)
+- During sleep intervals (every second)
+- After completing current operation
+
+**Deadlock Prevention**: If thread doesn't respond to restart request:
+```c
+else {
+    // Already requested but thread still hung - may be deadlocked
+    LOG_ERROR("Fetcher thread not responding to restart request for %ld seconds - may be deadlocked",
+             now - g_fetcher_last_heartbeat);
+    // Do NOT force cancel - would make deadlock permanent
+}
+```
+
+**Benefits**:
+- Mutexes properly released before exit
+- File handles closed cleanly
+- Temporary files cleaned up
+- State persisted before restart
+- No zombie threads or orphaned resources
+
+#### 3.7.3 Thread Health Tracking
+
+**Monitored Threads**:
+- `phonebook_fetcher_thread`: CSV download and processing (30-minute timeout)
+- `status_updater_thread`: XML augmentation and publishing (20-minute timeout)
+- `ping_bulk_tester_thread`: Phone monitoring (30-minute timeout)
+
+**Heartbeat Update Pattern**:
+```c
+// Updated every cycle by monitored thread
+g_fetcher_last_heartbeat = time(NULL);
+
+// Checked every 5 minutes by passive safety thread
+time_t now = time(NULL);
+if (now - g_fetcher_last_heartbeat > 1800) {
+    // Timeout detected - request restart
+}
+```
+
+#### 3.7.4 Other Passive Safety Features
+
+**Call Session Cleanup** (`passive_safety.c:21-45`):
+- Removes stale call sessions older than 24 hours
+- Safety net for lost BYE messages
+- Prevents resource exhaustion
+
+**Graceful Degradation** (`passive_safety.c:48-83`):
+- Monitors active call session count
+- If approaching limits (>80%), doubles phonebook fetch interval
+- Reduces background load during high call volume
+- Restores normal interval when load decreases
+
+**Orphaned File Cleanup** (`passive_safety.c:86-111`):
+- Removes orphaned `.backup` and `.temp` files
+- Cleans up after interrupted operations
+- Prevents disk space leaks
+
+**Safe File Operations** (see [§3.6.3 Transactional XML Publishing](#363-transactional-xml-publishing)):
+- Atomic rename with rollback
+- Post-operation verification
+- Backup creation and cleanup
+
+#### 3.7.5 Logging Level Optimization
+
+**Problem**: Excessive `LOG_ERROR` usage for routine debugging flooded syslog, hiding real failures.
+
+**Solution** (`user_manager.c:139, 187, 215, 222, 226, 303-306`):
+
+**Downgraded to LOG_DEBUG**:
+- CSV import trace messages
+- User table population steps
+- Row-by-row processing logs
+- Function entry/exit traces
+
+**Preserved as LOG_ERROR**:
+- File open failures (errno conditions)
+- Hash calculation failures
+- Network errors
+- Validation failures
+
+**Result**: Operations teams can quickly spot genuine outages without wading through megabytes of debug traces.
+
+**Before**:
+```c
+LOG_ERROR("DEBUG TRACE: populate_registered_users_from_csv() ENTERED with filepath='%s'", filepath);
+LOG_ERROR("CRITICAL DEBUG: About to populate users from CSV - THIS LINE MUST APPEAR!");
+LOG_ERROR("DEBUG TRACE: CSV parsing loop completed. Total lines processed: %d", ln);
+```
+
+**After**:
+```c
+LOG_DEBUG("populate_registered_users_from_csv() ENTERED with filepath='%s'", filepath);
+LOG_DEBUG("Populating SIP users from validated CSV.");
+LOG_DEBUG("CSV parsing loop completed. Total lines processed: %d", ln);
+LOG_INFO("Finished populating registered users from CSV. Total directory entries: %d.", num_directory_entries);
+```
 
 ## 4. Monitoring
 

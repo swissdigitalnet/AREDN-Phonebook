@@ -319,11 +319,11 @@ cat <<'EOF'
             border-radius: 4px;
             font-size: 0.9em;
         }
-        /* Traceroute Display Styles - Top-left overlay on map */
+        /* Traceroute Display Styles - Top-right overlay on map */
         .traceroute-panel {
             position: absolute;
             top: 10px;
-            left: 10px;
+            right: 10px;
             z-index: 1000;
             background-color: white;
             border-radius: 8px;
@@ -470,7 +470,7 @@ cat <<'EOF'
         <div class="traceroute-panel" id="traceroutePanel">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <div class="traceroute-title" id="tracerouteTitle" style="margin: 0;">Traceroute Results</div>
-                <button onclick="document.getElementById('traceroutePanel').classList.remove('visible')"
+                <button onclick="closeTraceroutePanel()"
                         style="background: none; border: none; font-size: 20px; cursor: pointer; color: #666;">&times;</button>
             </div>
             <div class="traceroute-content" id="tracerouteContent">
@@ -776,11 +776,44 @@ cat <<EOF
             return null;
         }
 
+        // Hide all regular connection lines (for traceroute isolation)
+        function hideAllConnections() {
+            connectionLines.forEach(line => {
+                if (topologyMap.hasLayer(line)) {
+                    topologyMap.removeLayer(line);
+                }
+            });
+        }
+
+        // Restore all regular connection lines
+        function showAllConnections() {
+            connectionLines.forEach(line => {
+                if (!topologyMap.hasLayer(line)) {
+                    line.addTo(topologyMap);
+                }
+            });
+        }
+
+        // Close traceroute panel and restore connections
+        function closeTraceroutePanel() {
+            document.getElementById('traceroutePanel').classList.remove('visible');
+
+            // Clear highlighted path
+            highlightedPath.forEach(line => topologyMap.removeLayer(line));
+            highlightedPath = [];
+
+            // Restore all connection lines
+            showAllConnections();
+        }
+
         // Highlight traceroute path on the map
         function highlightTraceroutePath(hostnames) {
             if (!topologyMap || !topologyData || !hostnames || hostnames.length < 2) {
                 return;
             }
+
+            // Hide all regular connections to isolate the traceroute path
+            hideAllConnections();
 
             // Clear previous highlights
             highlightedPath.forEach(line => topologyMap.removeLayer(line));

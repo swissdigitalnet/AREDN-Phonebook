@@ -606,7 +606,7 @@ database:
   port: 5432
   database: meshmon
   user: meshmon
-  password: <secure-password>
+  password: <secure-password>  # ⚠️ Replace with actual strong password!
 
 node_lifecycle:
   inactive_threshold_minutes: 30

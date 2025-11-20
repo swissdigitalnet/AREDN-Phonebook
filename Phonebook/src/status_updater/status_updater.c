@@ -66,7 +66,7 @@ void *status_updater_thread(void *arg) {
 
     struct timespec ts;
 
-    while (1) { // Changed from while (keep_running) to while (1)
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         // Passive Safety: Update heartbeat for thread recovery monitoring
         g_updater_last_heartbeat = time(NULL);
 
@@ -82,16 +82,16 @@ void *status_updater_thread(void *arg) {
         int wait_status = pthread_cond_timedwait(&updater_trigger_cond, &updater_trigger_mutex, &ts);
         pthread_mutex_unlock(&updater_trigger_mutex);
 
-        // if (!keep_running) { // REMOVED
-        //     break;
-        // }
+        if (!g_keep_running) {
+            break; // Exit immediately on shutdown signal
+        }
 
-        LOG_INFO("Starting new update cycle.");
+        LOG_DEBUG("Starting new update cycle.");
 
         if (wait_status == 0) {
-            LOG_INFO("Triggered by Phonebook Fetcher signal.");
+            LOG_DEBUG("Triggered by Phonebook Fetcher signal.");
         } else if (wait_status == ETIMEDOUT) {
-            LOG_INFO("Running on schedule (every %d seconds).", g_status_update_interval_seconds);
+            LOG_DEBUG("Running on schedule (every %d seconds).", g_status_update_interval_seconds);
         } else {
             LOG_ERROR("pthread_cond_timedwait failed: %s", strerror(wait_status));
         }
@@ -235,7 +235,7 @@ void *status_updater_thread(void *arg) {
             }
         }
 
-        LOG_INFO("Finished update cycle.");
+        LOG_DEBUG("Finished update cycle.");
     }
 
     LOG_INFO("Status updater exiting.");

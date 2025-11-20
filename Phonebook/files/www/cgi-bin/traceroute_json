@@ -107,8 +107,15 @@ echo "$TRACEROUTE_OUTPUT" | tail -n +2 | while IFS= read -r line; do
         RTT_AVG="0.00"
     fi
 
-    # Try reverse DNS lookup (take only first line and sanitize)
-    HOSTNAME=$(nslookup "$IP" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//' | tr -d '\n\r\t')
+    # Try IP mapping from topology first (fast path for tunnel IPs and known interfaces)
+    HOSTNAME=$(grep -F "\"$IP\":" /tmp/arednmon/network_topology.json 2>/dev/null | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
+
+    # Fall back to reverse DNS lookup if no mapping found
+    if [ -z "$HOSTNAME" ]; then
+        HOSTNAME=$(nslookup "$IP" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//' | tr -d '\n\r\t')
+    fi
+
+    # Fall back to IP if both methods failed
     [ -z "$HOSTNAME" ] && HOSTNAME="$IP"
 
     # Remove .local.mesh suffix if present

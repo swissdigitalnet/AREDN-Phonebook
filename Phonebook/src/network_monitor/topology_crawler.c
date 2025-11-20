@@ -36,7 +36,7 @@ void *topology_crawler_thread(void *arg) {
     LOG_INFO("Waiting 10 seconds for system initialization...");
     sleep(10);
 
-    while (1) {
+    while (g_keep_running) { // Check shutdown flag for graceful termination
         // Health monitoring heartbeat
         if (thread_index >= 0) {
             health_update_heartbeat(thread_index);
@@ -79,8 +79,10 @@ void *topology_crawler_thread(void *arg) {
         LOG_INFO("=== Mesh crawl complete ===");
         LOG_INFO("Next mesh crawl in %d seconds...", g_topology_crawler_interval_seconds);
 
-        // Wait for next crawl
-        sleep(g_topology_crawler_interval_seconds);
+        // Wait for next crawl, checking shutdown flag periodically
+        for (int i = 0; i < g_topology_crawler_interval_seconds && g_keep_running; i++) {
+            sleep(1);
+        }
     }
 
     LOG_INFO("Topology Crawler thread exiting");

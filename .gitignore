@@ -63,6 +63,7 @@ Configuration Files/
 
 # Log files
 *.log
+*.log.*
 
 # OpenWrt SDK and build system (local builds only)
 openwrt-sdk*/
@@ -86,3 +87,48 @@ dl/
 # Local build outputs
 *.ipk
 packages/
+.codex/
+.config/
+mesh.json
+
+# Extracted package files
+Phonebook/AREDN-Phonebook-new
+control.tar.gz
+data.tar.gz
+debian-binary
+etc/
+www/
+
+# Security: Sensitive files
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.ppk
+.env
+.env.*
+!.env.example
+credentials
+credentials.*
+secrets
+secrets.*
+*.secret
+*.secrets
+
+# Security: Database and backup files
+*.sql
+*.sqlite
+*.db
+*.bak
+*.backup
+
+# Security: Other sensitive patterns
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
