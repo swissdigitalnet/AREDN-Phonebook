@@ -104,51 +104,6 @@ define Package/AREDN-Phonebook/preinst
 exit 0
 endef
 
-define Package/AREDN-Phonebook/postinst
-#!/bin/sh
-# AREDN-Phonebook post-installation script
-# Merges new configuration options into existing config file (preserves user settings)
-
-[ -n "$$$${IPKG_INSTROOT}" ] || {
-	CONFIG_FILE="/etc/phonebook.conf"
-
-	echo "AREDN-Phonebook: Checking for configuration updates..."
-
-	# Check if NETWORK_TRACEROUTE_ENABLED exists in config
-	if ! grep -q "NETWORK_TRACEROUTE_ENABLED" "$$$$CONFIG_FILE" 2>/dev/null; then
-		echo "AREDN-Phonebook: Adding topology mapping settings to config..."
-		cat >> "$$$$CONFIG_FILE" <<'EOF'
-
-# ============================================================================
-# TOPOLOGY MAPPING SETTINGS
-# ============================================================================
-
-# Discover network paths via traceroute. 0 = disabled, 1 = enabled. Default: 1
-NETWORK_TRACEROUTE_ENABLED=1
-
-# Maximum traceroute hops. Range: 1-30. Default: 20
-NETWORK_TRACEROUTE_MAX_HOPS=20
-
-# Crawl mesh to discover nodes. 0 = disabled, 1 = enabled. Default: 1
-TOPOLOGY_CRAWLER_ENABLED=1
-
-# How often to crawl mesh (seconds). Range: 60-86400. Default: 3600
-TOPOLOGY_CRAWLER_INTERVAL_SECONDS=3600
-EOF
-		echo "AREDN-Phonebook: Configuration updated successfully"
-
-		# Restart service to apply new settings
-		if [ -x /etc/init.d/AREDN-Phonebook ]; then
-			echo "AREDN-Phonebook: Restarting service to apply new configuration..."
-			/etc/init.d/AREDN-Phonebook restart
-		fi
-	else
-		echo "AREDN-Phonebook: Configuration already up to date"
-	fi
-}
-exit 0
-endef
-
 define Package/AREDN-Phonebook/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/AREDN-Phonebook $(1)/usr/bin/
