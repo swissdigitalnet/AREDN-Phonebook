@@ -6,6 +6,7 @@ on:
     tags:
       - '*.*.*'
     branches:
+      - 'main'
       - 'development'
       - 'withoutUAC'
       - 'dev-*'
