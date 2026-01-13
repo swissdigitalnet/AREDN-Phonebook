@@ -1,0 +1,38 @@
+{
+    "name": "AREDN-Phonebook - OpenWrt Development",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "workspaceFolder": "/workspaces/AREDN-Phonebook",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.makefile-tools"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {},
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "lts"
+        },
+        "ghcr.io/devcontainers/features/sshd:1": {
+            "version": "latest"
+        }
+    },
+    "appPort": ["2230:2222"],
+    "postCreateCommand": "git config --global credential.helper store && (git clone https://github.com/SensorsIot/DotFiles.git ~/DotFiles && ~/DotFiles/install.sh) || true",
+    "remoteUser": "dev",
+    "mounts": [
+        "source=${localEnv:HOME}/.ssh/authorized_keys,target=/home/dev/.ssh/authorized_keys,type=bind,readonly",
+        "source=${localEnv:HOME}/.git-credentials,target=/home/dev/.git-credentials,type=bind,readonly"
+    ],
+    "containerEnv": {
+        "OPENWRT_SDK": "/opt/openwrt/sdk"
+    }
+}
