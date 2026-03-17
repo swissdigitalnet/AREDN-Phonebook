@@ -62,33 +62,15 @@ pthread_cond_t updater_trigger_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t fetcher_wake_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t fetcher_wake_cond = PTHREAD_COND_INITIALIZER;
 
-// Global flag for phone test trigger
-static volatile sig_atomic_t phone_test_requested = 0;
-
-// Signal handler for webhook-triggered phonebook reload
+// Signal handlers — ONLY set flags (async-signal-safe)
 void phonebook_reload_signal_handler(int sig) {
-    if (sig == SIGUSR1) {
-        phonebook_reload_requested = 1;
-        LOG_INFO("Received SIGUSR1 - immediate phonebook reload requested via webhook");
-    }
+    (void)sig;
+    phonebook_reload_requested = 1;
 }
 
-// Signal handler for phone test trigger
-void phone_test_signal_handler(int sig) {
-    if (sig == SIGUSR2) {
-        phone_test_requested = 1;
-        syslog(6, "[PHONE_TEST_SIGNAL] SIGUSR2 received - setting phone_test_requested flag"); // 6 = LOG_INFO
-    }
-}
-
-// Signal handler for graceful shutdown (SIGTERM, SIGINT)
 void shutdown_signal_handler(int sig) {
-    // Use only async-signal-safe functions in signal handlers
-    if (sig == SIGTERM || sig == SIGINT) {
-        g_keep_running = 0;
-        const char *signame = (sig == SIGTERM) ? "SIGTERM" : "SIGINT";
-        syslog(6, "[SHUTDOWN] %s received - initiating graceful shutdown", signame); // 6 = LOG_INFO
-    }
+    (void)sig;
+    g_keep_running = 0;
 }
 
 // sockaddr_to_ip_str prototype is in common.h, definition remains here
@@ -215,13 +197,6 @@ int main(int argc, char *argv[]) {
     sigaction(SIGUSR1, &sa, NULL);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
 
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = phone_test_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sigaction(SIGUSR2, &sa, NULL);
-    LOG_INFO("Registered SIGUSR2 handler for phone test calls");
-
     LOG_INFO("Attempting to set process priority...");
     if (setpriority(PRIO_PROCESS, 0, SIP_HANDLER_NICE_VALUE) == -1) { // SIP_HANDLER_NICE_VALUE from common.h
         LOG_WARN("Failed to set process priority to %d: %s", SIP_HANDLER_NICE_VALUE, strerror(errno));
@@ -317,7 +292,6 @@ int main(int argc, char *argv[]) {
     sigaddset(&block_mask, SIGTERM);
     sigaddset(&block_mask, SIGINT);
     sigaddset(&block_mask, SIGUSR1);
-    sigaddset(&block_mask, SIGUSR2);
     pthread_sigmask(SIG_BLOCK, &block_mask, &old_mask);
 
     LOG_INFO("Creating phonebook fetcher thread...");

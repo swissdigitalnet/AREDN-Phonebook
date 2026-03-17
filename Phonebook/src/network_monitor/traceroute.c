@@ -306,13 +306,14 @@ int traceroute_to_phone(const char *phone_number, int max_hops,
     // Add localhost as hop 0
     char localhost_name[256] = "localhost";
     if (gethostname(localhost_name, sizeof(localhost_name)) != 0) {
-        FILE *hostname_fp = popen("cat /proc/sys/kernel/hostname", "r");
+        // Fallback: read /proc/sys/kernel/hostname directly
+        FILE *hostname_fp = fopen("/proc/sys/kernel/hostname", "r");
         if (hostname_fp && fgets(localhost_name, sizeof(localhost_name), hostname_fp)) {
             char *nl = strchr(localhost_name, '\n');
             if (nl) *nl = '\0';
-            pclose(hostname_fp);
+            fclose(hostname_fp);
         } else {
-            if (hostname_fp) pclose(hostname_fp);
+            if (hostname_fp) fclose(hostname_fp);
             strncpy(localhost_name, "localhost", sizeof(localhost_name) - 1);
             localhost_name[sizeof(localhost_name) - 1] = '\0';
         }

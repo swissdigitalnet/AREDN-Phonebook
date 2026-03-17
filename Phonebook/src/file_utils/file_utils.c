@@ -121,26 +121,10 @@ int file_utils_ensure_directory_exists(const char *path) {
         return 1;
     }
 
-    // Handle case where path is a file - get its directory
-    char *path_copy = strdup(path);
-    if (!path_copy) {
-        LOG_ERROR("Failed to duplicate path for directory creation. Error: %s", strerror(errno));
-        return 1;
-    }
-
-    // If path ends with a filename (has extension or no trailing slash), get directory
-    char *directory_to_create;
-    if (strchr(basename(path_copy), '.') != NULL || path[strlen(path) - 1] != '/') {
-        // Path appears to be a file, get its directory
-        directory_to_create = dirname(path_copy);
-    } else {
-        // Path is already a directory
-        directory_to_create = path_copy;
-    }
-
-    int result = create_directory_recursive(directory_to_create);
-    free(path_copy);
-    return result;
+    // Always treat path as a directory to create.
+    // Callers who need to ensure a file's parent directory should
+    // call dirname() themselves before passing the path here.
+    return create_directory_recursive(path);
 }
 
 int file_utils_publish_file_to_destination(const char *source_path, const char *destination_path) {
@@ -182,4 +166,26 @@ char* trim_whitespace(char *str) {
     }
 
     return str;
+}
+
+void json_write_escaped(FILE *fp, const char *str) {
+    if (!str) {
+        return;
+    }
+    for (const char *p = str; *p; p++) {
+        switch (*p) {
+            case '"':  fputs("\\\"", fp); break;
+            case '\\': fputs("\\\\", fp); break;
+            case '\n': fputs("\\n", fp);  break;
+            case '\r': fputs("\\r", fp);  break;
+            case '\t': fputs("\\t", fp);  break;
+            default:
+                if ((unsigned char)*p < 0x20) {
+                    fprintf(fp, "\\u%04x", (unsigned char)*p);
+                } else {
+                    fputc(*p, fp);
+                }
+                break;
+        }
+    }
 }

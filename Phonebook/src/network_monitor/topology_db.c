@@ -7,6 +7,7 @@
 #include "topology_db.h"
 #include "http_client.h"
 #include "../common.h"
+#include "../file_utils/file_utils.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1273,18 +1274,27 @@ void topology_db_crawl_mesh_network(void) {
 
     // Get localhost hostname
     char localhost_hostname[256];
-    FILE *hostname_fp = popen("cat /proc/sys/kernel/hostname", "r");
-    if (hostname_fp && fgets(localhost_hostname, sizeof(localhost_hostname), hostname_fp)) {
-        // Remove newline
-        char *nl = strchr(localhost_hostname, '\n');
-        if (nl) *nl = '\0';
-
+    int got_hostname = 0;
+    if (gethostname(localhost_hostname, sizeof(localhost_hostname)) == 0) {
+        localhost_hostname[sizeof(localhost_hostname) - 1] = '\0';
+        got_hostname = 1;
+    } else {
+        // Fallback: read /proc/sys/kernel/hostname directly
+        FILE *hostname_fp = fopen("/proc/sys/kernel/hostname", "r");
+        if (hostname_fp) {
+            if (fgets(localhost_hostname, sizeof(localhost_hostname), hostname_fp)) {
+                char *nl = strchr(localhost_hostname, '\n');
+                if (nl) *nl = '\0';
+                got_hostname = 1;
+            }
+            fclose(hostname_fp);
+        }
+    }
+    if (got_hostname) {
         // Normalize to lowercase
         for (char *p = localhost_hostname; *p; p++) {
             *p = tolower(*p);
         }
-
-        pclose(hostname_fp);
 
         // Add localhost using the same central function as all other routers
         LOG_INFO("Adding localhost router: %s", localhost_hostname);
@@ -1300,7 +1310,6 @@ void topology_db_crawl_mesh_network(void) {
             fclose(g_crawl_log);
             g_crawl_log = NULL;
         }
-        if (hostname_fp) pclose(hostname_fp);
         free(crawl_queue);
         free(visited);
         free(initial_hostnames);
@@ -1454,7 +1463,9 @@ int topology_db_write_to_file(const char *filepath) {
 
     fprintf(fp, "  \"source_node\": {\n");
     if (g_node_count > 0) {
-        fprintf(fp, "    \"name\": \"%s\",\n", g_nodes[0].name);
+        fprintf(fp, "    \"name\": \"");
+        json_write_escaped(fp, g_nodes[0].name);
+        fprintf(fp, "\",\n");
         fprintf(fp, "    \"type\": \"server\"\n");
     } else {
         fprintf(fp, "    \"name\": \"unknown\",\n");
@@ -1476,11 +1487,11 @@ int topology_db_write_to_file(const char *filepath) {
     for (int i = 0; i < g_node_count; i++) {
         TopologyNode *node = &g_nodes[i];
         fprintf(fp, "    {\n");
-        fprintf(fp, "      \"name\": \"%s\",\n", node->name);
-        fprintf(fp, "      \"type\": \"%s\",\n", node->type);
-        fprintf(fp, "      \"lat\": \"%s\",\n", node->lat);
-        fprintf(fp, "      \"lon\": \"%s\",\n", node->lon);
-        fprintf(fp, "      \"status\": \"%s\",\n", node->status);
+        fprintf(fp, "      \"name\": \""); json_write_escaped(fp, node->name); fprintf(fp, "\",\n");
+        fprintf(fp, "      \"type\": \""); json_write_escaped(fp, node->type); fprintf(fp, "\",\n");
+        fprintf(fp, "      \"lat\": \""); json_write_escaped(fp, node->lat); fprintf(fp, "\",\n");
+        fprintf(fp, "      \"lon\": \""); json_write_escaped(fp, node->lon); fprintf(fp, "\",\n");
+        fprintf(fp, "      \"status\": \""); json_write_escaped(fp, node->status); fprintf(fp, "\",\n");
         fprintf(fp, "      \"last_seen\": %ld\n", (long)node->last_seen);
         fprintf(fp, "    }%s\n", (i < g_node_count - 1) ? "," : "");
     }
@@ -1512,8 +1523,8 @@ int topology_db_write_to_file(const char *filepath) {
             fprintf(fp, ",\n");
         }
         fprintf(fp, "    {\n");
-        fprintf(fp, "      \"source\": \"%s\",\n", conn->from_name);
-        fprintf(fp, "      \"target\": \"%s\",\n", conn->to_name);
+        fprintf(fp, "      \"source\": \""); json_write_escaped(fp, conn->from_name); fprintf(fp, "\",\n");
+        fprintf(fp, "      \"target\": \""); json_write_escaped(fp, conn->to_name); fprintf(fp, "\",\n");
         fprintf(fp, "      \"rtt_avg_ms\": %.3f,\n", conn->rtt_avg_ms);
         fprintf(fp, "      \"rtt_min_ms\": %.3f,\n", conn->rtt_min_ms);
         fprintf(fp, "      \"rtt_max_ms\": %.3f,\n", conn->rtt_max_ms);
@@ -1531,7 +1542,11 @@ int topology_db_write_to_file(const char *filepath) {
     // Write IP to hostname mappings (for tunnel IPs and all interfaces)
     fprintf(fp, "  \"ip_mappings\": {\n");
     for (int i = 0; i < g_ip_mapping_count; i++) {
-        fprintf(fp, "    \"%s\": \"%s\"", g_ip_mappings[i].ip, g_ip_mappings[i].hostname);
+        fprintf(fp, "    \"");
+        json_write_escaped(fp, g_ip_mappings[i].ip);
+        fprintf(fp, "\": \"");
+        json_write_escaped(fp, g_ip_mappings[i].hostname);
+        fprintf(fp, "\"");
         if (i < g_ip_mapping_count - 1) {
             fprintf(fp, ",\n");
         } else {

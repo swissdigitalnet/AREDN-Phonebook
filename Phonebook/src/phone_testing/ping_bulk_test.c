@@ -280,14 +280,14 @@ void *ping_bulk_test_thread(void *arg) {
                                     // Get source hostname (this server) for first connection
                                     char source_hostname[256];
                                     if (gethostname(source_hostname, sizeof(source_hostname)) != 0) {
-                                        // Fallback: read from /proc/sys/kernel/hostname
-                                        FILE *hostname_fp = popen("cat /proc/sys/kernel/hostname", "r");
+                                        // Fallback: read /proc/sys/kernel/hostname directly
+                                        FILE *hostname_fp = fopen("/proc/sys/kernel/hostname", "r");
                                         if (hostname_fp && fgets(source_hostname, sizeof(source_hostname), hostname_fp)) {
                                             char *nl = strchr(source_hostname, '\n');
                                             if (nl) *nl = '\0';
-                                            pclose(hostname_fp);
+                                            fclose(hostname_fp);
                                         } else {
-                                            if (hostname_fp) pclose(hostname_fp);
+                                            if (hostname_fp) fclose(hostname_fp);
                                             LOG_ERROR("Failed to get hostname, skipping topology for this phone");
                                             continue;
                                         }

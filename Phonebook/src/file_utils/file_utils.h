@@ -16,4 +16,7 @@ int file_utils_publish_file_to_destination(const char *source_path, const char *
 // Returns pointer to trimmed string (may point into original buffer)
 char* trim_whitespace(char *str);
 
+// Write a JSON-escaped string to a FILE (escapes \ " and control chars)
+void json_write_escaped(FILE *fp, const char *str);
+
 #endif

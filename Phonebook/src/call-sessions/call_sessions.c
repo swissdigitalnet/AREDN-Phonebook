@@ -1,5 +1,6 @@
 #include "call_sessions.h"
 #include "../common.h" // For logging macros
+#include "../file_utils/file_utils.h" // For json_write_escaped
 
 #define MODULE_NAME "SESSION"
 
@@ -104,14 +105,14 @@ void export_active_calls_json() {
             }
 
             fprintf(f, "    {\n");
-            fprintf(f, "      \"caller_user_id\": \"%s\",\n", call_sessions[i].caller_user_id);
-            fprintf(f, "      \"caller_display_name\": \"%s\",\n", call_sessions[i].caller_display_name);
-            fprintf(f, "      \"callee_user_id\": \"%s\",\n", call_sessions[i].callee_user_id);
-            fprintf(f, "      \"callee_display_name\": \"%s\",\n", call_sessions[i].callee_display_name);
-            fprintf(f, "      \"codec\": \"%s\",\n", call_sessions[i].codec);
-            fprintf(f, "      \"callee_hostname\": \"%s\",\n", call_sessions[i].callee_hostname);
+            fprintf(f, "      \"caller_user_id\": \""); json_write_escaped(f, call_sessions[i].caller_user_id); fprintf(f, "\",\n");
+            fprintf(f, "      \"caller_display_name\": \""); json_write_escaped(f, call_sessions[i].caller_display_name); fprintf(f, "\",\n");
+            fprintf(f, "      \"callee_user_id\": \""); json_write_escaped(f, call_sessions[i].callee_user_id); fprintf(f, "\",\n");
+            fprintf(f, "      \"callee_display_name\": \""); json_write_escaped(f, call_sessions[i].callee_display_name); fprintf(f, "\",\n");
+            fprintf(f, "      \"codec\": \""); json_write_escaped(f, call_sessions[i].codec); fprintf(f, "\",\n");
+            fprintf(f, "      \"callee_hostname\": \""); json_write_escaped(f, call_sessions[i].callee_hostname); fprintf(f, "\",\n");
             fprintf(f, "      \"state\": \"%s\",\n", state_str);
-            fprintf(f, "      \"call_id\": \"%s\"\n", call_sessions[i].call_id);
+            fprintf(f, "      \"call_id\": \""); json_write_escaped(f, call_sessions[i].call_id); fprintf(f, "\"\n");
             fprintf(f, "    }");
 
             call_count++;
