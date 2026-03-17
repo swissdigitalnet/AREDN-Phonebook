@@ -89,11 +89,12 @@ jobs:
           ARCH_IPK="AREDN-Phonebook_${{ steps.version.outputs.version }}-1_${ARCH_NAME}.ipk"
           cp "$IPK_FILE" "$ARCH_IPK"
           echo "ipk_path=$ARCH_IPK" >> $GITHUB_OUTPUT
+          echo "arch_name=$ARCH_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: AREDN-Phonebook-${{ matrix.target.arch }}
+          name: AREDN-Phonebook-${{ steps.find_ipk.outputs.arch_name }}
           path: ${{ steps.find_ipk.outputs.ipk_path }}
           retention-days: 90
 
