@@ -243,6 +243,15 @@ static int attempt_download(const char* host, const char* port, const char* path
     }
     freeaddrinfo(res);
 
+    // Set socket timeouts to prevent indefinite blocking
+    if (sock >= 0) {
+        struct timeval sock_tv;
+        sock_tv.tv_sec = 10;
+        sock_tv.tv_usec = 0;
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sock_tv, sizeof(sock_tv));
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &sock_tv, sizeof(sock_tv));
+    }
+
     if (sock < 0) {
         LOG_INFO("Could not connect to %s:%s. No usable address found or all connections failed.", host, port);
         return 1;

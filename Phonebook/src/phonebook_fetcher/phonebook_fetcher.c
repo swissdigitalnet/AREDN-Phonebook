@@ -277,30 +277,38 @@ void *phonebook_fetcher_thread(void *arg) {
         LOG_INFO("Finished fetcher cycle.");
 
         end_fetcher_cycle:;
-        LOG_INFO("Sleeping %d seconds...", g_pb_interval_seconds); // Use global g_pb_interval_seconds
-        for (int i = 0; i < g_pb_interval_seconds; i++) {
-            // Check for cooperative restart request during sleep
-            extern volatile sig_atomic_t g_fetcher_restart_requested;
-            if (g_fetcher_restart_requested) {
-                LOG_INFO("Cooperative restart requested during sleep - exiting gracefully");
-                g_fetcher_restart_requested = 0; // Reset flag for next instance
-                LOG_INFO("Phonebook fetcher thread exiting for restart.");
-                return NULL;
-            }
+        LOG_INFO("Sleeping %d seconds...", g_pb_interval_seconds);
 
-            // Check for webhook-triggered reload request
-            if (phonebook_reload_requested) {
-                phonebook_reload_requested = 0; // Reset flag
-                LOG_INFO("Webhook reload requested - interrupting sleep to fetch phonebook immediately");
-                break; // Exit sleep loop and restart fetch cycle
-            }
+        pthread_mutex_lock(&fetcher_wake_mutex);
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += g_pb_interval_seconds;
 
-            // Check for global shutdown
-            if (!g_keep_running) {
-                break;
-            }
+        int wait_status = pthread_cond_timedwait(&fetcher_wake_cond, &fetcher_wake_mutex, &ts);
+        pthread_mutex_unlock(&fetcher_wake_mutex);
 
-            sleep(1); // sleep from common.h
+        // Check all wake conditions
+        if (!g_keep_running) {
+            break;
+        }
+
+        extern volatile sig_atomic_t g_fetcher_restart_requested;
+        if (g_fetcher_restart_requested) {
+            LOG_INFO("Cooperative restart requested during sleep - exiting gracefully");
+            g_fetcher_restart_requested = 0;
+            LOG_INFO("Phonebook fetcher thread exiting for restart.");
+            return NULL;
+        }
+
+        if (phonebook_reload_requested) {
+            phonebook_reload_requested = 0;
+            LOG_INFO("Webhook reload requested - interrupting sleep to fetch phonebook immediately");
+        }
+
+        if (wait_status == ETIMEDOUT) {
+            LOG_DEBUG("Fetcher woke on schedule (every %d seconds).", g_pb_interval_seconds);
+        } else if (wait_status == 0) {
+            LOG_DEBUG("Fetcher woke by signal (webhook or shutdown).");
         }
     }
     LOG_INFO("Phonebook fetcher thread exiting.");

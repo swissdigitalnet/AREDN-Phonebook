@@ -161,6 +161,8 @@ extern pthread_mutex_t registered_users_mutex;
 extern pthread_mutex_t phonebook_file_mutex;
 extern pthread_mutex_t updater_trigger_mutex;
 extern pthread_cond_t updater_trigger_cond;
+extern pthread_mutex_t fetcher_wake_mutex;
+extern pthread_cond_t fetcher_wake_cond;
 
 
 // --- Logging Macros and Function Declarations ---

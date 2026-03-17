@@ -59,6 +59,8 @@ pthread_mutex_t registered_users_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t phonebook_file_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t updater_trigger_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t updater_trigger_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t fetcher_wake_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t fetcher_wake_cond = PTHREAD_COND_INITIALIZER;
 
 // Global flag for phone test trigger
 static volatile sig_atomic_t phone_test_requested = 0;
@@ -248,6 +250,27 @@ int main(int argc, char *argv[]) {
     }
     LOG_DEBUG("updater_trigger_cond initialized.");
 
+    if (pthread_mutex_init(&fetcher_wake_mutex, NULL) != 0) {
+        LOG_ERROR("Fetcher wake mutex init failed.");
+        pthread_mutex_destroy(&registered_users_mutex);
+        pthread_mutex_destroy(&phonebook_file_mutex);
+        pthread_mutex_destroy(&updater_trigger_mutex);
+        pthread_cond_destroy(&updater_trigger_cond);
+        return EXIT_FAILURE;
+    }
+    LOG_DEBUG("fetcher_wake_mutex initialized.");
+
+    if (pthread_cond_init(&fetcher_wake_cond, NULL) != 0) {
+        LOG_ERROR("Fetcher wake cond init failed.");
+        pthread_mutex_destroy(&registered_users_mutex);
+        pthread_mutex_destroy(&phonebook_file_mutex);
+        pthread_mutex_destroy(&updater_trigger_mutex);
+        pthread_cond_destroy(&updater_trigger_cond);
+        pthread_mutex_destroy(&fetcher_wake_mutex);
+        return EXIT_FAILURE;
+    }
+    LOG_DEBUG("fetcher_wake_cond initialized.");
+
     // Directly use the path "/tmp" since TEMPORARY_FILES macro was removed
     LOG_INFO("Ensuring temporary files directory '%s' exists...", "/tmp");
     if (file_utils_ensure_directory_exists("/tmp") != 0) {
@@ -394,6 +417,14 @@ int main(int argc, char *argv[]) {
         tv.tv_sec = 1; tv.tv_usec = 0;
         retval = select(max_fd + 1, &readfds, NULL, NULL, &tv);
 
+        // Check if SIGUSR1 set the reload flag — relay to fetcher via condvar
+        if (phonebook_reload_requested) {
+            pthread_mutex_lock(&fetcher_wake_mutex);
+            pthread_cond_signal(&fetcher_wake_cond);
+            pthread_mutex_unlock(&fetcher_wake_mutex);
+            // Don't reset the flag here — the fetcher thread resets it
+        }
+
         if (retval < 0) {
             if (errno == EINTR) {
                 syslog(7, "[MAIN_LOOP] select() interrupted by signal (EINTR), continuing...");
@@ -454,6 +485,11 @@ int main(int argc, char *argv[]) {
     LOG_INFO("Waiting for worker threads to terminate...");
 
     if (fetcher_tid != 0) {
+        // Signal the fetcher to wake up if it's waiting
+        pthread_mutex_lock(&fetcher_wake_mutex);
+        pthread_cond_signal(&fetcher_wake_cond);
+        pthread_mutex_unlock(&fetcher_wake_mutex);
+
         LOG_INFO("Joining phonebook fetcher thread...");
         pthread_join(fetcher_tid, NULL);
         LOG_INFO("Phonebook fetcher thread terminated");
@@ -505,6 +541,8 @@ int main(int argc, char *argv[]) {
     pthread_mutex_destroy(&phonebook_file_mutex);
     pthread_mutex_destroy(&updater_trigger_mutex);
     pthread_cond_destroy(&updater_trigger_cond);
+    pthread_mutex_destroy(&fetcher_wake_mutex);
+    pthread_cond_destroy(&fetcher_wake_cond);
     LOG_DEBUG("Mutexes and condition variables destroyed.");
 
     LOG_INFO("AREDN Phonebook shut down cleanly");
