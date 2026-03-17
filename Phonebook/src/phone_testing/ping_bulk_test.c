@@ -66,7 +66,7 @@ void *ping_bulk_test_thread(void *arg) {
 
     while (g_keep_running) { // Check shutdown flag for graceful termination
         // Passive Safety: Update heartbeat
-        g_bulk_tester_last_heartbeat = time(NULL);
+        heartbeat_store(&g_bulk_tester_last_heartbeat, time(NULL));
 
         // Health Monitoring: Update heartbeat
         if (thread_index >= 0) {
@@ -151,7 +151,7 @@ void *ping_bulk_test_thread(void *arg) {
                     inet_ntop(AF_INET, &addr->sin_addr, ip_str, sizeof(ip_str));
                 }
 
-                LOG_INFO("[%d/%d] Testing %s (%s) - DNS resolved to %s",
+                LOG_DEBUG("[%d/%d] Testing %s (%s) - DNS resolved to %s",
                          dns_resolved, total_users, user->user_id, user->display_name, ip_str);
 
                 freeaddrinfo(res);
@@ -171,7 +171,7 @@ void *ping_bulk_test_thread(void *arg) {
                 // PHASE 1: Ping Test (ICMP - Network Layer)
                 // ====================================================
                 if (g_phone_ping_count > 0) {
-                    LOG_INFO("Testing %s (%s) with ping (%d pings)...",
+                    LOG_DEBUG("Testing %s (%s) with ping (%d pings)...",
                              user->user_id, user->display_name, g_phone_ping_count);
 
                     ping_test_result_t ping_result = ping_test_icmp(
@@ -182,13 +182,9 @@ void *ping_bulk_test_thread(void *arg) {
                         ping_rtt = ping_result.avg_rtt_ms;
                         ping_jitter = ping_result.jitter_ms;
 
-                        LOG_INFO("✓ Phone %s ONLINE (ping)", user->user_id);
-                        LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
-                                 ping_result.packets_sent, ping_result.packets_received,
-                                 ping_result.packet_loss_pct);
-                        LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
-                                 ping_result.min_rtt_ms, ping_result.avg_rtt_ms,
-                                 ping_result.max_rtt_ms, ping_result.jitter_ms);
+                        LOG_DEBUG("Phone %s ONLINE (ping) - %d/%d pkts, avg=%.2f ms",
+                                 user->user_id, ping_result.packets_received,
+                                 ping_result.packets_sent, ping_result.avg_rtt_ms);
 
                         // Track RTT stats for summary
                         total_avg_rtt += ping_result.avg_rtt_ms;
@@ -235,7 +231,7 @@ void *ping_bulk_test_thread(void *arg) {
                 // ====================================================
                 // Only run if ping succeeded or ping is disabled
                 if (g_phone_options_count > 0) {
-                    LOG_INFO("Testing %s (%s) with options (%d requests)...",
+                    LOG_DEBUG("Testing %s (%s) with options (%d requests)...",
                              user->user_id, user->display_name, g_phone_options_count);
 
                     ping_test_result_t options_result = ping_test_options(
@@ -249,13 +245,9 @@ void *ping_bulk_test_thread(void *arg) {
                         options_rtt = options_result.avg_rtt_ms;
                         options_jitter = options_result.jitter_ms;
 
-                        LOG_INFO("✓ Phone %s ONLINE (options)", user->user_id);
-                        LOG_INFO("  Packets: %d sent, %d received (%.1f%% loss)",
-                                 options_result.packets_sent, options_result.packets_received,
-                                 options_result.packet_loss_pct);
-                        LOG_INFO("  RTT: min=%.2f ms, avg=%.2f ms, max=%.2f ms, jitter=%.2f ms",
-                                 options_result.min_rtt_ms, options_result.avg_rtt_ms,
-                                 options_result.max_rtt_ms, options_result.jitter_ms);
+                        LOG_DEBUG("Phone %s ONLINE (options) - %d/%d pkts, avg=%.2f ms",
+                                 user->user_id, options_result.packets_received,
+                                 options_result.packets_sent, options_result.avg_rtt_ms);
 
                         // Track RTT stats for summary (only if ping wasn't counted)
                         if (g_phone_ping_count <= 0) {
@@ -268,7 +260,7 @@ void *ping_bulk_test_thread(void *arg) {
                         // Run traceroute for online phones to map network topology
                         // ====================================================
                         if (g_network_traceroute_enabled) {
-                            LOG_INFO("Tracing route to %s (%s)...", user->user_id, user->display_name);
+                            LOG_DEBUG("Tracing route to %s (%s)...", user->user_id, user->display_name);
 
                             TracerouteHop hops[30];
                             int hop_count = 0;

@@ -154,5 +154,32 @@ int file_utils_publish_file_to_destination(const char *source_path, const char *
     }
 }
 
-// Removed entire #ifdef DEBUG_BUILD ... #endif block for file_utils_make_debug_copy
-// as requested, removing all logic for debug files.
+char* trim_whitespace(char *str) {
+    if (!str || *str == '\0') {
+        return str;
+    }
+
+    char *start = str;
+
+    // Trim leading space
+    while(isspace((unsigned char)*start)) start++;
+
+    if(*start == '\0') {
+        *str = '\0';
+        return str;
+    }
+
+    // Trim trailing space
+    char *end = start + strlen(start) - 1;
+    while(end > start && isspace((unsigned char)*end)) end--;
+
+    // Write new null terminator character
+    end[1] = '\0';
+
+    // Shift trimmed string to beginning of buffer (in-place)
+    if (start != str) {
+        memmove(str, start, strlen(start) + 1);
+    }
+
+    return str;
+}

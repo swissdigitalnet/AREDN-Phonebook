@@ -35,7 +35,8 @@ static int parse_url(const char *url, ParsedURL *parsed) {
     // Initialize defaults
     memset(parsed, 0, sizeof(ParsedURL));
     parsed->port = 80;
-    strcpy(parsed->path, "/");
+    strncpy(parsed->path, "/", sizeof(parsed->path) - 1);
+    parsed->path[sizeof(parsed->path) - 1] = '\0';
 
     // Skip "http://" prefix if present
     const char *ptr = url;

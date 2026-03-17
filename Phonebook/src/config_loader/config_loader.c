@@ -1,5 +1,6 @@
 // config_loader.c
 #include "config_loader.h" // This includes common.h
+#include "../file_utils/file_utils.h" // For trim_whitespace
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -39,26 +40,6 @@ int g_topology_crawler_enabled = 1;            // Default: enabled
 int g_topology_crawler_interval_seconds = 3600; // Default: 3600 seconds (1 hour)
 int g_topology_node_inactive_timeout_seconds = 3600;    // Default: 3600 seconds (1 hour) - mark nodes as INACTIVE
 int g_topology_node_delete_timeout_seconds = 2592000;  // Default: 2592000 seconds (30 days) - delete nodes completely
-
-// Helper function to trim leading/trailing whitespace (static to this file)
-static char* trim_whitespace(char *str) {
-    char *end;
-
-    // Trim leading space
-    while(isspace((unsigned char)*str)) str++;
-
-    if(*str == 0)  // All spaces?
-        return str;
-
-    // Trim trailing space
-    end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) end--;
-
-    // Write new null terminator character
-    end[1] = '\0';
-
-    return str;
-}
 
 int load_configuration(const char *config_filepath) {
     FILE *fp = fopen(config_filepath, "r");

@@ -166,39 +166,6 @@ void extract_codec_from_sdp(const char *sip_message, char *codec_out, size_t cod
     }
 }
 
-// These functions (extract_port_from_uri, extract_ip_from_uri) are no longer strictly needed
-// for routing *dynamic* registrations if we always use DNS and SIP_PORT.
-// However, they might still be useful for parsing incoming SIP messages or for other purposes.
-// I'll keep them but comment out their direct use in SIP REGISTER/INVITE if removed from struct.
-int extract_port_from_uri(const char *uri) {
-    const char *colon_pos = strrchr(uri, ':');
-    if (colon_pos && *(colon_pos + 1) != '/' && isdigit((unsigned char)*(colon_pos + 1))) {
-        return atoi(colon_pos + 1);
-    }
-    return -1;
-}
-
-int extract_ip_from_uri(const char *uri, char *ip_buf, size_t len) {
-    const char *start = strstr(uri, "@");
-    if (!start) {
-        start = strstr(uri, "sip:");
-        if (start) start += 4;
-        else start = uri;
-    } else {
-        start++;
-    }
-    const char *colon_pos = strchr(start, ':');
-    const char *end = strchr(start, ';');
-    if (!end && colon_pos) end = colon_pos;
-    if (!end) end = start + strlen(start);
-    size_t ip_len = end - start;
-    if (ip_len <= 0) { ip_buf[0] = '\0'; return 0; }
-    if (ip_len >= len) ip_buf[len - 1] = '\0';
-    memcpy(ip_buf, start, ip_len);
-    ip_buf[ip_len] = '\0';
-    return 1;
-}
-
 void get_first_line(const char *msg, char *buf, size_t len) {
     const char *end = strstr(msg, "\r\n");
     if (end) {
@@ -466,8 +433,9 @@ void send_sip_response(int sockfd,
             len = MAX_SIP_MSG_LEN - 1;
             response_buffer[len] = '\0';
         } else {
-            strcat(response_buffer, body);
+            memcpy(response_buffer + len, body, strlen(body));
             len += strlen(body);
+            response_buffer[len] = '\0';
         }
     }
 

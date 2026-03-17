@@ -197,15 +197,29 @@ int main(int argc, char *argv[]) {
     LOG_INFO("Software health monitoring system initialized");
     LOG_INFO("=== BUILD VERIFICATION: v2.4.9 (remove health score display) ===");
 
-    // --- Register signal handlers ---
-    signal(SIGTERM, shutdown_signal_handler);
-    signal(SIGINT, shutdown_signal_handler);
+    // --- Register signal handlers using sigaction (POSIX-correct for multithreaded) ---
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = shutdown_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; // No SA_RESTART — allow select/sleep to be interrupted
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
     LOG_INFO("Registered SIGTERM/SIGINT handlers for graceful shutdown");
 
-    signal(SIGUSR1, phonebook_reload_signal_handler);
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = phonebook_reload_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGUSR1, &sa, NULL);
     LOG_INFO("Registered SIGUSR1 handler for webhook-triggered phonebook reload");
 
-    signal(SIGUSR2, phone_test_signal_handler);
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = phone_test_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGUSR2, &sa, NULL);
     LOG_INFO("Registered SIGUSR2 handler for phone test calls");
 
     LOG_INFO("Attempting to set process priority...");
@@ -297,6 +311,15 @@ int main(int argc, char *argv[]) {
     }
     LOG_DEBUG("Existing public XML file checked/deleted.");
 
+    // Block signals in worker threads - only main thread should handle signals
+    sigset_t block_mask, old_mask;
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGTERM);
+    sigaddset(&block_mask, SIGINT);
+    sigaddset(&block_mask, SIGUSR1);
+    sigaddset(&block_mask, SIGUSR2);
+    pthread_sigmask(SIG_BLOCK, &block_mask, &old_mask);
+
     LOG_INFO("Creating phonebook fetcher thread...");
     if (pthread_create(&fetcher_tid, NULL, phonebook_fetcher_thread, NULL) != 0) {
         LOG_ERROR("Failed to create phonebook fetcher thread.");
@@ -347,6 +370,9 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("Health reporter thread launched.");
     LOG_DEBUG("Health reporter thread TID: %lu", (unsigned long)health_reporter_tid);
+
+    // Restore signal mask for main thread (worker threads inherit blocked mask)
+    pthread_sigmask(SIG_SETMASK, &old_mask, NULL);
 
     LOG_INFO("Initializing call sessions table...");
     init_call_sessions();

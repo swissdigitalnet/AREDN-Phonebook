@@ -1,29 +1,8 @@
 #include "user_manager.h" // This include remains the same, as the header will be in the same new directory
 #include "../common.h" // This now includes necessary system headers and core types
+#include "../file_utils/file_utils.h" // For trim_whitespace
 
 #define MODULE_NAME "USER"
-
-static void trim_whitespace(char *str) {
-    if (!str || *str == '\0') {
-        return;
-    }
-
-    char *first_char = str;
-    while (isspace((unsigned char)*first_char)) {
-        first_char++;
-    }
-
-    char *end_char = first_char + strlen(first_char) - 1;
-    while (end_char > first_char && isspace((unsigned char)*end_char)) {
-        end_char--;
-    }
-
-    *(end_char + 1) = '\0';
-
-    if (str != first_char) {
-        memmove(str, first_char, strlen(first_char) + 1);
-    }
-}
 
 
 RegisteredUser* find_registered_user(const char *user_id) {

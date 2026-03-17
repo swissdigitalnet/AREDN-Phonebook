@@ -12,7 +12,7 @@
 
 // Define the desired compile-time log level here.
 // Set to DEBUG during UAC development phase for detailed logging
-#define LOG_COMPILE_LEVEL LOG_LEVEL_DEBUG
+#define LOG_COMPILE_LEVEL LOG_LEVEL_INFO
 
 void log_init(const char* app_name) {
     openlog(app_name, LOG_PID | LOG_CONS | LOG_NDELAY, LOG_DAEMON);

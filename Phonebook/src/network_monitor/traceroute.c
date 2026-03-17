@@ -313,7 +313,8 @@ int traceroute_to_phone(const char *phone_number, int max_hops,
             pclose(hostname_fp);
         } else {
             if (hostname_fp) pclose(hostname_fp);
-            strcpy(localhost_name, "localhost");
+            strncpy(localhost_name, "localhost", sizeof(localhost_name) - 1);
+            localhost_name[sizeof(localhost_name) - 1] = '\0';
         }
     }
 
@@ -337,7 +338,8 @@ int traceroute_to_phone(const char *phone_number, int max_hops,
     }
 
     results[0].hop_number = 0;
-    strcpy(results[0].ip_address, "127.0.0.1");
+    strncpy(results[0].ip_address, "127.0.0.1", INET_ADDRSTRLEN - 1);
+    results[0].ip_address[INET_ADDRSTRLEN - 1] = '\0';
     strncpy(results[0].hostname, localhost_name, 255);
     results[0].hostname[255] = '\0';
     results[0].rtt_ms = localhost_rtt;
@@ -358,8 +360,10 @@ int traceroute_to_phone(const char *phone_number, int max_hops,
         if (probe_result < 0) {
             // Timeout or error - record as timeout hop
             results[*hop_count].hop_number = ttl;
-            strcpy(results[*hop_count].ip_address, "*");
-            strcpy(results[*hop_count].hostname, "TIMEOUT");
+            strncpy(results[*hop_count].ip_address, "*", INET_ADDRSTRLEN - 1);
+            results[*hop_count].ip_address[INET_ADDRSTRLEN - 1] = '\0';
+            strncpy(results[*hop_count].hostname, "TIMEOUT", 255);
+            results[*hop_count].hostname[255] = '\0';
             results[*hop_count].rtt_ms = 0.0;
             results[*hop_count].timeout = true;
             (*hop_count)++;

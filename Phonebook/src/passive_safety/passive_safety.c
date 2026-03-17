@@ -244,9 +244,12 @@ void passive_thread_recovery_check(void) {
     time_t now = time(NULL);
 
     // Check phonebook fetcher thread health
-    if (g_fetcher_last_heartbeat > 0 && (now - g_fetcher_last_heartbeat) > 1800) { // 30 minutes
+    // Timeout must exceed PB_INTERVAL_SECONDS since fetcher sleeps the full interval
+    int fetcher_timeout = g_pb_interval_seconds + 600; // interval + 10 minute grace
+    time_t fetcher_hb = heartbeat_load(&g_fetcher_last_heartbeat);
+    if (fetcher_hb > 0 && (now - fetcher_hb) > fetcher_timeout) {
         LOG_WARN("Phonebook fetcher thread appears hung (no heartbeat for %ld seconds)",
-                 now - g_fetcher_last_heartbeat);
+                 now - fetcher_hb);
 
         // Request cooperative shutdown instead of pthread_cancel
         // The fetcher thread will check this flag and exit gracefully
@@ -257,14 +260,15 @@ void passive_thread_recovery_check(void) {
             // If restart was already requested but thread is still hung, it may be truly stuck
             // Log warning but avoid forcing cancellation (could leave mutexes locked)
             LOG_ERROR("Fetcher thread not responding to restart request for %ld seconds - may be deadlocked",
-                     now - g_fetcher_last_heartbeat);
+                     now - fetcher_hb);
         }
     }
 
     // Check status updater thread health
-    if (g_updater_last_heartbeat > 0 && (now - g_updater_last_heartbeat) > 1200) { // 20 minutes
+    time_t updater_hb = heartbeat_load(&g_updater_last_heartbeat);
+    if (updater_hb > 0 && (now - updater_hb) > 1200) { // 20 minutes
         LOG_WARN("Status updater thread appears hung (no heartbeat for %ld seconds)",
-                 now - g_updater_last_heartbeat);
+                 now - updater_hb);
 
         // Request cooperative shutdown instead of pthread_cancel
         if (!g_updater_restart_requested) {
@@ -272,7 +276,7 @@ void passive_thread_recovery_check(void) {
             LOG_INFO("Requested cooperative restart of status updater thread");
         } else {
             LOG_ERROR("Updater thread not responding to restart request for %ld seconds - may be deadlocked",
-                     now - g_updater_last_heartbeat);
+                     now - updater_hb);
         }
     }
 }

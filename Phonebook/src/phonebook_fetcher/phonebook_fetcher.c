@@ -132,7 +132,7 @@ void *phonebook_fetcher_thread(void *arg) {
         }
 
         // Passive Safety: Update heartbeat for thread recovery monitoring
-        g_fetcher_last_heartbeat = time(NULL);
+        heartbeat_store(&g_fetcher_last_heartbeat, time(NULL));
 
         // Health Monitoring: Update heartbeat
         if (thread_index >= 0) {
@@ -286,6 +286,12 @@ void *phonebook_fetcher_thread(void *arg) {
 
         int wait_status = pthread_cond_timedwait(&fetcher_wake_cond, &fetcher_wake_mutex, &ts);
         pthread_mutex_unlock(&fetcher_wake_mutex);
+
+        // Update heartbeat after waking (prevents passive safety from killing us)
+        heartbeat_store(&g_fetcher_last_heartbeat, time(NULL));
+        if (thread_index >= 0) {
+            health_update_heartbeat(thread_index);
+        }
 
         // Check all wake conditions
         if (!g_keep_running) {

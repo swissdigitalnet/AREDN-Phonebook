@@ -422,12 +422,10 @@ int csv_processor_convert_csv_to_xml_and_get_path(char *output_path, size_t outp
     int ln = 0;
     LOG_DEBUG("Starting CSV parsing loop. Current line number: %d.", ln);
     while (fgets(line, sizeof(line), csv)) {
-        // if (!keep_running) { // REMOVED
-        //     LOG_WARN("CSV conversion interrupted by shutdown signal.");
-        //     break;
-        // }
-        if (ln++ == 0) {
-            LOG_DEBUG("Skipping CSV header row (line %d): '%.*s'", ln, (int)strcspn(line, "\r\n"), line);
+        ln++;
+        // Detect header row: check for "First"/"FIRST" (same logic as csv_processor_validate_csv)
+        if (ln == 1 && (strstr(line, "First") != NULL || strstr(line, "FIRST") != NULL)) {
+            LOG_DEBUG("Detected CSV header row (line %d): '%.*s'", ln, (int)strcspn(line, "\r\n"), line);
             continue;
         }
 

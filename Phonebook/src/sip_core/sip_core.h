@@ -9,8 +9,6 @@ int extract_sip_header(const char *msg, const char *hdr, char *buf, size_t len);
 int parse_user_id_from_uri(const char *uri, char *buf, size_t len);
 int extract_uri_from_header(const char *header_value, char *buf, size_t len);
 int extract_tag_from_header(const char *header_value, char *buf, size_t len);
-int extract_port_from_uri(const char *uri);
-int extract_ip_from_uri(const char *uri, char *ip_buf, size_t len);
 void get_first_line(const char *msg, char *buf, size_t len);
 void get_sip_method(const char *msg, char *buf, size_t len);
 void reconstruct_invite_message(const char *original_msg, const char *new_request_line_uri, char *output_buffer, size_t output_buffer_size);

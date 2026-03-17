@@ -4,7 +4,7 @@
 #include "../common.h" // This includes necessary system headers and core types
 #include "../config_loader/config_loader.h" // For g_status_update_interval_seconds
 #include "../phonebook_fetcher/phonebook_fetcher.h"
-#include "../file_utils/file_utils.h"
+#include "../file_utils/file_utils.h" // For trim_whitespace
 #include "../passive_safety/passive_safety.h" // For heartbeat tracking
 #include "../software_health/software_health.h" // For health monitoring
 
@@ -28,29 +28,7 @@ static void strip_leading_asterisks(char *name) {
     }
 }
 
-// Re-define trim_whitespace here locally if not globally available,
-// to ensure it's used for cleaning XML lines.
-// It was made static in config_loader.c, so it's not globally available from common.h.
-// Best to make a local copy or explicitly declare in common.h and define elsewhere globally.
-// For now, let's make a local copy to ensure it compiles.
-static char* trim_line_whitespace(char *str) {
-    char *end;
-
-    // Trim leading space
-    while(isspace((unsigned char)*str)) str++;
-
-    if(*str == 0)  // All spaces?
-        return str;
-
-    // Trim trailing space
-    end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) end--;
-
-    // Write new null terminator character
-    end[1] = '\0';
-
-    return str;
-}
+// trim_whitespace is now provided by file_utils.h
 
 
 void *status_updater_thread(void *arg) {
@@ -68,7 +46,7 @@ void *status_updater_thread(void *arg) {
 
     while (g_keep_running) { // Check shutdown flag for graceful termination
         // Passive Safety: Update heartbeat for thread recovery monitoring
-        g_updater_last_heartbeat = time(NULL);
+        heartbeat_store(&g_updater_last_heartbeat, time(NULL));
 
         // Health Monitoring: Update heartbeat
         if (thread_index >= 0) {
@@ -132,7 +110,7 @@ void *status_updater_thread(void *arg) {
 
         while(fgets(line, sizeof(line), f_input_xml)) {
             // Trim leading/trailing whitespace from the line immediately
-            char *trimmed_line = trim_line_whitespace(line);
+            char *trimmed_line = trim_whitespace(line);
             trimmed_line[strcspn(trimmed_line, "\r\n")] = '\0'; // Remove remaining newline
 
             if (strstr(trimmed_line, "<DirectoryEntry>")) {
