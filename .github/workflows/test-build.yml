@@ -1,4 +1,4 @@
-name: Test Build Simple
+name: Build AREDN-Phonebook IPK
 
 on:
   push:
@@ -6,13 +6,21 @@ on:
       - 'test-*.*.*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  test-build:
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         target:
           - arch: ath79
+            subtarget: generic
+          - arch: x86
+            subtarget: 64
+          - arch: ipq40xx
             subtarget: generic
 
     steps:
@@ -27,86 +35,78 @@ jobs:
       - name: Set up SDK URL
         id: sdk
         run: |
-          echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/ath79/generic/openwrt-sdk-23.05.4-ath79-generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+          if [[ "${{ matrix.target.arch }}" == "ath79" ]]; then
+            echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/ath79/generic/openwrt-sdk-23.05.4-ath79-generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+          elif [[ "${{ matrix.target.arch }}" == "ipq40xx" ]]; then
+            echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/ipq40xx/generic/openwrt-sdk-23.05.4-ipq40xx-generic_gcc-12.3.0_musl_eabi.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+          else
+            echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+          fi
 
       - name: Download and extract SDK
         run: |
-          wget "${{ steps.sdk.outputs.sdk_url }}" -O sdk.tar.xz
-          echo "Downloaded SDK, checking file:"
-          ls -la sdk.tar.xz
-          tar -tf sdk.tar.xz | head -10
+          wget --progress=bar:force "${{ steps.sdk.outputs.sdk_url }}" -O sdk.tar.xz
           tar -xf sdk.tar.xz
-          ls -la
           mv openwrt-sdk-* sdk
-          echo "SDK extracted, checking structure:"
-          ls -la sdk/
 
-      - name: Show SDK structure
+      - name: Extract version from tag
+        id: version
         run: |
-          echo "SDK structure:"
-          ls -la sdk/
-          echo "Package directory:"
-          ls -la sdk/package/ | head -10
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          VERSION="${VERSION#test-}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
 
-      - name: Create minimal package
+      - name: Inject package and build
         run: |
-          mkdir -p sdk/package/test-sip
+          rm -rf sdk/package/AREDN-Phonebook
+          mkdir -p sdk/package/AREDN-Phonebook
+          cp -r Phonebook/* sdk/package/AREDN-Phonebook/
 
-          # Create minimal Makefile
-          cat > sdk/package/test-sip/Makefile << 'EOF'
-          include $(TOPDIR)/rules.mk
-
-          PKG_NAME:=test-sip
-          PKG_VERSION:=1.0.0
-          PKG_RELEASE:=1
-
-          PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
-
-          include $(INCLUDE_DIR)/package.mk
-
-          define Package/test-sip
-          	SECTION:=net
-          	CATEGORY:=Network
-          	TITLE:=Test SIP Package
-          	DEPENDS:=+libpthread
-          endef
-
-          define Build/Prepare
-          	mkdir -p $(PKG_BUILD_DIR)
-          	echo '#include <stdio.h>' > $(PKG_BUILD_DIR)/main.c
-          	echo 'int main() { printf("Hello from SIP\\n"); return 0; }' >> $(PKG_BUILD_DIR)/main.c
-          endef
-
-          define Build/Compile
-          	$(TARGET_CC) $(TARGET_CFLAGS) -o $(PKG_BUILD_DIR)/test-sip $(PKG_BUILD_DIR)/main.c -lpthread
-          endef
-
-          define Package/test-sip/install
-          	$(INSTALL_DIR) $(1)/usr/bin
-          	$(INSTALL_BIN) $(PKG_BUILD_DIR)/test-sip $(1)/usr/bin/
-          endef
-
-          $(eval $(call BuildPackage,test-sip))
-          EOF
-
-          echo "Created minimal package Makefile"
-
-      - name: Test build
-        run: |
           cd sdk
-          echo "Running defconfig..."
-          make defconfig 2>&1 || echo "defconfig failed"
+          make defconfig
+          PKG_VERSION_OVERRIDE="${{ steps.version.outputs.version }}" make package/AREDN-Phonebook/compile V=s -j$(nproc)
 
-          echo "Checking if package is recognized..."
-          make package/test-sip/info V=s || echo "Package info failed"
-
-          echo "Building test package with full verbosity..."
-          make package/test-sip/compile V=99 -j1 2>&1 || {
-            echo "Build failed! Checking logs..."
-            find . -name "*.log" -exec echo "=== {} ===" \; -exec cat {} \;
-            find build_dir -name "*error*" -o -name "*fail*" 2>/dev/null || echo "No error files found"
+          IPK_FILE=$(find bin -name "*AREDN-Phonebook*.ipk" -type f | head -n 1)
+          if [ -z "$IPK_FILE" ]; then
+            echo "Build failed - no IPK file created"
             exit 1
-          }
+          fi
+          echo "Build succeeded: $IPK_FILE"
+          ls -lh "$IPK_FILE"
 
-          echo "Build completed! Searching for IPK..."
-          find bin -name "*.ipk" -ls || echo "No IPK files found"
+      - name: Prepare artifact
+        id: find_ipk
+        run: |
+          IPK_FILE=$(find sdk/bin -name "*AREDN-Phonebook*.ipk" -type f | head -n 1)
+          ARCH_IPK="AREDN-Phonebook-${{ matrix.target.arch }}-${{ steps.version.outputs.version }}.ipk"
+          cp "$IPK_FILE" "$ARCH_IPK"
+          echo "ipk_path=$ARCH_IPK" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AREDN-Phonebook-${{ matrix.target.arch }}
+          path: ${{ steps.find_ipk.outputs.ipk_path }}
+          retention-days: 90
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Uploading IPKs to release ${{ github.ref_name }}..."
+          find artifacts -name "*.ipk" -type f | while read ipk; do
+            echo "Uploading: $ipk"
+            gh release upload "${{ github.ref_name }}" "$ipk" --repo "${{ github.repository }}" --clobber
+          done
