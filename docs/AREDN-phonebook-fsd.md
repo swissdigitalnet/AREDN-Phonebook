@@ -1223,7 +1223,7 @@ The BFS topology crawler and network monitoring system retrieves data from multi
 - Link quality (LQ) and neighbor link quality (NLQ) - values 0.0 to 1.0
 - ETX (Expected Transmission Count) cost metric
 - Link type: RF (radio frequency), DTD (device-to-device), or Tunnel
-- OLSR interface name
+- Interface name
 - Link status (SYMMETRIC, ASYMMETRIC)
 
 **Example Response**:
@@ -1233,7 +1233,7 @@ The BFS topology crawler and network monitoring system retrieves data from multi
     "10.198.102.253": {
       "hostname": "HB9BLA-HAP-2",
       "linkType": "DTD",
-      "olsrInterface": "br-dtdlink",
+      "interface": "br-dtdlink",
       "linkQuality": 1.000,
       "neighborLinkQuality": 1.000,
       "linkCost": 0.099,
@@ -1242,7 +1242,7 @@ The BFS topology crawler and network monitoring system retrieves data from multi
     "10.124.142.47": {
       "hostname": "HB9GNO-SXT-1",
       "linkType": "RF",
-      "olsrInterface": "wlan0",
+      "interface": "wlan0",
       "linkQuality": 0.935,
       "neighborLinkQuality": 0.941,
       "linkCost": 1.142,
@@ -1320,31 +1320,36 @@ The BFS topology crawler and network monitoring system retrieves data from multi
 - Includes quality metrics (ping success rate)
 - More efficient than separate ping per neighbor
 
-**4. OLSR Nameservice Hosts (Not Used Directly)**
+**4. Babel Host Files (Phone Discovery)**
 
-**HTTP Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json?hosts=1` (exists but not used)
-
-**Local File**: `/var/run/hosts_olsr` (actual data source)
+**Local Directory**: `/var/run/arednlink/hosts/`
 
 **Data Provided**:
-- All hostnames advertised via OLSR nameservice protocol
+- All hostnames advertised via Babel routing protocol
 - IP addresses for each hostname
 - Includes routers, servers, and **phones** (SIP softphones)
-- **Advertiser IP in comments** (critical for phone-to-router association)
+- Files are named by mesh IP address, grouping all hosts per router
 
-**File Format** (`/var/run/hosts_olsr`):
+**Directory Structure** (`/var/run/arednlink/hosts/`):
 ```
-10.197.143.20   441530  # myself
-10.197.143.22   441531  # myself
-10.51.55.235    441532  # 10.198.102.253
-10.46.65.137    196330  # 10.34.228.24
-10.199.215.245  196630  # 10.56.250.254
+/var/run/arednlink/hosts/
+├── 10.198.102.253    # Hosts file for router with mesh IP 10.198.102.253
+├── 10.34.228.24      # Hosts file for another router
+└── ...
+```
+
+**File Format** (each file contains hosts entries):
+```
+10.197.143.20   441530
+10.197.143.22   441531
+10.198.102.253  HB9BLA-HAP-2
 ```
 
 **Phone Discovery Implementation**:
-- Read `/var/run/hosts_olsr` file locally (not via HTTP)
-- Parse lines with format: `<phone_ip> <phone_name> # <advertiser_ip>`
-- Match advertiser IP to router's mesh IP using `gethostbyname2()`
+- Open `/var/run/arednlink/hosts/` directory
+- For each file, check if the filename matches the router's mesh IP
+- Parse lines with format: `<ip> <hostname>`
+- Identify phones by numeric hostnames (all digits, 4+ chars)
 - **Only add phones when router is reachable** (prevents orphaned phones)
 - Position phones 100m from router at deterministic angles
 
@@ -1355,17 +1360,16 @@ The BFS topology crawler and network monitoring system retrieves data from multi
 - Phones inherit geographic coordinates from their parent router
 
 **Usage**:
-1. **Router becomes reachable** → Parse hosts_olsr for phones advertised by that router
-2. Match phones by comparing advertiser IP to router's mesh IP
-3. Add phone nodes with connection to advertising router
+1. **Router becomes reachable** → Read Babel host file matching router's mesh IP
+2. Identify phone entries by numeric hostname pattern
+3. Add phone nodes with connection to parent router
 4. **Router unreachable** → Skip phone discovery to avoid orphans
 
-**Why Not HTTP Endpoint?**
+**Why Local Files?**
 - Local file access is faster (no HTTP overhead)
-- Advertiser IP comments preserved in file format
-- Single source of truth for all OLSR advertisements
+- Babel groups hosts by router IP (file per router), making phone-to-router association straightforward
 
-**Implementation Example** (`topology_db.c:789-918`):
+**Implementation Example** (`topology_db.c`):
 ```c
 static int fetch_phones_for_router(const char *router_hostname,
                                     const char *router_lat,
@@ -1375,28 +1379,25 @@ static int fetch_phones_for_router(const char *router_hostname,
     if (!he) return 0;
 
     char router_mesh_ip[32];
-    strcpy(router_mesh_ip, inet_ntoa(*addr_list[0]));
+    snprintf(router_mesh_ip, sizeof(router_mesh_ip), "%s", inet_ntoa(*addr_list[0]));
 
-    // Step 2: Parse /var/run/hosts_olsr
-    FILE *hosts_fp = fopen("/var/run/hosts_olsr", "r");
+    // Step 2: Open /var/run/arednlink/hosts/ directory
+    DIR *hosts_dir = opendir("/var/run/arednlink/hosts");
 
-    while (fgets(line, sizeof(line), hosts_fp)) {
-        // Format: "10.51.55.235  441532  # 10.198.102.253"
-        char phone_ip[32], phone_name[64], advertiser[64];
-        sscanf(line, "%31s %63s # %63[^\n]", phone_ip, phone_name, advertiser);
+    struct dirent *entry;
+    while ((entry = readdir(hosts_dir)) != NULL) {
+        // Step 3: Match file named with router's mesh IP
+        if (strcmp(entry->d_name, router_mesh_ip) != 0) continue;
 
-        // Step 3: Check if hostname is numeric (phone)
-        bool is_phone = is_numeric_hostname(phone_name);
-        if (!is_phone) continue;
+        // Step 4: Parse host file for numeric hostnames (phones)
+        // Format: "10.197.143.20   441530"
+        char device_ip[32], device_name[256];
+        sscanf(line, "%31s %255s", device_ip, device_name);
 
-        // Step 4: Match advertiser IP to router mesh IP
-        char advertiser_ip[32];
-        sscanf(advertiser, "%31s", advertiser_ip);
-
-        if (strcmp(advertiser_ip, router_mesh_ip) == 0) {
+        if (is_numeric_hostname(device_name)) {
             // Step 5: Add phone with position near router
-            topology_db_add_node(phone_name, "phone", phone_lat, phone_lon, "ONLINE");
-            topology_db_add_connection(router_hostname, phone_name, 0.1);
+            topology_db_add_node(device_name, "phone", phone_lat, phone_lon, "ONLINE");
+            topology_db_add_connection(router_hostname, device_name, 0.1);
             phone_count++;
         }
     }
@@ -1405,14 +1406,14 @@ static int fetch_phones_for_router(const char *router_hostname,
 }
 ```
 
-**Note**: This is the **ONLY** way to discover phones on the network. Phones are advertised via OLSR nameservice by their parent router, and the advertiser IP in the comment field is critical for correct association.
+**Note**: This is the **ONLY** way to discover phones on the network. Phones are advertised by their parent router via Babel, and the host file grouping by router mesh IP is used for correct association.
 
-**5. OLSR Services**
+**5. Mesh Services**
 
 **Endpoint**: `http://{hostname}.local.mesh/cgi-bin/sysinfo.json?services=1`
 
 **Data Provided**:
-- Service advertisements from OLSR
+- Service advertisements from the mesh network
 - Service types (http, ftp, ssh, etc.)
 - Service URLs
 - Associated hostnames
@@ -1436,15 +1437,12 @@ These endpoints are provided by the AREDN-Phonebook system itself, not by standa
 | **Discovering a new router** | `/cgi-bin/sysinfo.json` | hostname, lat, lon, model | Add router to topology |
 | **Finding router's neighbors** | `/cgi-bin/sysinfo.json?link_info=1` | neighbor hostnames, LQ/NLQ | BFS traversal, link quality |
 | **Measuring RTT (latency)** | `/cgi-bin/sysinfo.json?lqm=1` | ping_success_time, quality % | Connection weight, link health |
-| **Finding phones per router** | `/var/run/hosts_olsr` (local file) | numeric hostnames, advertiser IPs | Phone-to-router association |
+| **Finding phones per router** | `/var/run/arednlink/hosts/` (local directory) | numeric hostnames, router mesh IP | Phone-to-router association |
 
 **Endpoints NOT Used:**
 
-OLSR JSONinfo Plugin (Port 9090) endpoints are available but redundant:
-- `http://localhost:9090/routes`, `/neighbors`, `/links`, `/topology`
 - All required data is available via `sysinfo.json` endpoints
-- LQM data (`?lqm=1`) supersedes OLSR metrics for link quality
-- Source: Upstream OLSRd jsoninfo plugin, not AREDN directly
+- LQM data (`?lqm=1`) provides link quality metrics directly
 
 #### 4.12.3 ICMP Traceroute
 
@@ -1625,7 +1623,7 @@ if (hostname[0] == 'h' && hostname[1] == 'b') {
   - Starts from localhost router
   - Discovers nodes recursively via LQM neighbor links
   - Filters international nodes (HB prefix boundary)
-  - Fetches phones for each **reachable** router from `/var/run/hosts_olsr` by matching advertiser IP
+  - Fetches phones for each **reachable** router from `/var/run/arednlink/hosts/` by matching router mesh IP
 
 - `topology_db_strip_hostname_prefix(hostname, buffer, size)`: Removes interface prefixes
   - Strips mid1., mid2., dtdlink., etc. from hostnames
@@ -2332,7 +2330,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
 
 #### 4.12.14 Mesh Network Crawler
 
-**Purpose**: Discovers all mesh nodes by fetching the OLSR hosts list and crawling each node to gather topology information.
+**Purpose**: Discovers all mesh nodes by fetching the hosts list and crawling each node to gather topology information.
 
 **Implementation:** `topology_db.c` (`mesh_crawler_thread()`)
 
@@ -2379,7 +2377,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    - `Starting BFS crawl with %d nodes in queue...`
    - `BOUNDARY: Skipping international node %s` (for filtered nodes)
    - `BFS mesh crawl complete: processed %d nodes, discovered %d nodes with details, %d total in queue`
-   - `Added %d phones from OLSR services to topology`
+   - `Added %d phones from Babel hosts to topology`
 
    **Location & Statistics:**
    - `Fetching location data for %d nodes...`
@@ -2474,9 +2472,10 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
       └─ Strip prefixes (mid1., dtdlink., etc.) from neighbor hostnames
       └─ Add connections to topology database
    f. **Fetch phones for reachable router**:
-      └─ Parse /var/run/hosts_olsr (local file)
+      └─ Open /var/run/arednlink/hosts/ directory
       └─ Resolve router hostname to mesh IP using gethostbyname2()
-      └─ Match phones where advertiser IP == router mesh IP
+      └─ Read host file matching router's mesh IP
+      └─ Identify phone entries by numeric hostname pattern
       └─ Add phone nodes and connections to topology
    g. Filter and queue neighbors for recursive discovery:
       └─ For each neighbor: check should_crawl_node()

@@ -907,7 +907,7 @@ static int fetch_lqm_links_from_host(const char *hostname, char *neighbors_buf, 
 }
 
 /**
- * Helper: Fetch phones for a specific router from OLSR or Babel services
+ * Helper: Fetch phones for a specific router from Babel host files
  * Positions phones 100m from their router at deterministic angles
  */
 static int fetch_phones_for_router(const char *router_hostname, const char *router_lat, const char *router_lon) {
@@ -927,7 +927,7 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
     char router_mesh_ip[32];
     snprintf(router_mesh_ip, sizeof(router_mesh_ip), "%s", inet_ntoa(*addr_list[0]));
 
-    // Try Babel firmware first (/var/run/arednlink/hosts/)
+    // Read Babel host files (/var/run/arednlink/hosts/)
     DIR *hosts_dir = opendir("/var/run/arednlink/hosts");
     if (hosts_dir) {
         struct dirent *entry;
@@ -1012,87 +1012,10 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
         if (phone_count > 0) {
             LOG_INFO("Added %d phones for router %s from Babel hosts", phone_count, router_hostname);
         }
-        return phone_count;
+    } else {
+        LOG_DEBUG("Could not open /var/run/arednlink/hosts directory");
     }
 
-    // Fall back to OLSR firmware (/var/run/hosts_olsr)
-    FILE *hosts_fp = fopen("/var/run/hosts_olsr", "r");
-    if (!hosts_fp) {
-        return 0;
-    }
-
-    char line[4096];
-
-    while (fgets(line, sizeof(line), hosts_fp)) {
-        // Skip comments and empty lines
-        if (line[0] == '#' || line[0] == '\n') continue;
-
-        // Format: "IP\tHOSTNAME\t# ADVERTISER_IP" or "IP\tHOSTNAME\t# myself"
-        char phone_ip[32], phone_name[64], advertiser[64];
-        int parsed = sscanf(line, "%31s %63s # %63[^\n]", phone_ip, phone_name, advertiser);
-
-        if (parsed != 3) continue;
-
-        // Check if this is a phone (numeric hostname)
-        bool is_numeric = true;
-        bool has_digits = false;
-        for (char *p = phone_name; *p; p++) {
-            if (isdigit(*p)) {
-                has_digits = true;
-            } else if (*p != '-') {
-                is_numeric = false;
-                break;
-            }
-        }
-
-        if (!is_numeric || !has_digits || strlen(phone_name) < 4) {
-            continue;  // Not a phone
-        }
-
-        // Check if this phone is advertised by the current router
-        bool advertised_by_router = false;
-        if (strcmp(advertiser, "myself") == 0) {
-            // localhost advertises this, check if router is localhost
-            advertised_by_router = (strcmp(router_hostname, "hb9bla-vm-1") == 0);
-        } else {
-            // Extract IP from advertiser (may have extra text like "(mid #1)")
-            char advertiser_ip[32];
-            sscanf(advertiser, "%31s", advertiser_ip);
-            advertised_by_router = (strcmp(advertiser_ip, router_mesh_ip) == 0);
-        }
-
-        if (advertised_by_router) {
-            char phone_lat_str[32] = "";
-            char phone_lon_str[32] = "";
-
-            if (strlen(router_lat) > 0 && strlen(router_lon) > 0) {
-                int angle = get_phone_angle(phone_name);
-                double r_lat = atof(router_lat);
-                double r_lon = atof(router_lon);
-                double phone_lat, phone_lon;
-
-                offset_coordinates(r_lat, r_lon, 100.0, angle, &phone_lat, &phone_lon);
-
-                snprintf(phone_lat_str, sizeof(phone_lat_str), "%.7f", phone_lat);
-                snprintf(phone_lon_str, sizeof(phone_lon_str), "%.7f", phone_lon);
-            }
-
-            int add_result = topology_db_add_node(phone_name, "phone",
-                                                  strlen(phone_lat_str) > 0 ? phone_lat_str : NULL,
-                                                  strlen(phone_lon_str) > 0 ? phone_lon_str : NULL,
-                                                  "ONLINE");
-            if (add_result == 0) {
-                topology_db_add_connection(router_hostname, phone_name, 0.1);
-                phone_count++;
-            }
-        }
-    }
-
-    fclose(hosts_fp);
-
-    if (phone_count > 0) {
-        LOG_INFO("Added %d phones for router %s from OLSR hosts", phone_count, router_hostname);
-    }
     return phone_count;
 }
 
@@ -1207,7 +1130,7 @@ static void reset_no_coord_counter(void) {
  * Central function to add a router node with all its data:
  * - Router node with coordinates
  * - LQM neighbor connections
- * - Phones from OLSR services
+ * - Phones from Babel host files
  *
  * This function treats all routers the same way (including localhost)
  */

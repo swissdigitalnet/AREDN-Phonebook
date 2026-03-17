@@ -184,7 +184,7 @@ void topology_db_crawl_mesh_network(void);
 /**
  * Fetch phones for all routers in topology
  *
- * Iterates through all router nodes and fetches their phones from OLSR services.
+ * Iterates through all router nodes and fetches their phones from Babel host files.
  * Useful for catching routers that were added via traceroute but not crawled.
  *
  * @return Number of phones added
