@@ -802,6 +802,9 @@ cat <<EOF
             highlightedPath.forEach(line => topologyMap.removeLayer(line));
             highlightedPath = [];
 
+            // Close any open popups
+            topologyMap.closePopup();
+
             // Restore all connection lines
             showAllConnections();
         }
@@ -991,6 +994,11 @@ cat <<EOF
             // Add zoom event listener to show/hide RTT labels
             topologyMap.on('zoomend', updateRttLabelsVisibility);
 
+            // Click on map background to clear traceroute and restore all nodes
+            topologyMap.on('click', function() {
+                closeTraceroutePanel();
+            });
+
             console.log('Topology map initialized');
         }
 
@@ -1126,8 +1134,8 @@ cat <<EOF
                     zIndexOffset: zIndexOffset
                 }).addTo(topologyMap);
 
-                // Add simple popup with just the name
-                marker.bindPopup('<strong>' + cleanName + '</strong>');
+                // Show name on hover instead of click (click is used for traceroute)
+                marker.bindTooltip('<strong>' + cleanName + '</strong>');
 
                 // For nodes at default coordinates (lon = 5.950), add permanent label on the right
                 if (node.lon === "5.950000") {
