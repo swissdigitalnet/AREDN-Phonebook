@@ -3,7 +3,7 @@ name: Build AREDN-Phonebook IPK
 on:
   push:
     tags:
-      - 'test-*.*.*'
+      - '*.*.*'
   workflow_dispatch:
 
 permissions:
