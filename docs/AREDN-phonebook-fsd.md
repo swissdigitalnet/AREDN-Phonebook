@@ -8,10 +8,13 @@ The AREDN Phonebook SIP Server is a specialized SIP proxy server designed for Am
 
 The system follows a modular C architecture with multi-threaded design:
 
-- **Main Thread**: SIP message processing via UDP socket on port 5060
-- **Phonebook Fetcher Thread**: Periodic CSV downloads and XML conversion
+- **Main Thread**: SIP message processing via UDP socket on port 5060, signal handling
+- **Phonebook Fetcher Thread**: Periodic CSV downloads and XML conversion (condvar-based wake)
 - **Status Updater Thread**: User status management and phonebook updates
+- **Bulk Tester Thread**: Phone monitoring, traceroute, topology crawling
+- **Passive Safety Thread**: Self-healing health checks and thread recovery
 - **Modular Components**: Separated functionality for maintainability
+- **Routing Protocol**: Babel only (OLSR support removed in v2.5.0)
 
 ## 2. SIP Server
 
@@ -229,9 +232,10 @@ The system maintains separate counters for operational purposes:
 - Runs continuously with configurable intervals (`g_pb_interval_seconds`)
 - Downloads CSV, converts to XML, publishes results
 - Handles hash-based change detection
-- **Webhook Reload**: Supports `phonebook_reload_requested` flag to interrupt sleep and fetch immediately
-- Sleep loop checks flag every second to enable on-demand phonebook updates
-- **Passive Safety**: Updates `g_fetcher_last_heartbeat` timestamp each cycle for thread health monitoring
+- **Condvar-Based Wake**: Uses `pthread_cond_timedwait()` instead of `sleep()` polling. The fetcher sleeps on a condition variable with a timeout equal to the fetch interval. When a webhook reload is requested (SIGUSR1), the main thread signals the condvar, waking the fetcher instantly.
+- **Webhook Reload**: SIGUSR1 sets `phonebook_reload_requested` flag and signals the fetcher condvar for immediate wake
+- **Socket Timeouts**: CSV download sockets use `SO_RCVTIMEO`/`SO_SNDTIMEO` (10s) to prevent indefinite blocking
+- **Passive Safety**: Updates `g_fetcher_last_heartbeat` via atomic store each cycle for thread health monitoring
 
 #### 3.3.2 Download Process
 
@@ -798,15 +802,27 @@ else {
 
 **Heartbeat Update Pattern**:
 ```c
-// Updated every cycle by monitored thread
-g_fetcher_last_heartbeat = time(NULL);
+// Updated every cycle by monitored thread (atomic for thread safety)
+heartbeat_store(&g_fetcher_last_heartbeat, time(NULL));
 
 // Checked every 5 minutes by passive safety thread
 time_t now = time(NULL);
-if (now - g_fetcher_last_heartbeat > 1800) {
+if (now - heartbeat_load(&g_fetcher_last_heartbeat) > (g_pb_interval_seconds + 600)) {
     // Timeout detected - request restart
 }
 ```
+
+**Atomic Helpers** (`passive_safety.h`):
+```c
+static inline void heartbeat_store(time_t *hb, time_t val) {
+    __atomic_store_n(hb, val, __ATOMIC_RELAXED);
+}
+static inline time_t heartbeat_load(const time_t *hb) {
+    return __atomic_load_n(hb, __ATOMIC_RELAXED);
+}
+```
+
+**Note**: MIPS 32-bit requires `-latomic` for 8-byte atomic operations on `time_t` (which is `long long` on musl/MIPS).
 
 #### 3.7.4 Other Passive Safety Features
 
@@ -2036,8 +2052,8 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    - System performs live ICMP traceroute to selected target
    - System draws purple path showing discovered route
    - System displays traceroute panel with hop-by-hop details
-   - User clicks close button on panel
-   - System restores all connection lines to map
+   - User clicks close button on panel or clicks map background
+   - System closes any open popups and restores all connection lines to map
 
    **Traceroute Shell Script**: `/www/cgi-bin/traceroute_json`
    - Uses `traceroute -I` (ICMP) for path discovery
@@ -2060,7 +2076,9 @@ LOG_INFO("Topology mapping complete: %d nodes, %d connections",
    ━━━ Purple - Traceroute path (shown when node clicked)
 
    Interaction: Click any node to isolate its route (hides all other connections)
-                and show live traceroute results below. Close panel to restore all routes.
+                and show live traceroute results in the panel.
+                Click map background or panel X button to restore all routes.
+                Hover over any node to see its name (tooltip).
    ```
 
 7. **Map Controls**
@@ -2454,7 +2472,7 @@ Enhanced with topology map section in `/www/cgi-bin/arednmon`:
    └─ visited[1000]: Nodes already crawled
 
 2. Start from localhost router
-   └─ Get localhost hostname from /proc/sys/kernel/hostname
+   └─ Get localhost hostname via gethostname() (fallback: fopen /proc/sys/kernel/hostname)
    └─ Add localhost to crawl_queue
 
 3. BFS crawl loop (while queue not empty and visited < 1000):
@@ -2591,7 +2609,8 @@ TOPOLOGY_CRAWLER: === Mesh crawl complete ===
    - Updates in both topology database and JavaScript
 
 3. **Map Visualization Improvements**:
-   - **Popup Width**: Explicit `maxWidth: 300px` for Leaflet popups
+   - **Hover Tooltips**: Node names shown on hover (tooltip) instead of click popups, since click is used for traceroute
+   - **Map Background Click**: Clicking the map background closes the traceroute panel and restores all connections
    - **Zoom Preservation**: Map zoom level maintained during topology refresh
    - **Margin-Based Padding**: Fixed layout issues with proper CSS margin instead of padding
    - **Connection Labels**: RTT values displayed at connection midpoints with quality-based coloring
@@ -2903,7 +2922,7 @@ CRASH_BACKTRACE_DEPTH=5
 
 ### 6.1 Configuration Loader
 
-**Purpose**: Loads runtime configuration from `/etc/sipserver.conf`.
+**Purpose**: Loads runtime configuration from `/etc/phonebook.conf`.
 
 **Configuration Parameters**:
 - `PB_INTERVAL_SECONDS`: Phonebook fetch interval (default: 3600)
@@ -2919,7 +2938,7 @@ CRASH_BACKTRACE_DEPTH=5
 
 ### 6.2 File Paths
 
-- **Config File**: `/etc/sipserver.conf`
+- **Config File**: `/etc/phonebook.conf`
 - **CSV Storage**: `PB_CSV_PATH` (persistent flash)
 - **XML Publication**: `PB_XML_PUBLIC_PATH` (web accessible)
 - **Hash Storage**: `PB_LAST_GOOD_CSV_HASH_PATH`
@@ -2933,10 +2952,34 @@ CRASH_BACKTRACE_DEPTH=5
 
 ### 6.4 Threading
 
-- **Main Thread**: SIP message processing
-- **Fetcher Thread**: Phonebook management
+- **Main Thread**: SIP message processing and signal handling
+- **Fetcher Thread**: Phonebook management (condvar-based wake)
 - **Updater Thread**: Status synchronization
+- **Bulk Tester Thread**: Phone monitoring and topology crawling
+- **Passive Safety Thread**: Health checks and thread recovery
 - **Synchronization**: Mutexes and condition variables
+- **Signal Masking**: Worker threads block SIGTERM/SIGINT/SIGUSR1 via `pthread_sigmask()` before creation; only the main thread handles signals
+
+### 6.5 Signal Handling
+
+All signal handlers are **async-signal-safe** — they only set `volatile sig_atomic_t` flags, with no logging or library calls:
+
+```c
+void shutdown_signal_handler(int sig) {
+    (void)sig;
+    g_keep_running = 0;
+}
+void phonebook_reload_signal_handler(int sig) {
+    (void)sig;
+    phonebook_reload_requested = 1;
+}
+```
+
+**Signals**:
+- **SIGTERM/SIGINT**: Set `g_keep_running = 0` for graceful shutdown
+- **SIGUSR1**: Set `phonebook_reload_requested = 1` for webhook-triggered phonebook reload; main loop signals the fetcher condvar
+
+**Registration**: Uses `sigaction()` with `sa_flags = 0` (no `SA_RESTART`) so that blocked `recvfrom()` in the main loop returns `EINTR`, allowing the main thread to check flags and signal condvars.
 
 ## 7. Network Communication
 
@@ -2980,10 +3023,11 @@ This chapter describes system utilities used across multiple components.
 **Purpose**: Provides file system operations and utilities.
 
 **Key Functions**:
-- `file_utils_ensure_directory_exists()`: Creates directory paths
+- `file_utils_ensure_directory_exists()`: Creates directory paths recursively. Always treats the provided path as a directory to create (callers use `dirname()` if they need parent-directory creation only).
 - `file_utils_publish_file_to_destination()`: Copies files atomically
+- `trim_whitespace()`: Shared in-place whitespace trimmer (uses `memmove` for overlapping buffers). Consolidated from duplicates in config_loader, status_updater, and user_manager.
+- `json_write_escaped()`: Writes a string to a `FILE*` with JSON escaping for `"`, `\`, `\n`, `\r`, `\t`, and control characters (`\u00xx`). Used by topology_db and call_sessions for all externally-sourced strings.
 - File existence checking and validation
-- Cross-platform file operations
 
 ### 8.2 Log Manager
 
@@ -3000,7 +3044,7 @@ This chapter describes system utilities used across multiple components.
 **Features**:
 - Module-specific logging (MODULE_NAME macro)
 - Thread-safe logging operations
-- Configurable log levels
+- Configurable log levels (compile-time `LOG_COMPILE_LEVEL` set to `LOG_LEVEL_INFO`)
 - Timestamp and process/thread identification
 
 ### 8.3 Security
@@ -3019,6 +3063,7 @@ This chapter describes system utilities used across multiple components.
 - **Buffer Protection**: Fixed-size buffers with bounds checking
 - **SIP Parsing**: Robust parsing with malformed message handling
 - **XML Escaping**: Prevents XML injection in generated output
+- **JSON Escaping**: All externally-sourced strings in topology and call session JSON output use `json_write_escaped()` to prevent injection/corruption
 
 #### 8.3.3 Resource Protection
 
@@ -3026,6 +3071,50 @@ This chapter describes system utilities used across multiple components.
 - **File Access**: Controlled file system access patterns
 - **Thread Safety**: Mutex protection for shared data structures
 - **Memory Management**: Static allocation with bounds checking
+
+---
+
+## 9. Version History
+
+### v2.5.0 (2026-03-17)
+
+**Babel only, Release > 4.26.1.0**
+
+**Breaking Changes**:
+- OLSR fallback code removed — requires AREDN firmware 4.26.1.0+ (Babel-only routing)
+
+**Signal Safety & Threading**:
+- Signal handlers made async-signal-safe (flag-only, no LOG/syslog calls)
+- Removed dead `phone_test_requested` / SIGUSR2 handler
+- Worker threads block signals via `pthread_sigmask()` — only main thread handles signals
+- `sigaction()` replaces `signal()` with `sa_flags = 0` (no SA_RESTART) for clean EINTR handling
+- Phonebook fetcher uses `pthread_cond_timedwait()` instead of `sleep()` polling for instant SIGUSR1 wake
+- Heartbeat timestamps accessed via atomic helpers (`heartbeat_store`/`heartbeat_load`) for thread safety
+- `-latomic` added for MIPS 32-bit 8-byte atomic operations
+
+**Security & Robustness**:
+- Added `json_write_escaped()` for all externally-sourced strings in JSON output (topology, active calls)
+- Replaced `popen("cat /proc/sys/kernel/hostname")` with `gethostname()` + direct `fopen()` fallback
+- Replaced `strcpy` with `strncpy` + null-terminate in traceroute and HTTP client
+- Fixed `file_utils_ensure_directory_exists()` broken file-vs-directory heuristic
+- Socket timeouts (SO_RCVTIMEO/SO_SNDTIMEO) added to CSV download sockets
+- Removed dead code (`extract_port_from_uri`, `extract_ip_from_uri`)
+
+**Code Quality**:
+- Consolidated duplicate `trim_whitespace()` into `file_utils.c/h`
+- `LOG_COMPILE_LEVEL` changed from DEBUG to INFO
+- Per-phone test logging demoted from LOG_INFO to LOG_DEBUG
+- `-Wstack-usage=4096` compiler warning added
+- Passive safety timeout now dynamic: `g_pb_interval_seconds + 600` instead of hardcoded 1800s
+
+**Map UX**:
+- Node names shown on hover (tooltip) instead of click popups
+- Clicking map background clears traceroute and restores all connections
+
+**CI/CD**:
+- Multi-arch build restored (ath79, x86_64, ipq40xx) with automatic release upload
+- GitHub Actions bumped to Node.js 24 compatible versions (checkout@v5, upload/download-artifact@v5)
+- CI triggers on any `*.*.*` tag (not just `test-*`)
 
 ---
 
