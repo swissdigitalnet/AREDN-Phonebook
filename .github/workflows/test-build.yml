@@ -80,12 +80,18 @@ jobs:
         id: find_ipk
         run: |
           IPK_FILE=$(find sdk/bin -name "*AREDN-Phonebook*.ipk" -type f | head -n 1)
-          ARCH_IPK="AREDN-Phonebook-${{ matrix.target.arch }}-${{ steps.version.outputs.version }}.ipk"
+          # Map matrix arch to OpenWrt architecture name
+          case "${{ matrix.target.arch }}" in
+            ath79)    ARCH_NAME="mips_24kc" ;;
+            ipq40xx)  ARCH_NAME="arm_cortex-a7_neon-vfpv4" ;;
+            x86)      ARCH_NAME="x86_64" ;;
+          esac
+          ARCH_IPK="AREDN-Phonebook_${{ steps.version.outputs.version }}-1_${ARCH_NAME}.ipk"
           cp "$IPK_FILE" "$ARCH_IPK"
           echo "ipk_path=$ARCH_IPK" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: AREDN-Phonebook-${{ matrix.target.arch }}
           path: ${{ steps.find_ipk.outputs.ipk_path }}
@@ -97,7 +103,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
