@@ -9,13 +9,11 @@
 #include <sys/stat.h>
 
 // Thread health tracking
-time_t g_fetcher_last_heartbeat = 0;
 time_t g_updater_last_heartbeat = 0;
 time_t g_bulk_tester_last_heartbeat = 0;
 pthread_t g_passive_safety_tid = 0;
 
-// Cooperative shutdown flags for graceful thread restart
-volatile sig_atomic_t g_fetcher_restart_requested = 0;
+// Cooperative shutdown flag for graceful thread restart
 volatile sig_atomic_t g_updater_restart_requested = 0;
 
 // ============================================================================
@@ -243,26 +241,9 @@ int safe_phonebook_file_operation(const char *source_path, const char *dest_path
 void passive_thread_recovery_check(void) {
     time_t now = time(NULL);
 
-    // Check phonebook fetcher thread health
-    // Timeout must exceed PB_INTERVAL_SECONDS since fetcher sleeps the full interval
-    int fetcher_timeout = g_pb_interval_seconds + 600; // interval + 10 minute grace
-    time_t fetcher_hb = heartbeat_load(&g_fetcher_last_heartbeat);
-    if (fetcher_hb > 0 && (now - fetcher_hb) > fetcher_timeout) {
-        LOG_WARN("Phonebook fetcher thread appears hung (no heartbeat for %ld seconds)",
-                 now - fetcher_hb);
-
-        // Request cooperative shutdown instead of pthread_cancel
-        // The fetcher thread will check this flag and exit gracefully
-        if (!g_fetcher_restart_requested) {
-            g_fetcher_restart_requested = 1;
-            LOG_INFO("Requested cooperative restart of phonebook fetcher thread");
-        } else {
-            // If restart was already requested but thread is still hung, it may be truly stuck
-            // Log warning but avoid forcing cancellation (could leave mutexes locked)
-            LOG_ERROR("Fetcher thread not responding to restart request for %ld seconds - may be deadlocked",
-                     now - fetcher_hb);
-        }
-    }
+    // Note: The phonebook fetcher is NOT monitored here. It sleeps for
+    // g_pb_interval_seconds (typically 3600s) by design, which would
+    // always trip any reasonable hang-detection timeout.
 
     // Check status updater thread health
     time_t updater_hb = heartbeat_load(&g_updater_last_heartbeat);

@@ -20,7 +20,7 @@ void passive_thread_recovery_check(void);
 void *passive_safety_thread(void *arg);
 
 // Thread health tracking (minimal) - use atomics for thread-safe access
-extern time_t g_fetcher_last_heartbeat;
+// Note: fetcher is not monitored — it sleeps for g_pb_interval_seconds by design
 extern time_t g_updater_last_heartbeat;
 extern time_t g_bulk_tester_last_heartbeat;
 
@@ -33,8 +33,7 @@ static inline time_t heartbeat_load(const time_t *hb) {
 }
 extern pthread_t g_passive_safety_tid;
 
-// Cooperative shutdown flags for graceful thread restart
-extern volatile sig_atomic_t g_fetcher_restart_requested;
+// Cooperative shutdown flag for graceful thread restart
 extern volatile sig_atomic_t g_updater_restart_requested;
 
 #endif // PASSIVE_SAFETY_H

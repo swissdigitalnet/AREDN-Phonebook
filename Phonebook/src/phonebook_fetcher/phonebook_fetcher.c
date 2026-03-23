@@ -71,12 +71,9 @@ void *phonebook_fetcher_thread(void *arg) {
     (void)arg;
     LOG_INFO("Phonebook fetcher started. Checking for existing phonebook data.");
 
-    // Register this thread for health monitoring
-    int thread_index = health_register_thread(pthread_self(), "phonebook_fetcher");
-    if (thread_index < 0) {
-        LOG_WARN("Failed to register phonebook fetcher thread for health monitoring");
-        // Continue anyway - health monitoring is not critical for operation
-    }
+    // Note: fetcher is NOT registered for health monitoring because it sleeps
+    // for g_pb_interval_seconds (typically 3600s) by design, which would
+    // generate false "unresponsive" warnings from the 1800s threshold.
 
     // Emergency boot sequence: Load existing phonebook immediately if available
     if (access(PB_CSV_PATH, F_OK) == 0) {
@@ -123,22 +120,6 @@ void *phonebook_fetcher_thread(void *arg) {
 
     LOG_INFO("Entering main phonebook fetch loop.");
     while (g_keep_running) { // Check shutdown flag for graceful termination
-        // Check for cooperative restart request from passive safety monitor
-        extern volatile sig_atomic_t g_fetcher_restart_requested;
-        if (g_fetcher_restart_requested) {
-            LOG_INFO("Cooperative restart requested - exiting gracefully to allow restart");
-            g_fetcher_restart_requested = 0; // Reset flag for next instance
-            break;
-        }
-
-        // Passive Safety: Update heartbeat for thread recovery monitoring
-        heartbeat_store(&g_fetcher_last_heartbeat, time(NULL));
-
-        // Health Monitoring: Update heartbeat
-        if (thread_index >= 0) {
-            health_update_heartbeat(thread_index);
-        }
-
         LOG_DEBUG("Starting new fetcher cycle.");
         char new_csv_hash[HASH_LENGTH + 1]; // HASH_LENGTH from common.h
         char last_good_csv_hash[HASH_LENGTH + 1];
@@ -287,23 +268,9 @@ void *phonebook_fetcher_thread(void *arg) {
         int wait_status = pthread_cond_timedwait(&fetcher_wake_cond, &fetcher_wake_mutex, &ts);
         pthread_mutex_unlock(&fetcher_wake_mutex);
 
-        // Update heartbeat after waking (prevents passive safety from killing us)
-        heartbeat_store(&g_fetcher_last_heartbeat, time(NULL));
-        if (thread_index >= 0) {
-            health_update_heartbeat(thread_index);
-        }
-
         // Check all wake conditions
         if (!g_keep_running) {
             break;
-        }
-
-        extern volatile sig_atomic_t g_fetcher_restart_requested;
-        if (g_fetcher_restart_requested) {
-            LOG_INFO("Cooperative restart requested during sleep - exiting gracefully");
-            g_fetcher_restart_requested = 0;
-            LOG_INFO("Phonebook fetcher thread exiting for restart.");
-            return NULL;
         }
 
         if (phonebook_reload_requested) {
