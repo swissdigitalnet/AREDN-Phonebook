@@ -113,12 +113,19 @@ jobs:
         with:
           path: artifacts
 
-      - name: Upload to release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Uploading APKs to release ${{ github.ref_name }}..."
+          TAG="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+          # Pushing a tag does not create a GitHub release; create it if missing.
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Creating release $TAG..."
+            gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes
+          fi
+          echo "Uploading APKs to release $TAG..."
           find artifacts -name "*.apk" -type f | while read apk; do
             echo "Uploading: $apk"
-            gh release upload "${{ github.ref_name }}" "$apk" --repo "${{ github.repository }}" --clobber
+            gh release upload "$TAG" "$apk" --repo "$REPO" --clobber
           done
