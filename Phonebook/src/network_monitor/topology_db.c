@@ -928,7 +928,22 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
     char router_mesh_ip[32];
     snprintf(router_mesh_ip, sizeof(router_mesh_ip), "%s", inet_ntoa(*addr_list[0]));
 
-    // Read Babel host files (/var/run/arednlink/hosts/)
+    // Read arednlink host files (/var/run/arednlink/hosts/).
+    //
+    // AREDN 4.x (post-OLSR arednlink) changed this layout: instead of one file
+    // per router named by its mesh IP, host data is now sharded across index
+    // files (0, 1, 2, ...), each containing multiple per-advertiser blocks:
+    //
+    //     ##<router_mesh_ip>##
+    //     <router_mesh_ip>\t<ROUTER-NAME>
+    //     <ip>\t<alias>
+    //     <ip>\t<phone_number>          <- phones = numeric hostnames
+    //     <blank line>
+    //     ##<next_router_mesh_ip>##
+    //     ...
+    //
+    // So we can no longer key off the filename; we track the current block's
+    // ##<ip>## header and only harvest phones while inside our router's block.
     DIR *hosts_dir = opendir("/var/run/arednlink/hosts");
     if (hosts_dir) {
         struct dirent *entry;
@@ -944,10 +959,25 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
             FILE *host_fp = fopen(host_file_path, "r");
             if (!host_fp) continue;
 
+            bool in_router_block = false;  // currently inside our router's ##ip## block?
             char line[1024];
             while (fgets(line, sizeof(line), host_fp)) {
-                // Skip comments and empty lines
-                if (line[0] == '#' || line[0] == '\n') continue;
+                // Block header line: "##<advertiser_mesh_ip>##"
+                if (line[0] == '#' && line[1] == '#') {
+                    char block_ip[64];
+                    if (sscanf(line, "##%63[^#]##", block_ip) == 1) {
+                        in_router_block = (strcmp(block_ip, router_mesh_ip) == 0);
+                    } else {
+                        in_router_block = false;
+                    }
+                    continue;
+                }
+
+                // Skip blank lines but stay within the current block
+                if (line[0] == '\n' || line[0] == '\0') continue;
+
+                // Only harvest phones from our router's block
+                if (!in_router_block) continue;
 
                 // Format: "IP\tHOSTNAME" (simple hosts format)
                 char device_ip[32], device_name[256];
@@ -963,7 +993,7 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
                 bool is_numeric = true;
                 bool has_digits = false;
                 for (char *p = clean_device_name; *p; p++) {
-                    if (isdigit(*p)) {
+                    if (isdigit((unsigned char)*p)) {
                         has_digits = true;
                     } else if (*p != '-') {
                         is_numeric = false;
@@ -975,34 +1005,28 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
                     continue;  // Not a phone
                 }
 
-                // In Babel, phones are in the same host file as their router
-                // Check if this file corresponds to the router's mesh IP
-                bool phone_on_router = (strcmp(entry->d_name, router_mesh_ip) == 0);
+                char phone_lat_str[32] = "";
+                char phone_lon_str[32] = "";
 
-                if (phone_on_router) {
-                    char phone_lat_str[32] = "";
-                    char phone_lon_str[32] = "";
+                if (strlen(router_lat) > 0 && strlen(router_lon) > 0) {
+                    int angle = get_phone_angle(clean_device_name);
+                    double r_lat = atof(router_lat);
+                    double r_lon = atof(router_lon);
+                    double phone_lat, phone_lon;
 
-                    if (strlen(router_lat) > 0 && strlen(router_lon) > 0) {
-                        int angle = get_phone_angle(clean_device_name);
-                        double r_lat = atof(router_lat);
-                        double r_lon = atof(router_lon);
-                        double phone_lat, phone_lon;
+                    offset_coordinates(r_lat, r_lon, 100.0, angle, &phone_lat, &phone_lon);
 
-                        offset_coordinates(r_lat, r_lon, 100.0, angle, &phone_lat, &phone_lon);
+                    snprintf(phone_lat_str, sizeof(phone_lat_str), "%.7f", phone_lat);
+                    snprintf(phone_lon_str, sizeof(phone_lon_str), "%.7f", phone_lon);
+                }
 
-                        snprintf(phone_lat_str, sizeof(phone_lat_str), "%.7f", phone_lat);
-                        snprintf(phone_lon_str, sizeof(phone_lon_str), "%.7f", phone_lon);
-                    }
-
-                    int add_result = topology_db_add_node(clean_device_name, "phone",
-                                                          strlen(phone_lat_str) > 0 ? phone_lat_str : NULL,
-                                                          strlen(phone_lon_str) > 0 ? phone_lon_str : NULL,
-                                                          "ONLINE");
-                    if (add_result == 0) {
-                        topology_db_add_connection(router_hostname, clean_device_name, 0.1);
-                        phone_count++;
-                    }
+                int add_result = topology_db_add_node(clean_device_name, "phone",
+                                                      strlen(phone_lat_str) > 0 ? phone_lat_str : NULL,
+                                                      strlen(phone_lon_str) > 0 ? phone_lon_str : NULL,
+                                                      "ONLINE");
+                if (add_result == 0) {
+                    topology_db_add_connection(router_hostname, clean_device_name, 0.1);
+                    phone_count++;
                 }
             }
 
@@ -1011,7 +1035,7 @@ static int fetch_phones_for_router(const char *router_hostname, const char *rout
         closedir(hosts_dir);
 
         if (phone_count > 0) {
-            LOG_INFO("Added %d phones for router %s from Babel hosts", phone_count, router_hostname);
+            LOG_INFO("Added %d phones for router %s from arednlink hosts", phone_count, router_hostname);
         }
     } else {
         LOG_DEBUG("Could not open /var/run/arednlink/hosts directory");
