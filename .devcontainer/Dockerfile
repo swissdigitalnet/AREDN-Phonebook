@@ -20,23 +20,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rsync \
     wget \
     unzip \
+    zstd \
     python3 \
     python3-pip \
     file \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up OpenWrt SDK environment variables
-ENV OPENWRT_SDK_VERSION=23.05.4
-ENV OPENWRT_SDK_URL=https://downloads.openwrt.org/releases/23.05.4/targets/ath79/generic/openwrt-sdk-23.05.4-ath79-generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+# Set up OpenWrt SDK environment variables.
+# OpenWrt 25.12.x is the base for AREDN 4.x (4.26.7.0+); packages are now .apk
+# (apk package manager) and SDK tarballs are zstd-compressed (.tar.zst).
+ENV OPENWRT_SDK_VERSION=25.12.4
+ENV OPENWRT_SDK_URL=https://downloads.openwrt.org/releases/25.12.4/targets/ath79/generic/openwrt-sdk-25.12.4-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 
 # Download and extract OpenWrt SDK
 RUN mkdir -p /opt/openwrt \
     && cd /opt/openwrt \
-    && wget -q "$OPENWRT_SDK_URL" -O sdk.tar.xz \
-    && tar -xf sdk.tar.xz \
+    && wget -q "$OPENWRT_SDK_URL" -O sdk.tar.zst \
+    && tar --zstd -xf sdk.tar.zst \
     && mv openwrt-sdk-* sdk \
-    && rm sdk.tar.xz \
+    && rm sdk.tar.zst \
     && chown -R dev:dev /opt/openwrt
 
 # SSH quiet config

@@ -26,8 +26,17 @@ AREDN Phonebook provides SIP directory services and network monitoring for Amate
 
 Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
 
+> ⚠️ **AREDN 4.x (4.26.7.0+) required.** AREDN 4.x is based on OpenWrt 25.12,
+> which replaced the old `opkg`/`.ipk` package system with **apk** (`.apk`
+> packages). Use the `.apk` files below. Older `.ipk` builds (for AREDN 3.x /
+> OpenWrt 23.05) are **not** installable on AREDN 4.x and are removed on upgrade.
+>
+> 📻 **Still on AREDN 3.x (OLSR)?** Use the legacy `.ipk` from release
+> [**2.5.1**](https://github.com/swissdigitalnet/AREDN-Phonebook/releases/tag/2.5.1)
+> — the last `.ipk` build. New releases ship `.apk` only.
+
 1. Go to the [📥 Releases page](https://github.com/swissdigitalnet/AREDN-Phonebook/releases)
-2. Download the latest `AREDN-Phonebook-x.x.x-x_[architecture].ipk` file for your device:
+2. Download the latest `AREDN-Phonebook-x.x.x-x_[architecture].apk` file for your device:
    - 🏠 **ath79**: Most common AREDN routers (e.g., Ubiquiti, MikroTik)
    - 💻 **x86**: PC-based AREDN nodes
    - 🔧 **ipq40xx**: Some newer routers
@@ -41,7 +50,7 @@ Full AREDN Setup Guide: [AREDN Setup Documentation (PDF)](https://github.com/swi
    ![Package Management Screen](images/package-management.png)
 
 3. 📤 **Upload Package**:
-   - Click **Choose File** and select your downloaded `.ipk` file
+   - Click **Choose File** and select your downloaded `.apk` file
 
      ![Upload Package Dialog](images/upload-package.png)
 

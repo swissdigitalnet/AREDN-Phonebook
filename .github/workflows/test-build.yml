@@ -1,4 +1,4 @@
-name: Build AREDN-Phonebook IPK
+name: Build AREDN-Phonebook APK
 
 on:
   push:
@@ -33,23 +33,25 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3
+          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip zstd python3
 
       - name: Set up SDK URL
         id: sdk
+        # OpenWrt 25.12.x is the base for AREDN 4.x; toolchain gcc 14.3.0,
+        # SDK tarballs are zstd-compressed (.tar.zst), packages are .apk.
         run: |
           if [[ "${{ matrix.target.arch }}" == "ath79" ]]; then
-            echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/ath79/generic/openwrt-sdk-23.05.4-ath79-generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+            echo "sdk_url=https://downloads.openwrt.org/releases/25.12.4/targets/ath79/generic/openwrt-sdk-25.12.4-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst" >> $GITHUB_OUTPUT
           elif [[ "${{ matrix.target.arch }}" == "ipq40xx" ]]; then
-            echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/ipq40xx/generic/openwrt-sdk-23.05.4-ipq40xx-generic_gcc-12.3.0_musl_eabi.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+            echo "sdk_url=https://downloads.openwrt.org/releases/25.12.4/targets/ipq40xx/generic/openwrt-sdk-25.12.4-ipq40xx-generic_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst" >> $GITHUB_OUTPUT
           else
-            echo "sdk_url=https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz" >> $GITHUB_OUTPUT
+            echo "sdk_url=https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst" >> $GITHUB_OUTPUT
           fi
 
       - name: Download and extract SDK
         run: |
-          wget --progress=bar:force "${{ steps.sdk.outputs.sdk_url }}" -O sdk.tar.xz
-          tar -xf sdk.tar.xz
+          wget --progress=bar:force "${{ steps.sdk.outputs.sdk_url }}" -O sdk.tar.zst
+          tar --zstd -xf sdk.tar.zst
           mv openwrt-sdk-* sdk
 
       - name: Extract version from tag
@@ -71,34 +73,34 @@ jobs:
           make defconfig
           PKG_VERSION_OVERRIDE="${{ steps.version.outputs.version }}" make package/AREDN-Phonebook/compile V=s -j$(nproc)
 
-          IPK_FILE=$(find bin -name "*AREDN-Phonebook*.ipk" -type f | head -n 1)
-          if [ -z "$IPK_FILE" ]; then
-            echo "Build failed - no IPK file created"
+          APK_FILE=$(find bin -name "*AREDN-Phonebook*.apk" -type f | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "Build failed - no APK file created"
             exit 1
           fi
-          echo "Build succeeded: $IPK_FILE"
-          ls -lh "$IPK_FILE"
+          echo "Build succeeded: $APK_FILE"
+          ls -lh "$APK_FILE"
 
       - name: Prepare artifact
-        id: find_ipk
+        id: find_apk
         run: |
-          IPK_FILE=$(find sdk/bin -name "*AREDN-Phonebook*.ipk" -type f | head -n 1)
+          APK_FILE=$(find sdk/bin -name "*AREDN-Phonebook*.apk" -type f | head -n 1)
           # Map matrix arch to OpenWrt architecture name
           case "${{ matrix.target.arch }}" in
             ath79)    ARCH_NAME="mips_24kc" ;;
             ipq40xx)  ARCH_NAME="arm_cortex-a7_neon-vfpv4" ;;
             x86)      ARCH_NAME="x86_64" ;;
           esac
-          ARCH_IPK="AREDN-Phonebook_${{ steps.version.outputs.version }}-1_${ARCH_NAME}.ipk"
-          cp "$IPK_FILE" "$ARCH_IPK"
-          echo "ipk_path=$ARCH_IPK" >> $GITHUB_OUTPUT
+          ARCH_APK="AREDN-Phonebook_${{ steps.version.outputs.version }}-1_${ARCH_NAME}.apk"
+          cp "$APK_FILE" "$ARCH_APK"
+          echo "apk_path=$ARCH_APK" >> $GITHUB_OUTPUT
           echo "arch_name=$ARCH_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: AREDN-Phonebook-${{ steps.find_ipk.outputs.arch_name }}
-          path: ${{ steps.find_ipk.outputs.ipk_path }}
+          name: AREDN-Phonebook-${{ steps.find_apk.outputs.arch_name }}
+          path: ${{ steps.find_apk.outputs.apk_path }}
           retention-days: 90
 
   release:
@@ -115,8 +117,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Uploading IPKs to release ${{ github.ref_name }}..."
-          find artifacts -name "*.ipk" -type f | while read ipk; do
-            echo "Uploading: $ipk"
-            gh release upload "${{ github.ref_name }}" "$ipk" --repo "${{ github.repository }}" --clobber
+          echo "Uploading APKs to release ${{ github.ref_name }}..."
+          find artifacts -name "*.apk" -type f | while read apk; do
+            echo "Uploading: $apk"
+            gh release upload "${{ github.ref_name }}" "$apk" --repo "${{ github.repository }}" --clobber
           done

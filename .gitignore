@@ -68,7 +68,9 @@ Configuration Files/
 # OpenWrt SDK and build system (local builds only)
 openwrt-sdk*/
 openwrt-imagebuilder*/
+*-sdk/
 *.tar.xz
+*.tar.zst
 sdk/
 imagebuilder/
 
@@ -86,6 +88,7 @@ dl/
 
 # Local build outputs
 *.ipk
+*.apk
 packages/
 .codex/
 .config/

@@ -1,6 +1,10 @@
 #!/bin/bash
-# Build AREDN-Phonebook IPKs for all supported architectures
+# Build AREDN-Phonebook APKs for all supported architectures
 # Supports: ath79, ipq40xx, x86-64
+#
+# Targets OpenWrt 25.12.x, which is the base for AREDN 4.x (4.26.7.0+).
+# OpenWrt 25.12 replaced opkg/.ipk with the apk package manager (.apk),
+# so side-loaded .ipk packages from the 23.05 era are no longer installable.
 
 set -e
 
@@ -15,15 +19,18 @@ cd "$SCRIPT_DIR"
 
 # Default settings
 VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "2.4.0")
-OPENWRT_VERSION="23.05.3"
+# OpenWrt 25.12.x is the base for AREDN 4.x. Toolchain is gcc 14.3.0 and SDK
+# tarballs are zstd-compressed (.tar.zst) rather than xz (.tar.xz).
+OPENWRT_VERSION="25.12.4"
+GCC_VERSION="14.3.0"
 OUTPUT_DIR="$SCRIPT_DIR/build-output"
 ARCHITECTURES=()
 
 # SDK URLs
 declare -A SDK_URLS=(
-    ["ath79"]="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/ath79/generic/openwrt-sdk-${OPENWRT_VERSION}-ath79-generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
-    ["ipq40xx"]="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/ipq40xx/generic/openwrt-sdk-${OPENWRT_VERSION}-ipq40xx-generic_gcc-12.3.0_musl_eabi.Linux-x86_64.tar.xz"
-    ["x86"]="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-sdk-${OPENWRT_VERSION}-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+    ["ath79"]="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/ath79/generic/openwrt-sdk-${OPENWRT_VERSION}-ath79-generic_gcc-${GCC_VERSION}_musl.Linux-x86_64.tar.zst"
+    ["ipq40xx"]="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/ipq40xx/generic/openwrt-sdk-${OPENWRT_VERSION}-ipq40xx-generic_gcc-${GCC_VERSION}_musl_eabi.Linux-x86_64.tar.zst"
+    ["x86"]="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-sdk-${OPENWRT_VERSION}-x86-64_gcc-${GCC_VERSION}_musl.Linux-x86_64.tar.zst"
 )
 
 # SDK directory names
@@ -43,7 +50,7 @@ declare -A ARCH_NAMES=(
 usage() {
     echo "Usage: $0 [OPTIONS] [ARCHITECTURES...]"
     echo ""
-    echo "Build AREDN-Phonebook IPKs for specified architectures"
+    echo "Build AREDN-Phonebook APKs (OpenWrt 25.12 / AREDN 4.x) for specified architectures"
     echo ""
     echo "Options:"
     echo "  -h, --help              Show this help message"
@@ -81,21 +88,46 @@ download_sdk() {
     local sdk_url="${SDK_URLS[$arch]}"
     local sdk_dir="${SDK_DIRS[$arch]}"
 
+    # Reuse an existing SDK only if it matches the target OpenWrt version.
+    # A leftover 23.05 SDK (opkg/.ipk) must not be reused for a 25.12 (.apk) build.
     if [ -d "$sdk_dir" ]; then
-        log_info "SDK for $arch already exists in $sdk_dir"
-        return 0
+        if grep -q "$OPENWRT_VERSION" "$sdk_dir/include/version.mk" 2>/dev/null; then
+            log_info "SDK for $arch already exists in $sdk_dir ($OPENWRT_VERSION)"
+            return 0
+        fi
+        log_warn "SDK in $sdk_dir is not OpenWrt $OPENWRT_VERSION. Removing stale SDK."
+        rm -rf "$sdk_dir"
     fi
 
     log_info "Downloading SDK for $arch..."
-    local sdk_tarball="${arch}-sdk.tar.xz"
+    local sdk_tarball="${arch}-sdk.tar.zst"
 
     if [ ! -f "$sdk_tarball" ]; then
-        wget -q --show-progress "$sdk_url" -O "$sdk_tarball"
+        wget -q --show-progress "$sdk_url" -O "$sdk_tarball" || {
+            log_error "Download failed for $arch from $sdk_url"
+            rm -f "$sdk_tarball"
+            return 1
+        }
+    fi
+
+    if ! command -v zstd >/dev/null 2>&1; then
+        log_error "zstd is required to extract OpenWrt 25.12 SDKs (.tar.zst). Install it: sudo apt-get install -y zstd"
+        return 1
     fi
 
     log_info "Extracting SDK for $arch..."
-    tar -xf "$sdk_tarball"
+    if ! tar --zstd -xf "$sdk_tarball"; then
+        log_error "Failed to extract $sdk_tarball"
+        return 1
+    fi
     mv openwrt-sdk-* "$sdk_dir"
+
+    # Sanity check: a real SDK must have rules.mk at its root.
+    if [ ! -f "$sdk_dir/rules.mk" ]; then
+        log_error "Extraction did not yield a valid SDK (no $sdk_dir/rules.mk)."
+        rm -rf "$sdk_dir"
+        return 1
+    fi
 
     log_info "SDK for $arch ready"
 }
@@ -126,23 +158,23 @@ build_package() {
     log_info "Compiling for $arch (version: $VERSION)..."
     PKG_VERSION_OVERRIDE="$VERSION" make package/AREDN-Phonebook/compile V=s -j$(nproc) > build.log 2>&1
 
-    # Find the built IPK
-    local ipk_file=$(find bin -name "*AREDN-Phonebook*.ipk" -type f | head -n 1)
+    # Find the built APK (OpenWrt 25.12 emits .apk instead of .ipk)
+    local pkg_file=$(find bin -name "*AREDN-Phonebook*.apk" -type f | head -n 1)
 
-    if [ -z "$ipk_file" ]; then
+    if [ -z "$pkg_file" ]; then
         log_error "Build failed for $arch! Check $sdk_dir/build.log"
         cd "$SCRIPT_DIR"
         return 1
     fi
 
-    log_info "Build succeeded for $arch: $ipk_file"
+    log_info "Build succeeded for $arch: $pkg_file"
 
     # Copy to output directory
     mkdir -p "$OUTPUT_DIR"
-    local output_name="AREDN-Phonebook-${arch}-${VERSION}.ipk"
-    cp "$ipk_file" "$OUTPUT_DIR/$output_name"
+    local output_name="AREDN-Phonebook-${arch}-${VERSION}.apk"
+    cp "$pkg_file" "$OUTPUT_DIR/$output_name"
 
-    log_info "IPK copied to: $OUTPUT_DIR/$output_name"
+    log_info "APK copied to: $OUTPUT_DIR/$output_name"
 
     cd "$SCRIPT_DIR"
     return 0
@@ -256,13 +288,13 @@ log_info "=========================================="
 if [ ${#FAILED_BUILDS[@]} -eq 0 ]; then
     log_info "All builds completed successfully!"
     log_info ""
-    log_info "IPK files created in: $OUTPUT_DIR"
-    ls -lh "$OUTPUT_DIR"/*.ipk 2>/dev/null || true
+    log_info "APK files created in: $OUTPUT_DIR"
+    ls -lh "$OUTPUT_DIR"/*.apk 2>/dev/null || true
     exit 0
 else
     log_error "Some builds failed: ${FAILED_BUILDS[*]}"
     log_info ""
     log_info "Successful builds in: $OUTPUT_DIR"
-    ls -lh "$OUTPUT_DIR"/*.ipk 2>/dev/null || true
+    ls -lh "$OUTPUT_DIR"/*.apk 2>/dev/null || true
     exit 1
 fi
