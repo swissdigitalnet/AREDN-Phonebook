@@ -102,7 +102,9 @@ The SIP Server provides all SIP protocol message processing, call session manage
 - `create_call_session()`: Allocates new call session slot
 - `find_call_session_by_callid()`: Locates active sessions
 - `terminate_call_session()`: Cleans up session data
-- `init_call_sessions()`: Initializes session table
+- `init_call_sessions()`: Initializes session table and re-exports an empty
+  `/tmp/active_calls.json` at startup, so a service restart clears any phantom
+  calls left in the tmpfs file by the previous process instance
 
 #### 2.2.2 State Tracking
 
@@ -1375,54 +1377,80 @@ The BFS topology crawler and network monitoring system retrieves data from multi
 - Phones do NOT have their own sysinfo.json endpoints
 - Phones inherit geographic coordinates from their parent router
 
+**Host file format (AREDN 4.x arednlink)**:
+
+AREDN 4.x (which removed OLSR) stores mesh host data in `/var/run/arednlink/hosts/`
+as **sharded index files** (`0`, `1`, `2`, …), each containing multiple
+per-advertiser blocks delimited by a `##<router_mesh_ip>##` header:
+
+```
+##10.184.177.226##
+10.184.177.226   HB9BLA-VM-1
+10.197.143.17    lan.HB9BLA-VM-1.local.mesh
+10.197.143.20    441530            <- phone (numeric hostname)
+10.197.143.22    441531            <- phone
+
+##10.192.152.155##
+10.192.152.155   HB9TVP-Belpberg-HAP-ac3
+10.9.137.187     312430            <- phone on a different router
+```
+
+> ⚠️ **Format change vs. AREDN 3.x.** Older releases stored one file per
+> router, *named* by the router's mesh IP. AREDN 4.x shards many routers into
+> numeric index files, so phone discovery must key off the `##<ip>##` block
+> header, **not** the filename. (Matching by filename yields zero phones on 4.x.)
+
 **Usage**:
-1. **Router becomes reachable** → Read Babel host file matching router's mesh IP
-2. Identify phone entries by numeric hostname pattern
-3. Add phone nodes with connection to parent router
-4. **Router unreachable** → Skip phone discovery to avoid orphans
+1. Resolve the router's hostname to its mesh IP (`gethostbyname2`).
+2. Scan every shard file, tracking the current `##<ip>##` block header.
+3. While inside the block whose IP equals the router's mesh IP, treat numeric
+   hostnames (digits + optional `-`, length ≥ 4) as phones.
+4. Add each phone as a node positioned ~100 m from the router at a
+   deterministic angle, connected to the parent router.
 
 **Why Local Files?**
 - Local file access is faster (no HTTP overhead)
-- Babel groups hosts by router IP (file per router), making phone-to-router association straightforward
+- Each block already pairs a router with its phones, giving correct
+  phone-to-router association without extra lookups
 
-**Implementation Example** (`topology_db.c`):
+**Implementation Example** (`topology_db.c`, `fetch_phones_for_router()`):
 ```c
-static int fetch_phones_for_router(const char *router_hostname,
-                                    const char *router_lat,
-                                    const char *router_lon) {
-    // Step 1: Resolve router hostname to mesh IP
-    struct hostent *he = gethostbyname2(router_hostname, AF_INET);
-    if (!he) return 0;
+// Resolve router hostname -> mesh IP (matches the ##ip## block header)
+char router_mesh_ip[32]; /* from gethostbyname2(router_hostname) */
 
-    char router_mesh_ip[32];
-    snprintf(router_mesh_ip, sizeof(router_mesh_ip), "%s", inet_ntoa(*addr_list[0]));
+DIR *hosts_dir = opendir("/var/run/arednlink/hosts");
+struct dirent *entry;
+while ((entry = readdir(hosts_dir)) != NULL) {
+    if (entry->d_name[0] == '.') continue;
+    FILE *fp = fopen(host_file_path, "r");     // shard file 0, 1, 2, ...
 
-    // Step 2: Open /var/run/arednlink/hosts/ directory
-    DIR *hosts_dir = opendir("/var/run/arednlink/hosts");
+    bool in_router_block = false;
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#' && line[1] == '#') {         // "##<ip>##" header
+            char block_ip[64];
+            in_router_block = (sscanf(line, "##%63[^#]##", block_ip) == 1 &&
+                               strcmp(block_ip, router_mesh_ip) == 0);
+            continue;
+        }
+        if (!in_router_block) continue;                 // not our router's block
 
-    struct dirent *entry;
-    while ((entry = readdir(hosts_dir)) != NULL) {
-        // Step 3: Match file named with router's mesh IP
-        if (strcmp(entry->d_name, router_mesh_ip) != 0) continue;
-
-        // Step 4: Parse host file for numeric hostnames (phones)
-        // Format: "10.197.143.20   441530"
         char device_ip[32], device_name[256];
-        sscanf(line, "%31s %255s", device_ip, device_name);
+        if (sscanf(line, "%31s %255s", device_ip, device_name) != 2) continue;
 
-        if (is_numeric_hostname(device_name)) {
-            // Step 5: Add phone with position near router
+        if (is_numeric_hostname(device_name)) {         // phones are numeric
             topology_db_add_node(device_name, "phone", phone_lat, phone_lon, "ONLINE");
             topology_db_add_connection(router_hostname, device_name, 0.1);
             phone_count++;
         }
     }
-
-    return phone_count;
+    fclose(fp);
 }
 ```
 
-**Note**: This is the **ONLY** way to discover phones on the network. Phones are advertised by their parent router via Babel, and the host file grouping by router mesh IP is used for correct association.
+**Note**: This is the **ONLY** way to discover phones on the network. Phones are
+advertised by their parent router in arednlink, and the `##<router_mesh_ip>##`
+block grouping is used for correct association.
 
 **5. Mesh Services**
 
@@ -1453,7 +1481,7 @@ These endpoints are provided by the AREDN-Phonebook system itself, not by standa
 | **Discovering a new router** | `/cgi-bin/sysinfo.json` | hostname, lat, lon, model | Add router to topology |
 | **Finding router's neighbors** | `/cgi-bin/sysinfo.json?link_info=1` | neighbor hostnames, LQ/NLQ | BFS traversal, link quality |
 | **Measuring RTT (latency)** | `/cgi-bin/sysinfo.json?lqm=1` | ping_success_time, quality % | Connection weight, link health |
-| **Finding phones per router** | `/var/run/arednlink/hosts/` (local directory) | numeric hostnames, router mesh IP | Phone-to-router association |
+| **Finding phones per router** | `/var/run/arednlink/hosts/` (sharded files, `##<ip>##` blocks) | numeric hostnames within the router's block | Phone-to-router association |
 
 **Endpoints NOT Used:**
 

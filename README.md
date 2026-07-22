@@ -256,10 +256,25 @@ curl http://localhost/arednstack/phonebook_generic_direct.xml
 - 🎯 **Smart Testing**: DNS pre-check reduces unnecessary SIP traffic
 - ⚡ **Fast Detection**: 50ms polling for sub-second phone status updates
 
+## 🛠️ Building & Deployment
+
+Releases are built by CI. The package is a **`.apk`** for AREDN 4.x
+(OpenWrt 25.12); pushing a version tag builds all three architectures and
+publishes a GitHub release automatically.
+
+```bash
+git tag -a 2.6.3 -m "release summary" && git push origin 2.6.3   # -> CI builds + releases
+./build-all-ipks.sh                                              # optional local build (needs zstd)
+```
+
+Full details — release flow, version scheme, local builds, installing on a
+node, and the frozen legacy `.ipk` — are in **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
 ## 🆘 Support
 
 - 🐛 **Issues**: [GitHub Issues](https://github.com/swissdigitalnet/AREDN-Phonebook/issues)
 - 📚 **Documentation**: [Functional Specification](docs/AREDN-phonebook-fsd.md)
+- 🚀 **Deployment**: [Deployment Guide](docs/DEPLOYMENT.md)
 - 📖 **Setup Guide**: [AREDN Setup Documentation (PDF)](https://github.com/swissdigitalnet/AREDNstack/blob/main/Documentation/AREDN%20SetupV2.3-English.pdf)
 - 🌐 **AREDN Community**: [AREDN Forums](https://www.arednmesh.org/)
 
