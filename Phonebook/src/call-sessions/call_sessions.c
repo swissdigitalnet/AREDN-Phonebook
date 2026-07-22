@@ -72,6 +72,12 @@ void init_call_sessions() {
     }
     LOG_INFO("Initialized call session table (max %d sessions).",
                 MAX_CALL_SESSIONS);
+
+    // Reset the exported active-calls file to match our empty table. /tmp is
+    // tmpfs that survives a service restart (not a reboot), so without this a
+    // stale active_calls.json from a previous process instance would keep being
+    // served -- showing phantom calls -- until the next real call event.
+    export_active_calls_json();
 }
 
 // Export active calls to JSON file for CGI access
