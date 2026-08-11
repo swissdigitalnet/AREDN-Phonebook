@@ -1,5 +1,7 @@
 # AI Code Assistant configuration and documentation
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/commands/
 CLAUDE.md
 claude.md
 AGENTS.md
