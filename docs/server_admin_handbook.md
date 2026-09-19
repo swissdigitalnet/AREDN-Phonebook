@@ -156,8 +156,7 @@ There is no fixed minute; the hourly tick is counted from the node's boot time.
 
 `sysupgrade` on AREDN only keeps files listed in `/etc/arednsysupgrade.conf`
 or in any file under `/etc/arednsysupgrade.d/`. Everything else, including
-`/www/filerepo` and `/etc/cron.hourly`, is wiped. This is how the fetcher was
-lost in the August 2026 upgrade.
+`/www/filerepo` and `/etc/cron.hourly`, is wiped.
 
 The preserve list for the phonebook server lives in
 `/etc/arednsysupgrade.d/phonebook`:
@@ -238,11 +237,9 @@ curl -s http://<node>.local.mesh/arednstack/phonebook_generic_direct.xml | grep 
   line changes. If an edit does not propagate, delete
   `/www/arednstack/phonebook.csv.hash` on the client and reload, or make sure a
   new entry lands at the end of the sheet.
-- **First bytes of the body could be lost** with client builds before the fix
-  in `csv_processor.c` (`body_offset_in_buf`): when uhttpd sent the HTTP
-  headers in two TCP segments, the first 36 bytes of the CSV were dropped and
-  the first entry appeared as `ancois Müller`. Update clients to a build that
-  contains the fix; the server format was deliberately left unchanged.
+- **Clients need release 2.6.4 or newer.** Older builds can lose the first
+  bytes of the CSV body when the server's HTTP headers arrive in two TCP
+  segments, which truncates the first entry.
 
 ---
 
