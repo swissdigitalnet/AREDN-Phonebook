@@ -5,8 +5,8 @@ client downloads its directory from one of the servers listed as
 `PHONEBOOK_SERVER` in `/etc/phonebook.conf`:
 
 ```
-PHONEBOOK_SERVER=hb9bla-vm-tunnelserver.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.csv
-PHONEBOOK_SERVER=hb9edi-vm-gw.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.csv
+PHONEBOOK_SERVER=phonebook-server-1.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.csv
+PHONEBOOK_SERVER=phonebook-server-2.local.mesh,80,/filerepo/Phonebook/AREDN_Phonebook.csv
 ```
 
 The servers are tried in order. The first one that answers with a valid file
@@ -42,8 +42,8 @@ line per phone number, **CRLF line endings**, UTF-8:
 
 ```
 Firstname,name,callsign,telephone
-Francois,Müller,HB9XYZ,122630
-Daniel,Meier,HB3YXZ,307631
+Francois,Müller,HB9XYZ,123430
+Daniel,Meier,HB3YXZ,456730
 ```
 
 Rules that follow from the client's parser (`csv_processor.c`, `user_manager.c`):
@@ -55,7 +55,7 @@ Rules that follow from the client's parser (`csv_processor.c`, `user_manager.c`)
   as above.
 - Rows with an empty telephone (column 4) are dropped by the client.
 - No quoting: a comma inside a name breaks the row. The sheet's `club` column
-  may contain quoted commas (`"HB9BG,HB9F"`) but it is not part of the export.
+  may contain quoted commas (`"HB9ABC,HB9DEF"`) but it is not part of the export.
 
 The sheet itself has more columns
 (`Firstname,name,callsign,ip-address,telephone,email,club,mobile,street,City,International Number,Privat`);
@@ -72,10 +72,10 @@ Location on the server: `/etc/cron.hourly/fetch-phonebook` (mode 755).
 # Fetch the AREDN phonebook from the Google Sheet and publish it as CSV.
 # Run hourly by AREDN's manager (periodic.uc); all mesh nodes download
 # /filerepo/Phonebook/AREDN_Phonebook.csv from this node.
-# Output format (identical to the copy on hb9edi-vm-gw):
+# Output format (identical to the copy on phonebook-server-2):
 #   Firstname,name,callsign,telephone   header, then one row per entry, CRLF line endings
 
-URL="https://docs.google.com/spreadsheets/d/1g33BHSXMC8T4Cmfz_Zq-XxtPP17dtEBexF2i4KKe_Mc/export?format=csv&gid=0"
+URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=0"
 DST=/www/filerepo/Phonebook/AREDN_Phonebook.csv
 TMP=/tmp/AREDN_Phonebook.new
 
@@ -178,7 +178,7 @@ After an upgrade with "Keep Settings", verify the three files are back
 Run from a PC with SSH access to the node (AREDN SSH is on port 2222):
 
 ```sh
-NODE=192.168.0.208      # WAN or mesh IP of the server node
+NODE=<node-ip>          # WAN or mesh IP of the server node
 
 # 1. script
 ssh -p 2222 root@$NODE 'cat > /etc/cron.hourly/fetch-phonebook' < fetch-phonebook
@@ -215,9 +215,9 @@ logread | grep fetch-phonebook | tail
 From anywhere on the mesh:
 
 ```sh
-curl -sI http://hb9bla-vm-tunnelserver.local.mesh/filerepo/Phonebook/AREDN_Phonebook.csv   # 200, Last-Modified
-curl -s  http://hb9bla-vm-tunnelserver.local.mesh/filerepo/Phonebook/AREDN_Phonebook.csv | head -3
-curl -s  http://hb9edi-vm-gw.local.mesh/filerepo/Phonebook/AREDN_Phonebook.csv | head -3      # must match
+curl -sI http://phonebook-server-1.local.mesh/filerepo/Phonebook/AREDN_Phonebook.csv   # 200, Last-Modified
+curl -s  http://phonebook-server-1.local.mesh/filerepo/Phonebook/AREDN_Phonebook.csv | head -3
+curl -s  http://phonebook-server-2.local.mesh/filerepo/Phonebook/AREDN_Phonebook.csv | head -3      # must match
 ```
 
 On a client node, force a reload and check the result:
@@ -241,7 +241,7 @@ curl -s http://<node>.local.mesh/arednstack/phonebook_generic_direct.xml | grep 
 - **First bytes of the body could be lost** with client builds before the fix
   in `csv_processor.c` (`body_offset_in_buf`): when uhttpd sent the HTTP
   headers in two TCP segments, the first 36 bytes of the CSV were dropped and
-  the first entry appeared as `ancois Burri`. Update clients to a build that
+  the first entry appeared as `ancois Müller`. Update clients to a build that
   contains the fix; the server format was deliberately left unchanged.
 
 ---
@@ -251,10 +251,10 @@ curl -s http://<node>.local.mesh/arednstack/phonebook_generic_direct.xml | grep 
 Each phone number is one row. The fetcher exports the row as-is, so problems in
 the sheet reach every phone in the network. Things to check when editing:
 
-- `Firstname`, `name` and `callsign` filled in (a row like `HB9F,,,305340`
-  shows up as `HB9F ()` on the phones).
+- `Firstname`, `name` and `callsign` filled in (a row like `HB9ABC,,,789030`
+  shows up as `HB9ABC ()` on the phones).
 - No commas in the first five columns.
 - `telephone` numeric; the sheet's `ip-address` column is derived from it and
   is not exported.
 - Multiple numbers per person: repeat the row, optionally with a suffix on the
-  callsign (`HB9HHH-1`, `HB9HHH-2`).
+  callsign (`HB9XYZ-1`, `HB9XYZ-2`).
