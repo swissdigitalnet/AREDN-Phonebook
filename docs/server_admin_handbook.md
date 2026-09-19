@@ -231,7 +231,7 @@ curl -s http://<node>.local.mesh/arednstack/phonebook_generic_direct.xml | grep 
 
 ## Known client behaviour to keep in mind
 
-- **Clients need release 2.6.5 or newer.** Older builds can lose the first
+- **Clients need release 2.6.6 or newer.** Older builds can lose the first
   bytes of the CSV body when the server's HTTP headers arrive in two TCP
   segments (truncating the first entry), and only detect changes in the last
   few lines of the file (edits elsewhere in the sheet never reach the phones).

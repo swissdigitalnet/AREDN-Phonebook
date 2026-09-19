@@ -123,20 +123,14 @@ int safe_phonebook_file_operation(const char *source_path, const char *dest_path
     char backup_path[512];
     char temp_path[512];
     bool rollback_needed = false;
-    struct stat pre_stat, post_stat;
-    bool had_existing_file = false;
+    struct stat temp_stat, post_stat;
 
     // Create backup and temporary file paths
     snprintf(backup_path, sizeof(backup_path), "%s.backup", dest_path);
     snprintf(temp_path, sizeof(temp_path), "%s.temp", dest_path);
 
-    // Step 1: Create backup of current file (if it exists) and record its stats
+    // Step 1: Create backup of current file (if it exists)
     if (access(dest_path, F_OK) == 0) {
-        had_existing_file = true;
-        if (stat(dest_path, &pre_stat) != 0) {
-            LOG_ERROR("Failed to stat existing phonebook before backup");
-            return 1;
-        }
         if (file_utils_copy_file(dest_path, backup_path) != 0) {
             LOG_ERROR("Failed to create backup before phonebook update");
             return 1; // Abort if we can't create backup
@@ -180,25 +174,33 @@ int safe_phonebook_file_operation(const char *source_path, const char *dest_path
         return 1;
     }
 
-    // Step 4: Atomic rename (replace destination with verified temp file)
+    // Step 4: Atomic rename (replace destination with verified temp file).
+    // Remember the temp file's inode: after a successful rename dest_path refers to it.
+    if (stat(temp_path, &temp_stat) != 0) {
+        LOG_ERROR("Failed to stat temporary phonebook file before rename");
+        remove(temp_path);
+        if (access(backup_path, F_OK) == 0) {
+            remove(backup_path);
+        }
+        return 1;
+    }
     if (rename(temp_path, dest_path) != 0) {
         LOG_ERROR("Failed to replace phonebook file, attempting rollback");
         rollback_needed = true;
     }
 
-    // Step 5: Verify the rename actually worked by checking mtime/size changed
+    // Step 5: Verify the rename actually worked: dest_path must now be the temp file's inode.
+    // (mtime/size are not usable for this - identical content published within the same
+    // second legitimately leaves both unchanged.)
     if (!rollback_needed) {
         if (stat(dest_path, &post_stat) != 0) {
             LOG_ERROR("Failed to stat phonebook after rename - assuming failure");
             rollback_needed = true;
         } else {
-            // If we had an existing file, verify something changed
-            if (had_existing_file) {
-                if (post_stat.st_mtime == pre_stat.st_mtime && post_stat.st_size == pre_stat.st_size) {
-                    LOG_ERROR("Phonebook file unchanged after rename (mtime=%ld, size=%ld) - atomicity violated",
-                             (long)post_stat.st_mtime, (long)post_stat.st_size);
-                    rollback_needed = true;
-                }
+            if (post_stat.st_ino != temp_stat.st_ino) {
+                LOG_ERROR("Phonebook file was not replaced by the new version (inode %lu, expected %lu) - rolling back",
+                         (unsigned long)post_stat.st_ino, (unsigned long)temp_stat.st_ino);
+                rollback_needed = true;
             }
             // Verify the new file has expected size
             if (post_stat.st_size != file_size) {
