@@ -325,11 +325,16 @@ static int attempt_download(const char* host, const char* port, const char* path
                 LOG_DEBUG("Parsed HTTP Status Code: %d. Headers received.", http_status_code);
                 status_line_read = true;
 
+                // header_len_total is an offset into the accumulated header_buffer. The headers may
+                // arrive over several reads (uhttpd sends the status line and "Connection:" header in
+                // a separate segment), so translate it into an offset within the current buf.
                 size_t header_len_total = body_start - header_buffer + 4;
-                if (len_read > header_len_total) {
-                     fwrite(buf + header_len_total, 1, len_read - header_len_total, fp);
-                     total_bytes_read += (size_t)(len_read - header_len_total);
-                     LOG_DEBUG("Wrote %zu bytes (body part of initial chunk) to CSV. Total: %zu.", (size_t)(len_read - header_len_total), total_bytes_read);
+                size_t header_bytes_before_this_read = header_buffer_len - copy_len;
+                size_t body_offset_in_buf = header_len_total - header_bytes_before_this_read;
+                if ((size_t)len_read > body_offset_in_buf) {
+                     fwrite(buf + body_offset_in_buf, 1, len_read - body_offset_in_buf, fp);
+                     total_bytes_read += (size_t)(len_read - body_offset_in_buf);
+                     LOG_DEBUG("Wrote %zu bytes (body part of initial chunk) to CSV. Total: %zu.", (size_t)(len_read - body_offset_in_buf), total_bytes_read);
                 }
             } else if (header_buffer_len >= sizeof(header_buffer) -1) {
                 LOG_ERROR("HTTP header too large or missing end of headers (\\r\\n\\r\\n). Header buffer exhausted.");
