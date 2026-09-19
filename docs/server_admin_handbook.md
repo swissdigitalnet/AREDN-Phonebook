@@ -231,15 +231,13 @@ curl -s http://<node>.local.mesh/arednstack/phonebook_generic_direct.xml | grep 
 
 ## Known client behaviour to keep in mind
 
-- **Change detection is weak.** The client compares a hash that is effectively
-  computed over the last ~64 bytes of the file (`checksum = (checksum << 1) + byte`,
-  64-bit). A change in the middle of the sheet is not noticed until the last
-  line changes. If an edit does not propagate, delete
-  `/www/arednstack/phonebook.csv.hash` on the client and reload, or make sure a
-  new entry lands at the end of the sheet.
-- **Clients need release 2.6.4 or newer.** Older builds can lose the first
+- **Clients need release 2.6.5 or newer.** Older builds can lose the first
   bytes of the CSV body when the server's HTTP headers arrive in two TCP
-  segments, which truncates the first entry.
+  segments (truncating the first entry), and only detect changes in the last
+  few lines of the file (edits elsewhere in the sheet never reach the phones).
+- **Forcing a reload.** The client only reprocesses a download whose hash
+  differs from `/www/arednstack/phonebook.csv.hash`. To force a full reload,
+  delete that file on the client and call `/cgi-bin/loadphonebook`.
 
 ---
 

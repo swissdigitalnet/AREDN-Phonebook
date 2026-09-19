@@ -4,6 +4,8 @@
 #include "../common.h" // This includes necessary system headers and core types
 #include "../config_loader/config_loader.h" // For g_phonebook_servers_list, g_num_phonebook_servers
 #include "../file_utils/file_utils.h"
+#include <stdint.h>
+#include <inttypes.h>
 
 // Note: Global extern declarations are now in common.h
 
@@ -80,14 +82,17 @@ int csv_processor_calculate_file_conceptual_hash(const char *filepath, char *out
         return 1;
     }
 
-    unsigned long checksum = 0;
+    // FNV-1a (64-bit): every byte of the file influences the result, so a change
+    // anywhere in the CSV is detected, not only near the end of the file.
+    uint64_t checksum = 14695981039346656037ULL;
     char buffer[4096];
     size_t bytesRead = 0;
 
     LOG_DEBUG("Starting hash calculation for '%s'.", filepath);
     while ((bytesRead = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
         for (size_t i = 0; i < bytesRead; i++) {
-            checksum = (checksum << 1) + (unsigned char)buffer[i];
+            checksum ^= (unsigned char)buffer[i];
+            checksum *= 1099511628211ULL;
         }
         LOG_DEBUG("Read %zu bytes for hash calculation.", bytesRead);
     }
@@ -98,7 +103,7 @@ int csv_processor_calculate_file_conceptual_hash(const char *filepath, char *out
         return 1;
     }
 
-    snprintf(output_hash_str, hash_str_len, "%0*lX", (int)(hash_str_len - 1), checksum);
+    snprintf(output_hash_str, hash_str_len, "%0*" PRIX64, (int)(hash_str_len - 1), checksum);
     output_hash_str[hash_str_len - 1] = '\0';
 
     LOG_DEBUG("Calculated conceptual hash for '%s': %s", filepath, output_hash_str);
