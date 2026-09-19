@@ -19,7 +19,7 @@ wins, so both must serve the same content in the same format.
 ```
 Google Sheet (registration form)
         |
-        |  hourly: /etc/cron.hourly/fetch-phonebook   (runs on hb9bla-vm-tunnelserver)
+        |  hourly: /etc/cron.hourly/fetch-phonebook   (runs on server)
         v
 /www/filerepo/Phonebook/AREDN_Phonebook.csv          served by uhttpd on port 80
         |
@@ -28,7 +28,7 @@ Google Sheet (registration form)
 /www/arednstack/phonebook.csv  ->  phonebook_generic_direct.xml  (phones)
 ```
 
-Source sheet: <https://docs.google.com/spreadsheets/d/1g33BHSXMC8T4Cmfz_Zq-XxtPP17dtEBexF2i4KKe_Mc/edit>
+Source sheet: <https://docs.google.com/spreadsheets/d/.....>
 
 The sheet must stay readable by "anyone with the link"; the fetcher uses the
 unauthenticated CSV export URL.
@@ -42,8 +42,8 @@ line per phone number, **CRLF line endings**, UTF-8:
 
 ```
 Firstname,name,callsign,telephone
-Francois,Burri,HB9IBI,122630
-Daniel,Schürch,HB3YES,307631
+Francois,Müller,HB9XYZ,122630
+Daniel,Meier,HB3YXZ,307631
 ```
 
 Rules that follow from the client's parser (`csv_processor.c`, `user_manager.c`):
